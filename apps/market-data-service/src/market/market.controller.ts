@@ -1,0 +1,76 @@
+import {
+  BadRequestException,
+  Controller,
+  DefaultValuePipe,
+  Get,
+  Param,
+  ParseIntPipe,
+  Query,
+} from '@nestjs/common';
+import {
+  Candle,
+  IndexQuote,
+  MarketDepth,
+  MarketIndex,
+  RelativeComparison,
+  StockQuote,
+  Timeframe,
+} from '@stockpred/shared-types';
+import { MarketService } from './market.service';
+
+@Controller()
+export class MarketController {
+  constructor(private readonly market: MarketService) {}
+
+  @Get('stocks')
+  getStocks(): StockQuote[] {
+    return this.market.getQuotes();
+  }
+
+  @Get('stocks/:symbol')
+  getStock(@Param('symbol') symbol: string): StockQuote {
+    return this.market.getQuote(symbol.toUpperCase());
+  }
+
+  @Get('stocks/:symbol/candles')
+  getCandles(
+    @Param('symbol') symbol: string,
+    @Query('timeframe') timeframe = Timeframe.ONE_DAY,
+    @Query('limit', new DefaultValuePipe(500), ParseIntPipe) limit = 500,
+  ): Candle[] {
+    if (!Object.values(Timeframe).includes(timeframe)) {
+      throw new BadRequestException(`Unsupported timeframe: ${String(timeframe)}`);
+    }
+    return this.market.getCandles(symbol.toUpperCase(), timeframe, Math.min(limit, 5000));
+  }
+
+  @Get('stocks/:symbol/depth')
+  getDepth(@Param('symbol') symbol: string): MarketDepth {
+    return this.market.getDepth(symbol.toUpperCase());
+  }
+
+  @Get('stocks/:symbol/compare')
+  compare(
+    @Param('symbol') symbol: string,
+    @Query('benchmark') benchmark = MarketIndex.NIFTY_MIDCAP_100,
+    @Query('window', new DefaultValuePipe(60), ParseIntPipe) window = 60,
+  ): RelativeComparison {
+    if (!Object.values(MarketIndex).includes(benchmark)) {
+      throw new BadRequestException(`Unsupported benchmark: ${String(benchmark)}`);
+    }
+    return this.market.compare(symbol.toUpperCase(), benchmark, window);
+  }
+
+  @Get('indices')
+  getIndices(): IndexQuote[] {
+    return this.market.getIndices();
+  }
+
+  @Get('indices/:index/candles')
+  getIndexCandles(
+    @Param('index') index: string,
+    @Query('limit', new DefaultValuePipe(500), ParseIntPipe) limit = 500,
+  ): Candle[] {
+    return this.market.getCandles(index.toUpperCase(), Timeframe.ONE_DAY, Math.min(limit, 5000));
+  }
+}

@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stockpred-config
+  namespace: stockpred
+data:
+  NODE_ENV: 'production'
+  REDIS_URL: 'redis://redis:6379'
+  KAFKA_BROKERS: 'kafka:9092'
+  CORS_ORIGIN: 'https://stockpred.example.com'
+  AUTH_SERVICE_URL: 'http://auth-service:3001'
+  MARKET_DATA_SERVICE_URL: 'http://market-data-service:3002'
+  SIGNAL_ENGINE_URL: 'http://signal-engine:3003'
+  PATTERN_ENGINE_URL: 'http://pattern-engine:3004'
+  BACKTEST_SERVICE_URL: 'http://backtest-service:3005'
+  AUTO_TRADER_URL: 'http://auto-trader:3006'
+  NOTIFICATION_SERVICE_URL: 'http://notification-service:3007'
+  ML_ENGINE_URL: 'http://ml-engine:8000'
+  TRADING_MODE: 'PAPER'
+  LIVE_TRADING_ENABLED: 'false'
+  MARKET_DATA_PROVIDER: 'simulated'

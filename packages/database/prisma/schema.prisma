@@ -1,0 +1,212 @@
+// StockPred platform schema.
+// Spec tables: stocks, signals, predictions, patterns, trades, users, brokers, audit_logs.
+// Supporting tables: refresh_tokens (token rotation), notifications, backtest_runs.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Stock {
+  id        String   @id @default(uuid())
+  symbol    String   @unique
+  name      String
+  exchange  String
+  sector    String
+  indices   String[]
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  signals     Signal[]
+  predictions Prediction[]
+  patterns    Pattern[]
+  trades      Trade[]
+
+  @@map("stocks")
+}
+
+model Signal {
+  id         String   @id @default(uuid())
+  symbol     String
+  signal     String
+  confidence Float
+  price      Float
+  target     Float
+  stopLoss   Float    @map("stop_loss")
+  riskReward Float    @map("risk_reward")
+  rules      Json
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  stock Stock @relation(fields: [symbol], references: [symbol])
+
+  @@index([symbol, createdAt])
+  @@map("signals")
+}
+
+model Prediction {
+  id           String   @id @default(uuid())
+  symbol       String
+  horizon      String
+  direction    String
+  confidence   Float
+  expectedMove Float    @map("expected_move")
+  modelVersion String   @map("model_version")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  stock Stock @relation(fields: [symbol], references: [symbol])
+
+  @@index([symbol, horizon, createdAt])
+  @@map("predictions")
+}
+
+model Pattern {
+  id         String   @id @default(uuid())
+  symbol     String
+  pattern    String
+  direction  String
+  confidence Float
+  signal     String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  stock Stock @relation(fields: [symbol], references: [symbol])
+
+  @@index([symbol, createdAt])
+  @@map("patterns")
+}
+
+model Trade {
+  id            String    @id @default(uuid())
+  symbol        String
+  side          String
+  quantity      Int
+  price         Float
+  mode          String
+  status        String
+  target        Float?
+  stopLoss      Float?    @map("stop_loss")
+  exitPrice     Float?    @map("exit_price")
+  exitReason    String?   @map("exit_reason")
+  pnl           Float?
+  userId        String?   @map("user_id")
+  brokerOrderId String?   @unique @map("broker_order_id")
+  executedAt    DateTime  @default(now()) @map("executed_at")
+  closedAt      DateTime? @map("closed_at")
+
+  stock Stock @relation(fields: [symbol], references: [symbol])
+  user  User? @relation(fields: [userId], references: [id])
+
+  @@index([symbol, status])
+  @@index([status, executedAt])
+  @@map("trades")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  passwordHash String   @map("password_hash")
+  role         String   @default("VIEWER")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  refreshTokens RefreshToken[]
+  brokers       Broker[]
+  trades        Trade[]
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Broker {
+  id                   String   @id @default(uuid())
+  userId               String   @map("user_id")
+  name                 String
+  authorized           Boolean  @default(false)
+  // Credentials are stored encrypted (AES-256-GCM) - never plaintext.
+  credentialsEncrypted String?  @map("credentials_encrypted")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@map("brokers")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  actor     String
+  action    String
+  entity    String?
+  entityId  String?  @map("entity_id")
+  details   Json?
+  userId    String?  @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  type      String
+  title     String
+  message   String
+  symbol    String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// Real-data candle cache: populated from live providers (Yahoo/broker),
+// served back when the platform runs offline. Never stores simulated data.
+model CandleRow {
+  id        String @id @default(uuid())
+  symbol    String
+  timeframe String
+  time      BigInt
+  open      Float
+  high      Float
+  low       Float
+  close     Float
+  volume    Float
+
+  @@unique([symbol, timeframe, time])
+  @@index([symbol, timeframe])
+  @@map("candles")
+}
+
+model BacktestRun {
+  id                  String   @id @default(uuid())
+  symbol              String
+  years               Int
+  initialCapital      Float    @map("initial_capital")
+  riskPerTradePercent Float    @map("risk_per_trade_percent")
+  metrics             Json
+  trades              Json
+  equityCurve         Json     @map("equity_curve")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@map("backtest_runs")
+}

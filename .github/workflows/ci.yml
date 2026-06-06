@@ -1,0 +1,265 @@
+# StockPred CI/CD (spec stages):
+# 1 Install  2 Lint  3 Unit Tests  4 Integration Tests  5 Cypress Tests
+# 6 Build    7 Docker Build  8 Security Scan  9 Deploy
+#
+# The pipeline fails if tests fail, coverage gates (80% on the rule/metric
+# core) are not met, or critical vulnerabilities exist.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------- 1. install
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts
+
+  # ------------------------------------------------------------- 2. lint
+  lint:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run lint
+      - run: npm run format:check
+
+  # ------------------------------------------------------- 3. unit tests
+  unit-tests:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build:packages
+      # Coverage gate: shared-utils enforces >= 80% lines on the rule core.
+      - run: npm run test:coverage -w @stockpred/shared-utils
+      - run: npm run test -w @stockpred/shared-events
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-shared-utils
+          path: packages/shared-utils/coverage
+          if-no-files-found: ignore
+
+  # ------------------------------------------------ 4. integration tests
+  integration-tests:
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: stockpred
+          POSTGRES_PASSWORD: stockpred
+          POSTGRES_DB: stockpred
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U stockpred"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    env:
+      DATABASE_URL: postgresql://stockpred:stockpred@localhost:5432/stockpred?schema=public
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: npm ci --ignore-scripts
+      - run: npm run build:packages
+      - run: npm run prisma:migrate
+      - run: npm run prisma:seed
+      # Service-level jest suites (token issuance, candle store, detectors,
+      # backtest engine, risk manager) against real Postgres/Redis.
+      - run: npm test
+      # ML engine tests: feature pipeline + ensemble math (light deps only).
+      - run: pip install numpy pandas httpx pytest
+      - run: python -m pytest
+        working-directory: apps/ml-engine
+
+  # ---------------------------------------------------- 5. cypress tests
+  cypress:
+    needs: integration-tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: stockpred
+          POSTGRES_PASSWORD: stockpred
+          POSTGRES_DB: stockpred
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U stockpred"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    env:
+      DATABASE_URL: postgresql://stockpred:stockpred@localhost:5432/stockpred?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      CORS_ORIGIN: http://localhost:5173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run prisma:migrate
+      - run: npm run prisma:seed
+      # Boot the platform without Kafka: services degrade to REST polling.
+      - name: Start services
+        run: |
+          node apps/auth-service/dist/main.js &
+          node apps/market-data-service/dist/main.js &
+          sleep 10
+          node apps/signal-engine/dist/main.js &
+          node apps/pattern-engine/dist/main.js &
+          node apps/backtest-service/dist/main.js &
+          node apps/auto-trader/dist/main.js &
+          node apps/notification-service/dist/main.js &
+          node apps/api-gateway/dist/main.js &
+          npx vite preview --port 5173 --strictPort &
+          npx --yes wait-on -t 120000 \
+            http://localhost:3000/health http://localhost:3001/health \
+            http://localhost:3002/health http://localhost:5173
+        working-directory: .
+        env:
+          VITE_API_BASE_URL: http://localhost:3000
+      - name: Run Cypress
+        uses: cypress-io/github-action@v6
+        with:
+          working-directory: apps/frontend-react
+          install: false
+          wait-on: 'http://localhost:5173'
+
+  # ------------------------------------------------------------ 6. build
+  build:
+    needs: [lint, unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - name: Upload frontend bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: apps/frontend-react/dist
+
+  # ----------------------------------------------------- 7. docker build
+  docker-build:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app:
+          - api-gateway
+          - auth-service
+          - market-data-service
+          - signal-engine
+          - pattern-engine
+          - backtest-service
+          - auto-trader
+          - notification-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build ${{ matrix.app }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infrastructure/docker/node-service.Dockerfile
+          build-args: APP=${{ matrix.app }}
+          push: false
+          tags: stockpred/${{ matrix.app }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  docker-build-frontend:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infrastructure/docker/frontend.Dockerfile
+          push: false
+          tags: stockpred/frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # --------------------------------------------------- 8. security scan
+  security-scan:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --ignore-scripts
+      # Fail on critical vulnerabilities in production dependencies.
+      - run: npm audit --omit=dev --audit-level=critical
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+
+  # ----------------------------------------------------------- 9. deploy
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: [integration-tests, cypress, docker-build, docker-build-frontend, security-scan]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy
+        run: |
+          echo "Deploy gate passed. Wire this step to your platform:"
+          echo "  - push images:   docker push <registry>/stockpred/<app>:${{ github.sha }}"
+          echo "  - apply k8s:     kubectl apply -f infrastructure/kubernetes/"
+          echo "  - run migrations: npx prisma migrate deploy"

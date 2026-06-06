@@ -1,0 +1,50 @@
+"""Environment-driven configuration (secrets only ever come from env vars)."""
+import os
+from dataclasses import dataclass, field
+from typing import List
+
+DISCLAIMER = "This is not investment advice."
+
+HORIZONS = {
+    "NEXT_DAY": {"bars": 1, "threshold": 0.01},
+    "NEXT_WEEK": {"bars": 5, "threshold": 0.02},
+}
+
+ENSEMBLE_WEIGHTS = {
+    "xgboost": 0.40,
+    "lightgbm": 0.25,
+    "lstm": 0.20,
+    "transformer": 0.15,
+}
+
+CLASSES = ["DOWN", "SIDEWAYS", "UP"]
+
+SEQUENCE_LENGTH = 30
+
+FALLBACK_SYMBOLS = [
+    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "ITC", "LT", "SBIN",
+    "BHARTIARTL", "HINDUNILVR", "BAJFINANCE", "MARUTI", "AXISBANK", "TITAN",
+    "SUNPHARMA", "TATAMOTORS", "WIPRO", "PERSISTENT", "POLYCAB", "CDSL",
+]
+
+
+@dataclass
+class Settings:
+    port: int = int(os.getenv("ML_ENGINE_PORT", "8000"))
+    models_dir: str = os.getenv("ML_MODELS_DIR", "./ml-models")
+    market_data_url: str = os.getenv("MARKET_DATA_SERVICE_URL", "http://localhost:3002")
+    kafka_brokers: str = os.getenv("KAFKA_BROKERS", "localhost:9092")
+    database_url: str = os.getenv(
+        "DATABASE_URL", "postgresql://stockpred:stockpred@localhost:5432/stockpred"
+    )
+    prediction_interval_seconds: int = int(os.getenv("ML_PREDICTION_INTERVAL_SECONDS", "300"))
+    model_version: str = os.getenv("ML_MODEL_VERSION", "ensemble-v1")
+    symbols: List[str] = field(default_factory=list)
+
+    @property
+    def asyncpg_dsn(self) -> str:
+        # asyncpg rejects Prisma's ?schema= suffix.
+        return self.database_url.split("?")[0]
+
+
+settings = Settings()

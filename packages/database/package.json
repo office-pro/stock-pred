@@ -1,0 +1,28 @@
+{
+  "name": "@stockpred/database",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Prisma schema, client and seed for the StockPred platform",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "generate": "prisma generate",
+    "build": "prisma generate && tsc -p tsconfig.json",
+    "migrate:dev": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
+    "seed": "node dist/seed.js"
+  },
+  "prisma": {
+    "seed": "node dist/seed.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.0.1",
+    "@stockpred/shared-types": "1.0.0",
+    "bcryptjs": "^2.4.3"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "prisma": "^6.0.1",
+    "typescript": "^5.6.3"
+  }
+}

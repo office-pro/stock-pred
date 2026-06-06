@@ -1,0 +1,23 @@
+import { PrismaClient } from '@prisma/client';
+
+let client: PrismaClient | undefined;
+
+/** Process-wide Prisma singleton (avoids connection-pool exhaustion). */
+export function getPrismaClient(): PrismaClient {
+  if (!client) {
+    client = new PrismaClient();
+  }
+  return client;
+}
+
+export async function disconnectPrisma(): Promise<void> {
+  if (client) {
+    await client.$disconnect();
+    client = undefined;
+  }
+}
+
+export { PrismaClient } from '@prisma/client';
+export type { Prisma } from '@prisma/client';
+export { STOCK_UNIVERSE } from './universe';
+export type { UniverseStock } from './universe';

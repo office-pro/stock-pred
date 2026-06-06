@@ -1,0 +1,44 @@
+{
+  "name": "@stockpred/broker-sdk",
+  "version": "0.1.0",
+  "description": "Multi-broker adapter pattern SDK for StockPred trading platform",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest --coverage",
+    "lint": "eslint src --ext .ts",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@stockpred/shared-types": "workspace:*",
+    "@stockpred/shared-events": "workspace:*",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/uuid": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "typescript": "^5.6.3",
+    "vitest": "^1.0.0"
+  },
+  "keywords": [
+    "broker",
+    "trading",
+    "adapter",
+    "zerodha",
+    "angelone",
+    "upstox",
+    "shoonya",
+    "fyers"
+  ],
+  "author": "StockPred Contributors",
+  "license": "UNLICENSED"
+}

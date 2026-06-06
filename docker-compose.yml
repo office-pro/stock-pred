@@ -1,0 +1,258 @@
+# StockPred platform - full stack.
+#   Infra only:   docker compose up -d postgres redis kafka
+#   Everything:   ./scripts/start-platform.sh   (or: docker compose --profile apps up -d --build)
+#
+# Internal DNS:  postgres:5432, redis:6379, kafka:9092
+# Host access:   postgres 5432, redis 6379, kafka 29092 (EXTERNAL listener)
+
+name: stockpred
+
+x-node-env: &node-env
+  NODE_ENV: production
+  DATABASE_URL: postgresql://${POSTGRES_USER:-stockpred}:${POSTGRES_PASSWORD:-stockpred}@postgres:5432/${POSTGRES_DB:-stockpred}?schema=public
+  REDIS_URL: redis://redis:6379
+  KAFKA_BROKERS: kafka:9092
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret}
+  CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
+  AUTH_SERVICE_URL: http://auth-service:3001
+  MARKET_DATA_SERVICE_URL: http://market-data-service:3002
+  SIGNAL_ENGINE_URL: http://signal-engine:3003
+  PATTERN_ENGINE_URL: http://pattern-engine:3004
+  BACKTEST_SERVICE_URL: http://backtest-service:3005
+  AUTO_TRADER_URL: http://auto-trader:3006
+  NOTIFICATION_SERVICE_URL: http://notification-service:3007
+  ML_ENGINE_URL: http://ml-engine:8000
+  TRADING_MODE: ${TRADING_MODE:-PAPER}
+  LIVE_TRADING_ENABLED: ${LIVE_TRADING_ENABLED:-false}
+
+services:
+  # ----------------------------------------------------------- infrastructure
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-stockpred}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stockpred}
+      POSTGRES_DB: ${POSTGRES_DB:-stockpred}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER}']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  kafka:
+    image: apache/kafka:3.9.0
+    environment:
+      KAFKA_NODE_ID: '1'
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      # Single-broker dev settings
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: '1'
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: '1'
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: '1'
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: '0'
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    ports:
+      - '29092:29092'
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ['CMD-SHELL', '/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list']
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  # ------------------------------------------------------ migrations + seed
+  migrate:
+    profiles: ['apps']
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      target: build
+      args:
+        APP: api-gateway
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-stockpred}:${POSTGRES_PASSWORD:-stockpred}@postgres:5432/${POSTGRES_DB:-stockpred}?schema=public
+    command: >
+      sh -c "npx prisma migrate deploy --schema packages/database/prisma/schema.prisma
+      && node packages/database/dist/seed.js"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ------------------------------------------------------------ microservices
+  auth-service:
+    profiles: ['apps']
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args: { APP: auth-service }
+    environment:
+      <<: *node-env
+      AUTH_SERVICE_PORT: '3001'
+    ports: ['3001:3001']
+    depends_on:
+      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  market-data-service:
+    profiles: ['apps']
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args: { APP: market-data-service }
+    environment:
+      <<: *node-env
+      MARKET_DATA_SERVICE_PORT: '3002'
+      MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-simulated}
+      TICK_INTERVAL_MS: ${TICK_INTERVAL_MS:-1000}
+    ports: ['3002:3002']
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  signal-engine:
+    profiles: ['apps']
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args: { APP: signal-engine }
+    environment:
+      <<: *node-env
+      SIGNAL_ENGINE_PORT: '3003'
+    ports: ['3003:3003']
+    depends_on:
+      market-data-service: { condition: service_started }
+      kafka: { condition: service_healthy }
+
+  pattern-engine:
+    profiles: ['apps']
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args: { APP: pattern-engine }
+    environment:
+      <<: *node-env
+      PATTERN_ENGINE_PORT: '3004'
+    ports: ['3004:3004']
+    depends_on:
+      market-data-service: { condition: service_started }
+      kafka: { condition: service_healthy }
+
+  backtest-service:
+    profiles: ['apps']
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args: { APP: backtest-service }
+    environment:
+      <<: *node-env
+      BACKTEST_SERVICE_PORT: '3005'
+    ports: ['3005:3005']
+    depends_on:
+      market-data-service: { condition: service_started }
+
+  auto-trader:
+    profiles: ['apps']
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args: { APP: auto-trader }
+    environment:
+      <<: *node-env
+      AUTO_TRADER_PORT: '3006'
+      PAPER_TRADING_CAPITAL: ${PAPER_TRADING_CAPITAL:-1000000}
+      RISK_PER_TRADE_PCT: ${RISK_PER_TRADE_PCT:-1}
+      DAILY_DRAWDOWN_PCT: ${DAILY_DRAWDOWN_PCT:-3}
+      WEEKLY_DRAWDOWN_PCT: ${WEEKLY_DRAWDOWN_PCT:-8}
+    ports: ['3006:3006']
+    depends_on:
+      kafka: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  notification-service:
+    profiles: ['apps']
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args: { APP: notification-service }
+    environment:
+      <<: *node-env
+      NOTIFICATION_SERVICE_PORT: '3007'
+    ports: ['3007:3007']
+    depends_on:
+      kafka: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  api-gateway:
+    profiles: ['apps']
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args: { APP: api-gateway }
+    environment:
+      <<: *node-env
+      API_GATEWAY_PORT: '3000'
+    ports: ['3000:3000']
+    depends_on:
+      auth-service: { condition: service_started }
+      market-data-service: { condition: service_started }
+      kafka: { condition: service_healthy }
+
+  ml-engine:
+    profiles: ['apps']
+    build:
+      context: apps/ml-engine
+      dockerfile: ../../infrastructure/docker/ml-engine.Dockerfile
+    environment:
+      ML_ENGINE_PORT: '8000'
+      MARKET_DATA_SERVICE_URL: http://market-data-service:3002
+      KAFKA_BROKERS: kafka:9092
+      DATABASE_URL: postgresql://${POSTGRES_USER:-stockpred}:${POSTGRES_PASSWORD:-stockpred}@postgres:5432/${POSTGRES_DB:-stockpred}
+      ML_MODELS_DIR: /service/ml-models
+      ML_PREDICTION_INTERVAL_SECONDS: ${ML_PREDICTION_INTERVAL_SECONDS:-300}
+    ports: ['8000:8000']
+    volumes:
+      - ml-models:/service/ml-models
+    depends_on:
+      market-data-service: { condition: service_started }
+      kafka: { condition: service_healthy }
+
+  frontend:
+    profiles: ['apps']
+    build:
+      context: .
+      dockerfile: infrastructure/docker/frontend.Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL_PUBLIC:-http://localhost:3000}
+    ports:
+      - '8080:80'
+    depends_on:
+      api-gateway: { condition: service_started }
+
+volumes:
+  postgres-data:
+  kafka-data:
+  ml-models:

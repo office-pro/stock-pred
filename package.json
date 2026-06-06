@@ -1,0 +1,58 @@
+{
+  "name": "stockpred",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Indian Stock Market AI Trading Platform - monorepo",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "prepare": "husky",
+    "build": "npm run build:packages && npm run build:apps",
+    "build:packages": "npm run build -w @stockpred/shared-types -w @stockpred/shared-utils -w @stockpred/shared-events -w @stockpred/database -w @stockpred/broker-sdk",
+    "build:apps": "npm run build -w @stockpred/auth-service -w @stockpred/market-data-service -w @stockpred/signal-engine -w @stockpred/pattern-engine -w @stockpred/backtest-service -w @stockpred/auto-trader -w @stockpred/notification-service -w @stockpred/api-gateway -w @stockpred/frontend-react",
+    "test": "npm run test --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "lint": "eslint \"apps/**/src/**/*.{ts,tsx}\" \"packages/**/src/**/*.ts\"",
+    "lint:fix": "npm run lint -- --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md,yml,yaml}\"",
+    "prisma:generate": "npm run generate -w @stockpred/database",
+    "prisma:migrate": "npm run migrate:deploy -w @stockpred/database",
+    "prisma:seed": "npm run seed -w @stockpred/database",
+    "start:all": "node scripts/platform.js start",
+    "stop:all": "node scripts/platform.js stop",
+    "restart:all": "node scripts/platform.js restart",
+    "train:ml": "python ml/train.py",
+    "train:ml:docker": "docker compose exec ml-engine python -m app.train",
+    "predict": "python ml/predict.py",
+    "backtest": "node apps/backtest-service/dist/cli.js",
+    "e2e": "cypress run --project apps/frontend-react"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.5.0",
+    "@commitlint/config-conventional": "^19.5.0",
+    "@eslint/js": "^9.14.0",
+    "eslint": "^9.14.0",
+    "eslint-config-prettier": "^9.1.0",
+    "husky": "^9.1.6",
+    "lint-staged": "^15.2.10",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.13.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{js,json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  }
+}

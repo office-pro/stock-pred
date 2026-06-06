@@ -1,0 +1,348 @@
+# Application workloads. Images are produced by CI (docker-build stage) and
+# pushed to your registry - replace REGISTRY/stockpred accordingly.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: stockpred
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: api-gateway }
+  template:
+    metadata:
+      labels: { app: api-gateway }
+    spec:
+      containers:
+        - name: api-gateway
+          image: REGISTRY/stockpred/api-gateway:latest
+          ports: [{ containerPort: 3000 }]
+          envFrom:
+            - configMapRef: { name: stockpred-config }
+            - secretRef: { name: stockpred-secrets }
+          readinessProbe:
+            httpGet: { path: /health, port: 3000 }
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: 3000 }
+            initialDelaySeconds: 15
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: api-gateway, namespace: stockpred }
+spec:
+  selector: { app: api-gateway }
+  ports: [{ port: 3000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: stockpred
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: auth-service }
+  template:
+    metadata:
+      labels: { app: auth-service }
+    spec:
+      containers:
+        - name: auth-service
+          image: REGISTRY/stockpred/auth-service:latest
+          ports: [{ containerPort: 3001 }]
+          envFrom:
+            - configMapRef: { name: stockpred-config }
+            - secretRef: { name: stockpred-secrets }
+          readinessProbe:
+            httpGet: { path: /health, port: 3001 }
+          resources:
+            requests: { cpu: 100m, memory: 192Mi }
+            limits: { cpu: 300m, memory: 384Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: auth-service, namespace: stockpred }
+spec:
+  selector: { app: auth-service }
+  ports: [{ port: 3001 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: market-data-service
+  namespace: stockpred
+spec:
+  replicas: 1 # stateful in-memory feed; scale via partitioned symbols if needed
+  selector:
+    matchLabels: { app: market-data-service }
+  template:
+    metadata:
+      labels: { app: market-data-service }
+    spec:
+      containers:
+        - name: market-data-service
+          image: REGISTRY/stockpred/market-data-service:latest
+          ports: [{ containerPort: 3002 }]
+          envFrom:
+            - configMapRef: { name: stockpred-config }
+            - secretRef: { name: stockpred-secrets }
+          readinessProbe:
+            httpGet: { path: /health, port: 3002 }
+            initialDelaySeconds: 20
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: '1', memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: market-data-service, namespace: stockpred }
+spec:
+  selector: { app: market-data-service }
+  ports: [{ port: 3002 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signal-engine
+  namespace: stockpred
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: signal-engine }
+  template:
+    metadata:
+      labels: { app: signal-engine }
+    spec:
+      containers:
+        - name: signal-engine
+          image: REGISTRY/stockpred/signal-engine:latest
+          ports: [{ containerPort: 3003 }]
+          envFrom:
+            - configMapRef: { name: stockpred-config }
+            - secretRef: { name: stockpred-secrets }
+          readinessProbe:
+            httpGet: { path: /health, port: 3003 }
+            initialDelaySeconds: 20
+          resources:
+            requests: { cpu: 250m, memory: 384Mi }
+            limits: { cpu: '1', memory: 768Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: signal-engine, namespace: stockpred }
+spec:
+  selector: { app: signal-engine }
+  ports: [{ port: 3003 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pattern-engine
+  namespace: stockpred
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: pattern-engine }
+  template:
+    metadata:
+      labels: { app: pattern-engine }
+    spec:
+      containers:
+        - name: pattern-engine
+          image: REGISTRY/stockpred/pattern-engine:latest
+          ports: [{ containerPort: 3004 }]
+          envFrom:
+            - configMapRef: { name: stockpred-config }
+            - secretRef: { name: stockpred-secrets }
+          readinessProbe:
+            httpGet: { path: /health, port: 3004 }
+            initialDelaySeconds: 20
+          resources:
+            requests: { cpu: 200m, memory: 384Mi }
+            limits: { cpu: 500m, memory: 768Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: pattern-engine, namespace: stockpred }
+spec:
+  selector: { app: pattern-engine }
+  ports: [{ port: 3004 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backtest-service
+  namespace: stockpred
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: backtest-service }
+  template:
+    metadata:
+      labels: { app: backtest-service }
+    spec:
+      containers:
+        - name: backtest-service
+          image: REGISTRY/stockpred/backtest-service:latest
+          ports: [{ containerPort: 3005 }]
+          envFrom:
+            - configMapRef: { name: stockpred-config }
+            - secretRef: { name: stockpred-secrets }
+          readinessProbe:
+            httpGet: { path: /health, port: 3005 }
+          resources:
+            requests: { cpu: 500m, memory: 512Mi }
+            limits: { cpu: '2', memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: backtest-service, namespace: stockpred }
+spec:
+  selector: { app: backtest-service }
+  ports: [{ port: 3005 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auto-trader
+  namespace: stockpred
+spec:
+  replicas: 1 # exactly-one trading brain; HA via leader election if scaled
+  selector:
+    matchLabels: { app: auto-trader }
+  template:
+    metadata:
+      labels: { app: auto-trader }
+    spec:
+      containers:
+        - name: auto-trader
+          image: REGISTRY/stockpred/auto-trader:latest
+          ports: [{ containerPort: 3006 }]
+          envFrom:
+            - configMapRef: { name: stockpred-config }
+            - secretRef: { name: stockpred-secrets }
+          readinessProbe:
+            httpGet: { path: /health, port: 3006 }
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: auto-trader, namespace: stockpred }
+spec:
+  selector: { app: auto-trader }
+  ports: [{ port: 3006 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: stockpred
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: notification-service }
+  template:
+    metadata:
+      labels: { app: notification-service }
+    spec:
+      containers:
+        - name: notification-service
+          image: REGISTRY/stockpred/notification-service:latest
+          ports: [{ containerPort: 3007 }]
+          envFrom:
+            - configMapRef: { name: stockpred-config }
+            - secretRef: { name: stockpred-secrets }
+          readinessProbe:
+            httpGet: { path: /health, port: 3007 }
+          resources:
+            requests: { cpu: 100m, memory: 192Mi }
+            limits: { cpu: 300m, memory: 384Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: notification-service, namespace: stockpred }
+spec:
+  selector: { app: notification-service }
+  ports: [{ port: 3007 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-engine
+  namespace: stockpred
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ml-engine }
+  template:
+    metadata:
+      labels: { app: ml-engine }
+    spec:
+      containers:
+        - name: ml-engine
+          image: REGISTRY/stockpred/ml-engine:latest
+          ports: [{ containerPort: 8000 }]
+          envFrom:
+            - configMapRef: { name: stockpred-config }
+            - secretRef: { name: stockpred-secrets }
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 20
+          volumeMounts:
+            - { name: models, mountPath: /service/ml-models }
+          resources:
+            requests: { cpu: 500m, memory: 1Gi }
+            limits: { cpu: '2', memory: 4Gi }
+      volumes:
+        - name: models
+          persistentVolumeClaim: { claimName: ml-models }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: ml-models, namespace: stockpred }
+spec:
+  accessModes: ['ReadWriteOnce']
+  resources: { requests: { storage: 5Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: ml-engine, namespace: stockpred }
+spec:
+  selector: { app: ml-engine }
+  ports: [{ port: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: stockpred
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: frontend }
+  template:
+    metadata:
+      labels: { app: frontend }
+    spec:
+      containers:
+        - name: frontend
+          image: REGISTRY/stockpred/frontend:latest
+          ports: [{ containerPort: 80 }]
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: frontend, namespace: stockpred }
+spec:
+  selector: { app: frontend }
+  ports: [{ port: 80 }]
