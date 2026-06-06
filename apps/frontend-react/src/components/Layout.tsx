@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { label: 'Signals', to: '/signals' },
   { label: 'Backtest', to: '/backtest' },
   { label: 'Portfolio', to: '/portfolio' },
+  { label: 'Brokers', to: '/broker-config' },
 ];
 
 export default function Layout({ children }: { children: ReactNode }): JSX.Element {

@@ -1,5 +1,7 @@
 import {
   Alert,
+  Box,
+  Button,
   Card,
   CardContent,
   Chip,
@@ -13,8 +15,15 @@ import {
   TableRow,
   Typography,
 } from '@mui/material';
+import { useNavigate } from 'react-router-dom';
+import { BrokerStatus } from '../components/BrokerStatus';
 import { useAppSelector } from '../store';
-import { useGetPortfolioQuery, useGetTradesQuery } from '../store/api';
+import {
+  useGetBrokerFundsQuery,
+  useGetBrokerProfileQuery,
+  useGetPortfolioQuery,
+  useGetTradesQuery,
+} from '../store/api';
 
 function Metric({ label, value }: { label: string; value: string }): JSX.Element {
   return (
@@ -34,6 +43,7 @@ function Metric({ label, value }: { label: string; value: string }): JSX.Element
 }
 
 export default function PortfolioPage(): JSX.Element {
+  const navigate = useNavigate();
   const loggedIn = useAppSelector((state) => Boolean(state.auth.accessToken));
   const { data: portfolio } = useGetPortfolioQuery(undefined, {
     pollingInterval: 10_000,
@@ -41,6 +51,13 @@ export default function PortfolioPage(): JSX.Element {
   });
   const { data: trades } = useGetTradesQuery(undefined, {
     pollingInterval: 15_000,
+    skip: !loggedIn,
+  });
+  const { data: brokerProfile } = useGetBrokerProfileQuery(undefined, {
+    skip: !loggedIn,
+  });
+  const { data: brokerFunds } = useGetBrokerFundsQuery(undefined, {
+    pollingInterval: 10_000,
     skip: !loggedIn,
   });
 
@@ -53,16 +70,32 @@ export default function PortfolioPage(): JSX.Element {
 
   return (
     <>
-      <Typography variant="h5" sx={{ mb: 2, fontWeight: 700 }}>
-        Portfolio{' '}
-        {portfolio && (
-          <Chip
-            size="small"
-            label={portfolio.mode}
-            color={portfolio.mode === 'PAPER' ? 'info' : 'warning'}
-          />
-        )}
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h5" sx={{ fontWeight: 700 }}>
+          Portfolio{' '}
+          {portfolio && (
+            <Chip
+              size="small"
+              label={portfolio.mode}
+              color={portfolio.mode === 'PAPER' ? 'info' : 'warning'}
+            />
+          )}
+        </Typography>
+        <Button variant="outlined" size="small" onClick={() => navigate('/broker-config')}>
+          Broker Settings
+        </Button>
+      </Box>
+
+      {brokerProfile && (
+        <BrokerStatus
+          brokerType={brokerProfile.brokerType}
+          isConnected={true}
+          accountId={brokerProfile.accountId}
+          availableCash={brokerFunds?.availableCash}
+          marginMultiplier={brokerFunds?.marginMultiplier}
+          usedMargin={brokerFunds?.usedMargin}
+        />
+      )}
       {portfolio?.circuitBreakerTripped && (
         <Alert severity="error" sx={{ mb: 2 }}>
           Circuit breaker is active - automated trading is suspended until limits reset.

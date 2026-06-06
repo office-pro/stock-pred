@@ -81,6 +81,35 @@ export interface TradeRow {
   closedAt?: string;
 }
 
+export interface BrokerProfile {
+  id: string;
+  name: string;
+  email: string;
+  accountId: string;
+  brokerName: string;
+  brokerType: string;
+  tradingSegments: string[];
+}
+
+export interface BrokerFunds {
+  availableCash: number;
+  usedMargin: number;
+  totalMargin: number;
+  marginMultiplier: number;
+  buyingPower: number;
+  updatedAt: number;
+}
+
+export interface BrokerPosition {
+  symbol: string;
+  quantity: number;
+  averagePrice: number;
+  currentPrice: number;
+  unrealizedPnL: number;
+  unrealizedPnLPercent: number;
+  mode: string;
+}
+
 const unwrap = <T>(response: ApiResponse<T>): T => response.data;
 
 export const api = createApi({
@@ -177,6 +206,45 @@ export const api = createApi({
     >({
       query: (body) => ({ url: '/auth/register', method: 'POST', body }),
     }),
+    getBrokerProfile: builder.query<BrokerProfile, void>({
+      query: () => '/brokers/profile',
+      providesTags: ['Portfolio'],
+    }),
+    getBrokerFunds: builder.query<BrokerFunds, void>({
+      query: () => '/brokers/funds',
+      providesTags: ['Portfolio'],
+    }),
+    getBrokerPositions: builder.query<BrokerPosition[], void>({
+      query: () => '/brokers/positions',
+      providesTags: ['Portfolio'],
+    }),
+    configureBroker: builder.mutation<
+      { success: boolean; message: string },
+      { brokerType: string; credentials?: Record<string, string> }
+    >({
+      query: (body) => ({ url: '/brokers/config', method: 'POST', body }),
+      invalidatesTags: ['Portfolio'],
+    }),
+    testBrokerConnection: builder.mutation<
+      { connected: boolean; message: string },
+      { brokerType: string }
+    >({
+      query: (body) => ({ url: '/brokers/test', method: 'POST', body }),
+    }),
+    loginToBroker: builder.mutation<
+      { authenticated: boolean; message: string },
+      { brokerType: string }
+    >({
+      query: (body) => ({ url: '/brokers/login', method: 'POST', body }),
+      invalidatesTags: ['Portfolio'],
+    }),
+    logoutFromBroker: builder.mutation<
+      { authenticated: boolean; message: string },
+      { brokerType: string }
+    >({
+      query: (body) => ({ url: '/brokers/logout', method: 'POST', body }),
+      invalidatesTags: ['Portfolio'],
+    }),
   }),
 });
 
@@ -199,4 +267,11 @@ export const {
   useExecuteTradeMutation,
   useLoginMutation,
   useRegisterMutation,
+  useGetBrokerProfileQuery,
+  useGetBrokerFundsQuery,
+  useGetBrokerPositionsQuery,
+  useConfigureBrokerMutation,
+  useTestBrokerConnectionMutation,
+  useLoginToBrokerMutation,
+  useLogoutFromBrokerMutation,
 } = api;

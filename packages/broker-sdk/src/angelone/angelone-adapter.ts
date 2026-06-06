@@ -100,14 +100,14 @@ export class AngelOneAdapter implements BrokerAdapter {
     // TODO: WebSocket unsubscription
   }
 
-  on(event: BrokerAdapterEvent, handler: Function): void {
+  on(event: BrokerAdapterEvent, handler: (data: unknown) => void): void {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, []);
     }
     this.listeners.get(event)!.push(handler);
   }
 
-  off(event: BrokerAdapterEvent, handler: Function): void {
+  off(event: BrokerAdapterEvent, handler: (data: unknown) => void): void {
     const handlers = this.listeners.get(event);
     if (handlers) {
       const idx = handlers.indexOf(handler);
@@ -115,7 +115,7 @@ export class AngelOneAdapter implements BrokerAdapter {
     }
   }
 
-  private emit(event: string, data: any): void {
+  private emit(event: string, data: unknown): void {
     const handlers = this.listeners.get(event as BrokerAdapterEvent) || [];
     for (const handler of handlers) {
       try {

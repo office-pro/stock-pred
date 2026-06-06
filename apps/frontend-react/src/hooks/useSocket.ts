@@ -29,17 +29,33 @@ export function useSocket(): void {
     const onSignal = (signal: LiveSignal): void => {
       dispatch(signalReceived(signal));
     };
+    const onBrokerEvent = (event: unknown): void => {
+      // Broker events: login, logout, order updates, position updates, etc.
+      console.log('[broker event]', event);
+    };
 
     current.on('connect', onConnect);
     current.on('disconnect', onDisconnect);
     current.on('stock:update', onTick);
     current.on('signal:update', onSignal);
+    current.on('broker:event', onBrokerEvent);
+    current.on('broker:login', onBrokerEvent);
+    current.on('broker:logout', onBrokerEvent);
+    current.on('broker:order', onBrokerEvent);
+    current.on('broker:position', onBrokerEvent);
+    current.on('broker:funds', onBrokerEvent);
 
     return () => {
       current.off('connect', onConnect);
       current.off('disconnect', onDisconnect);
       current.off('stock:update', onTick);
       current.off('signal:update', onSignal);
+      current.off('broker:event', onBrokerEvent);
+      current.off('broker:login', onBrokerEvent);
+      current.off('broker:logout', onBrokerEvent);
+      current.off('broker:order', onBrokerEvent);
+      current.off('broker:position', onBrokerEvent);
+      current.off('broker:funds', onBrokerEvent);
     };
   }, [dispatch]);
 }

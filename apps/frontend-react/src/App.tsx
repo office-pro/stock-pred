@@ -2,6 +2,7 @@ import { Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import { useSocket } from './hooks/useSocket';
 import BacktestPage from './pages/BacktestPage';
+import { BrokerConfigPage } from './pages/BrokerConfigPage';
 import DashboardPage from './pages/DashboardPage';
 import LoginPage from './pages/LoginPage';
 import PortfolioPage from './pages/PortfolioPage';
@@ -19,6 +20,7 @@ export default function App(): JSX.Element {
         <Route path="/signals" element={<SignalsPage />} />
         <Route path="/backtest" element={<BacktestPage />} />
         <Route path="/portfolio" element={<PortfolioPage />} />
+        <Route path="/broker-config" element={<BrokerConfigPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
       </Routes>

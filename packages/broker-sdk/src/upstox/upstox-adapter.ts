@@ -81,12 +81,12 @@ export class UpstoxAdapter implements BrokerAdapter {
   async subscribeMarketData(_symbols: string[]): Promise<void> {}
   async unsubscribeMarketData(_symbols: string[]): Promise<void> {}
 
-  on(event: BrokerAdapterEvent, handler: Function): void {
+  on(event: BrokerAdapterEvent, handler: (data: unknown) => void): void {
     if (!this.listeners.has(event)) this.listeners.set(event, []);
     this.listeners.get(event)!.push(handler);
   }
 
-  off(event: BrokerAdapterEvent, handler: Function): void {
+  off(event: BrokerAdapterEvent, handler: (data: unknown) => void): void {
     const h = this.listeners.get(event);
     if (h) {
       const idx = h.indexOf(handler);
@@ -94,7 +94,7 @@ export class UpstoxAdapter implements BrokerAdapter {
     }
   }
 
-  private emit(e: string, d: any): void {
+  private emit(e: string, d: unknown): void {
     const h = this.listeners.get(e as BrokerAdapterEvent) || [];
     h.forEach((f) => {
       try {
