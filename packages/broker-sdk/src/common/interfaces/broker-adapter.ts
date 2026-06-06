@@ -146,10 +146,10 @@ export interface BrokerAdapter {
    * Register event listener for broker events
    * @example adapter.on('order_filled', (data) => { ... })
    */
-  on<E extends BrokerAdapterEvent>(event: E, handler: (data: BrokerAdapterEventData[E]) => void): void;
+  on(event: BrokerAdapterEvent, handler: (data: unknown) => void): void;
 
   /**
    * Remove event listener
    */
-  off<E extends BrokerAdapterEvent>(event: E, handler: (data: BrokerAdapterEventData[E]) => void): void;
+  off(event: BrokerAdapterEvent, handler: (data: unknown) => void): void;
 }

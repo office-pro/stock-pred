@@ -51,9 +51,7 @@ const BROKER_CONFIGS: Record<string, { fields: string[]; description: string }> 
 };
 
 export const BrokerConfigPage: React.FC = () => {
-  const [brokerType, setBrokerType] = useState<BrokerConfig['brokerType']>(
-    'PAPER',
-  );
+  const [brokerType, setBrokerType] = useState<BrokerConfig['brokerType']>('PAPER');
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{
@@ -69,9 +67,7 @@ export const BrokerConfigPage: React.FC = () => {
     userId: 'User ID',
   };
 
-  const handleBrokerChange = (
-    e: React.ChangeEvent<{ value: unknown }>,
-  ) => {
+  const handleBrokerChange = (e: { target: { value: string } }) => {
     const newBroker = e.target.value as BrokerConfig['brokerType'];
     setBrokerType(newBroker);
     setCredentials({});
@@ -147,11 +143,7 @@ export const BrokerConfigPage: React.FC = () => {
           <Stack spacing={3}>
             <FormControl fullWidth>
               <InputLabel>Broker</InputLabel>
-              <Select
-                value={brokerType}
-                label="Broker"
-                onChange={handleBrokerChange}
-              >
+              <Select value={brokerType} label="Broker" onChange={handleBrokerChange}>
                 {Object.entries(BROKER_CONFIGS).map(([key, config]) => (
                   <MenuItem key={key} value={key}>
                     {key} - {config.description}
@@ -160,9 +152,7 @@ export const BrokerConfigPage: React.FC = () => {
               </Select>
             </FormControl>
 
-            <Alert severity="info">
-              {selectedBrokerConfig.description}
-            </Alert>
+            <Alert severity="info">{selectedBrokerConfig.description}</Alert>
 
             {selectedBrokerConfig.fields.length > 0 && (
               <Box>
@@ -177,9 +167,7 @@ export const BrokerConfigPage: React.FC = () => {
                         label={fieldLabels[field] || field}
                         type={field.includes('Secret') ? 'password' : 'text'}
                         value={credentials[field] || ''}
-                        onChange={(e) =>
-                          handleCredentialChange(field, e.target.value)
-                        }
+                        onChange={(e) => handleCredentialChange(field, e.target.value)}
                         placeholder={`Enter ${fieldLabels[field] || field}`}
                       />
                     </Grid>
@@ -188,9 +176,7 @@ export const BrokerConfigPage: React.FC = () => {
               </Box>
             )}
 
-            {message && (
-              <Alert severity={message.type}>{message.text}</Alert>
-            )}
+            {message && <Alert severity={message.type}>{message.text}</Alert>}
 
             <Stack direction="row" spacing={2}>
               <Button
@@ -201,11 +187,7 @@ export const BrokerConfigPage: React.FC = () => {
               >
                 Save Configuration
               </Button>
-              <Button
-                variant="outlined"
-                onClick={handleTest}
-                disabled={loading}
-              >
+              <Button variant="outlined" onClick={handleTest} disabled={loading}>
                 Test Connection
               </Button>
             </Stack>

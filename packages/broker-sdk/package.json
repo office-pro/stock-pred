@@ -17,8 +17,8 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@stockpred/shared-types": "workspace:*",
-    "@stockpred/shared-events": "workspace:*",
+    "@stockpred/shared-types": "1.0.0",
+    "@stockpred/shared-events": "1.0.0",
     "uuid": "^9.0.1"
   },
   "devDependencies": {

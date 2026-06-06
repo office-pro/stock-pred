@@ -8,7 +8,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IsEnum, IsInt, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { ExecutedTrade, PortfolioSnapshot, TradeSide } from '@stockpred/shared-types';
 import { TraderService } from './trader.service';
 
@@ -24,6 +24,19 @@ export class ExecuteTradeDto {
   @Min(1)
   @Max(1_000_000)
   quantity!: number;
+}
+
+export class BrokerConfigDto {
+  @IsString()
+  brokerType!: string;
+
+  @IsOptional()
+  credentials?: Record<string, string>;
+}
+
+export class BrokerTestDto {
+  @IsString()
+  brokerType!: string;
 }
 
 @Controller()
@@ -57,5 +70,17 @@ export class TraderController {
   resetBreaker(@Headers('x-user-id') userId?: string): { reset: boolean } {
     this.trader.resetCircuitBreaker(userId ?? 'unknown-admin');
     return { reset: true };
+  }
+
+  @Post('brokers/config')
+  async configureBroker(
+    @Body() dto: BrokerConfigDto,
+  ): Promise<{ success: boolean; message: string }> {
+    return this.trader.configureBroker(dto.brokerType, dto.credentials);
+  }
+
+  @Post('brokers/test')
+  async testBroker(@Body() dto: BrokerTestDto): Promise<{ success: boolean; message: string }> {
+    return this.trader.testBrokerConnection(dto.brokerType);
   }
 }

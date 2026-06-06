@@ -61,6 +61,19 @@ export class ExecuteTradeRequestDto {
   quantity!: number;
 }
 
+export class BrokerConfigDto {
+  @IsString()
+  brokerType!: string;
+
+  @IsOptional()
+  credentials?: Record<string, string>;
+}
+
+export class BrokerTestDto {
+  @IsString()
+  brokerType!: string;
+}
+
 @Controller('api')
 export class ApiController {
   constructor(private readonly proxy: ProxyService) {}
@@ -228,5 +241,17 @@ export class ApiController {
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50,
   ): Promise<unknown> {
     return this.proxy.get('notifications', '/notifications', { params: { limit } });
+  }
+
+  // ------------------------------------------------------------ broker configuration
+
+  @Post('brokers/config')
+  async configureBroker(@Body() dto: BrokerConfigDto): Promise<unknown> {
+    return this.proxy.post('autoTrader', '/brokers/config', dto);
+  }
+
+  @Post('brokers/test')
+  async testBrokerConnection(@Body() dto: BrokerTestDto): Promise<unknown> {
+    return this.proxy.post('autoTrader', '/brokers/test', dto);
   }
 }
