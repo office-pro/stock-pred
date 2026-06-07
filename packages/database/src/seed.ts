@@ -1,14 +1,24 @@
 import { hashSync } from 'bcryptjs';
 import { UserRole } from '@stockpred/shared-types';
 import { getPrismaClient, disconnectPrisma } from './index';
-import { STOCK_UNIVERSE } from './universe';
+import { getStockUniverse, getUniverseStats } from './universe-config';
 
 /**
  * Seed: stock universe + demo users (one per role).
  * Demo passwords are for local development ONLY - rotate in any shared env.
+ *
+ * Usage:
+ *   npm run prisma:seed                               # Quick-start (33 stocks)
+ *   STOCK_UNIVERSE_MODE=full-universe npm run prisma:seed  # All NSE/BSE stocks
  */
 async function main(): Promise<void> {
   const prisma = getPrismaClient();
+  const STOCK_UNIVERSE = getStockUniverse();
+  const stats = getUniverseStats();
+
+  console.log(`\n🌍 Seeding ${stats.mode} universe...`);
+  console.log(`   Total stocks: ${stats.totalStocks}`);
+  console.log(`   Sectors: ${Array.from(stats.sectors).length}\n`);
 
   for (const stock of STOCK_UNIVERSE) {
     await prisma.stock.upsert({
