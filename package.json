@@ -26,7 +26,7 @@
     "prisma:migrate": "npm run migrate:deploy -w @stockpred/database",
     "prisma:seed": "npm run seed -w @stockpred/database",
     "setup:npm": "bash scripts/setup-npm.sh",
-    "clean": "bash scripts/diagnose-and-clean.sh",
+    "clean": "node scripts/diagnose.js",
     "start:all": "node scripts/platform.js start",
     "stop:all": "node scripts/platform.js stop",
     "restart:all": "node scripts/platform.js restart",
