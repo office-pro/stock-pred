@@ -66,6 +66,43 @@ def health() -> Dict[str, object]:
     }
 
 
+@app.get("/predictions/all")
+async def get_all_predictions(limit: int = 50) -> Dict[str, object]:
+    """Fetch latest predictions for all stocks from database."""
+    try:
+        import asyncpg
+        from .config import settings
+        conn = await asyncpg.connect(settings.asyncpg_dsn)
+        # Get latest prediction per symbol per horizon
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT ON (symbol, horizon)
+              symbol, horizon, direction, confidence, expected_move, model_version, created_at
+            FROM predictions
+            ORDER BY symbol, horizon, created_at DESC
+            LIMIT $1
+            """,
+            limit * 2,  # fetch more to account for 2 horizons per symbol
+        )
+        await conn.close()
+
+        predictions = [
+            {
+                "symbol": row["symbol"],
+                "horizon": row["horizon"],
+                "direction": row["direction"],
+                "confidence": float(row["confidence"]),
+                "expectedMove": float(row["expected_move"]),
+                "modelVersion": row["model_version"],
+                "createdAt": row["created_at"].isoformat(),
+            }
+            for row in rows
+        ]
+        return {"predictions": predictions, "disclaimer": DISCLAIMER}
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(error)}") from error
+
+
 @app.get("/predictions/{symbol}")
 async def get_predictions(symbol: str) -> Dict[str, object]:
     if not models_available():

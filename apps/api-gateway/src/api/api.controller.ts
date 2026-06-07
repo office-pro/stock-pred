@@ -175,6 +175,15 @@ export class ApiController {
 
   // ------------------------------------------------------------- predictions
 
+  @Get('predictions')
+  async getAllPredictions(
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50,
+  ): Promise<ApiResponse<unknown>> {
+    return withDisclaimer(
+      await this.proxy.get('mlEngine', '/predictions/all', { params: { limit } }),
+    );
+  }
+
   @Get('predictions/:symbol')
   async getPredictions(@Param('symbol') symbol: string): Promise<ApiResponse<unknown>> {
     return withDisclaimer(

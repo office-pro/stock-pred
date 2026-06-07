@@ -168,6 +168,23 @@ export const api = createApi({
       query: (symbol) => `/patterns/${symbol}`,
       transformResponse: unwrap<{ history: PatternRow[]; current: unknown[] }>,
     }),
+    getAllPredictions: builder.query<
+      {
+        predictions: Array<{
+          symbol: string;
+          horizon: string;
+          direction: string;
+          confidence: number;
+          expectedMove: number;
+          createdAt: string;
+        }>;
+      },
+      { limit?: number }
+    >({
+      query: ({ limit = 50 }) => `/predictions?limit=${limit}`,
+      transformResponse: unwrap,
+      providesTags: ['Predictions'],
+    }),
     getPredictions: builder.query<PredictionsPayload, string>({
       query: (symbol) => `/predictions/${symbol}`,
       transformResponse: unwrap<PredictionsPayload>,
@@ -260,6 +277,7 @@ export const {
   useGetSymbolSignalsQuery,
   useGetSupportResistanceQuery,
   useGetSymbolPatternsQuery,
+  useGetAllPredictionsQuery,
   useGetPredictionsQuery,
   useRunBacktestMutation,
   useGetPortfolioQuery,

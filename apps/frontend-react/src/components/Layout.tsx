@@ -9,6 +9,7 @@ import DisclaimerBanner from './DisclaimerBanner';
 const NAV_ITEMS = [
   { label: 'Dashboard', to: '/' },
   { label: 'Signals', to: '/signals' },
+  { label: 'ML Predictions', to: '/predictions' },
   { label: 'Backtest', to: '/backtest' },
   { label: 'Portfolio', to: '/portfolio' },
   { label: 'Brokers', to: '/broker-config' },
