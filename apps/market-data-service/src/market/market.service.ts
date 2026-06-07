@@ -28,6 +28,7 @@ import { MarketDataProvider } from './providers/provider.interface';
 import { mulberry32, seedFromSymbol, SimulatedProvider } from './providers/simulated.provider';
 import { YahooProvider } from './providers/yahoo.provider';
 import { RedisService } from './redis.service';
+import { RealTimeOrchestrator, getOrchestrator, AnalysisTask } from './real-time-orchestrator';
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -60,6 +61,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private refreshing = false;
   private readonly tickIntervalMs = getEnvNumber('TICK_INTERVAL_MS', 1000);
   private readonly refreshIntervalMs = getEnvNumber('QUOTE_REFRESH_INTERVAL_MS', 60_000);
+  private orchestrator: RealTimeOrchestrator | null = null;
 
   constructor(
     private readonly kafka: KafkaProducerService,
@@ -96,6 +98,10 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       }),
     );
 
+    // Initialize orchestrator for parallel analysis
+    this.orchestrator = getOrchestrator();
+    this.setupOrchestratorListeners();
+
     if (this.yahooProvider) {
       // Real data mode: prices move only on real quote refreshes - no
       // synthetic jitter. The sweep is serialized by the provider's queue.
@@ -112,9 +118,12 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  onModuleDestroy(): void {
+  async onModuleDestroy(): Promise<void> {
     if (this.tickTimer) clearInterval(this.tickTimer);
     if (this.refreshTimer) clearInterval(this.refreshTimer);
+    if (this.orchestrator) {
+      await this.orchestrator.shutdown();
+    }
   }
 
   // ---------------------------------------------------------------- queries
@@ -351,13 +360,35 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
 
   private async emitTicks(): Promise<void> {
     const now = Date.now();
+    const tasks: AnalysisTask[] = [];
+
     for (const state of this.stocks.values()) {
       const tick = this.nextTick(state, now);
       state.lastTick = tick;
       this.applyTickToCandles(state, tick);
-      void this.kafka.publish<MarketTickEvent>(KAFKA_TOPICS.MARKET_TICKS, tick, tick.symbol);
+
+      // Enqueue to orchestrator for controlled processing (if large universe)
+      if (this.stocks.size > 100 && this.orchestrator) {
+        tasks.push({
+          symbol: state.info.symbol,
+          tick,
+          context: {
+            candles: state.daily.slice(-40),
+          },
+        });
+      } else {
+        // For small universes, publish directly (backward compatible)
+        void this.kafka.publish<MarketTickEvent>(KAFKA_TOPICS.MARKET_TICKS, tick, tick.symbol);
+      }
       void this.redis.setJson(`stockpred:quote:${state.info.symbol}`, this.toQuote(state));
     }
+
+    // Batch enqueue for orchestrator
+    if (tasks.length > 0 && this.orchestrator) {
+      void this.orchestrator.enqueueBatch(tasks);
+    }
+
+    // Index ticks (always direct, no queuing needed)
     for (const index of this.indices.values()) {
       const rng = this.rngFor(`${index.name}:tick`);
       const step = index.value * 0.0004 * (rng() * 2 - 1);
@@ -483,5 +514,50 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     const state = this.stocks.get(symbol);
     if (!state) throw new NotFoundException(`Unknown symbol: ${symbol}`);
     return state;
+  }
+
+  // -------------------------------------------------- orchestrator integration
+
+  /**
+   * Wire orchestrator events to Kafka publication
+   * The orchestrator handles queueing and concurrency; we just persist the events
+   */
+  private setupOrchestratorListeners(): void {
+    if (!this.orchestrator) return;
+
+    // Publish market ticks from orchestrator
+    this.orchestrator.on('tick', ({ symbol, tick }: { symbol: string; tick: Tick }) => {
+      void this.kafka.publish<MarketTickEvent>(KAFKA_TOPICS.MARKET_TICKS, tick, symbol);
+    });
+
+    // Publish candle events for signal evaluation
+    this.orchestrator.on(
+      'signal-evaluate',
+      ({ symbol, candles }: { symbol: string; candles: Candle[] }) => {
+        const state = this.stocks.get(symbol);
+        if (state && candles.length > 0 && state.indicators) {
+          void this.kafka.publish<MarketCandleEvent>(
+            KAFKA_TOPICS.MARKET_CANDLES,
+            { candle: candles[candles.length - 1], indicators: state.indicators },
+            symbol,
+          );
+        }
+      },
+    );
+
+    // Log orchestrator errors
+    this.orchestrator.on('task-error', ({ symbol, error }: { symbol: string; error: Error }) => {
+      console.error(`[orchestrator] Task failed for ${symbol}:`, error.message);
+    });
+
+    // Optional: Log task completion for debugging
+    if (process.env.DEBUG_ORCHESTRATOR === 'true') {
+      this.orchestrator.on(
+        'task-complete',
+        ({ symbol, latency }: { symbol: string; latency: number }) => {
+          console.debug(`[orchestrator] ${symbol} completed in ${latency}ms`);
+        },
+      );
+    }
   }
 }

@@ -21,3 +21,5 @@ export { PrismaClient } from '@prisma/client';
 export type { Prisma } from '@prisma/client';
 export { STOCK_UNIVERSE } from './universe';
 export type { UniverseStock } from './universe';
+export { getStockUniverse, getUniverseStats } from './universe-config';
+export type { UniverseMode } from './universe-config';

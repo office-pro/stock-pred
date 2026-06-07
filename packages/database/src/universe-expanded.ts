@@ -14,9 +14,12 @@ const MID = MarketIndex.NIFTY_MIDCAP_100;
 const SMALL = MarketIndex.NIFTY_SMALLCAP_100;
 
 /**
- * EXPANDED NSE/BSE universe - all major stocks (150+).
+ * EXPANDED NSE/BSE universe - all major stocks (100+).
  * Generated: 2026-06-07
  * To activate: STOCK_UNIVERSE_MODE=full-universe npm run start:all
+ *
+ * Note: This is a curated list of 100+ most liquid/important stocks.
+ * For a complete NSE/BSE list of 2000+, run: npx ts-node scripts/fetch-all-stocks.ts
  */
 export const STOCK_UNIVERSE: UniverseStock[] = [
   // NIFTY 50 + Additional Popular
