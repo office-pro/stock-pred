@@ -38,6 +38,12 @@
     "predict": "python ml/predict.py",
     "predict:batch": "python ml/batch-predict.py",
     "predict:batch:limit": "python ml/batch-predict.py --limit 50",
+    "predict:view": "python ml/view-predictions.py",
+    "predict:view:summary": "python ml/view-predictions.py summary",
+    "predict:view:up": "python ml/view-predictions.py up",
+    "predict:view:down": "python ml/view-predictions.py down",
+    "predict:view:html": "python ml/view-predictions.py html",
+    "predict:view:csv": "python ml/view-predictions.py csv",
     "backtest": "node apps/backtest-service/dist/cli.js",
     "e2e": "cypress run --project apps/frontend-react"
   },
