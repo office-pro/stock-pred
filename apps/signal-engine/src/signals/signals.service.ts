@@ -109,6 +109,35 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async getAllSignals(limit: number): Promise<unknown[]> {
+    try {
+      // Get current signal evaluation for all symbols
+      const signals = [];
+      for (const symbol of this.store.symbols()) {
+        const candles = this.store.get(symbol);
+        if (candles.length === 0) continue;
+
+        const evaluation = evaluateSignal(candles);
+        signals.push({
+          symbol,
+          signal: evaluation.type,
+          confidence: evaluation.confidence,
+          price: evaluation.price,
+          target: evaluation.target ?? 0,
+          stopLoss: evaluation.stopLoss ?? 0,
+          riskReward: evaluation.riskReward ?? 0,
+          rules: evaluation.rules,
+          createdAt: new Date(),
+        });
+      }
+      // Sort by confidence descending and limit
+      return signals.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0)).slice(0, limit);
+    } catch (error) {
+      console.warn(`[signal-engine] getAllSignals failed: ${(error as Error).message}`);
+      return [];
+    }
+  }
+
   async getSignalsForSymbol(
     symbol: string,
     limit: number,

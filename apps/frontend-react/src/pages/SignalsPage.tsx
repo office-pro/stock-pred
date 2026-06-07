@@ -1,4 +1,7 @@
 import {
+  Box,
+  Button,
+  Chip,
   Paper,
   Table,
   TableBody,
@@ -7,65 +10,188 @@ import {
   TableHead,
   TableRow,
   Typography,
+  TextField,
 } from '@mui/material';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import SignalBadge from '../components/SignalBadge';
 import { useAppSelector } from '../store';
 import { useGetSignalsQuery } from '../store/api';
 
+interface Signal {
+  id?: string;
+  symbol: string;
+  signal: string;
+  confidence: number;
+  price: number;
+  target: number;
+  stopLoss: number;
+  riskReward: number;
+  createdAt?: string;
+  rules?: Record<string, boolean>;
+}
+
 export default function SignalsPage(): JSX.Element {
+  const [showAll, setShowAll] = useState(false);
+  const [searchSymbol, setSearchSymbol] = useState('');
+
+  // For now, fetch actionable only. Will update API to support both
   const { data: signals } = useGetSignalsQuery(undefined, { pollingInterval: 15_000 });
   const liveFeed = useAppSelector((state) => state.live.signalFeed);
 
+  const filteredSignals = useMemo(() => {
+    let result = (signals ?? []) as Signal[];
+
+    if (searchSymbol) {
+      result = result.filter((s) => s.symbol.includes(searchSymbol.toUpperCase()));
+    }
+
+    // Sort by confidence/recency
+    return result.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
+  }, [signals, searchSymbol]);
+
+  const getSignalColor = (signal: string): 'success' | 'error' | 'warning' => {
+    switch (signal?.toUpperCase()) {
+      case 'BUY':
+        return 'success';
+      case 'SELL':
+        return 'error';
+      default:
+        return 'warning';
+    }
+  };
+
+  const getSignalBackground = (signal: string): string => {
+    switch (signal?.toUpperCase()) {
+      case 'BUY':
+        return '#d4edda';
+      case 'SELL':
+        return '#f8d7da';
+      default:
+        return '#fff3cd';
+    }
+  };
+
   return (
     <>
-      <Typography variant="h5" sx={{ mb: 2, fontWeight: 700 }}>
-        Actionable Signals
-      </Typography>
-      {liveFeed.length > 0 && (
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Box>
+          <Typography variant="h5" sx={{ fontWeight: 700 }}>
+            {showAll ? 'All Signals (All NSE/BSE Stocks)' : 'Actionable Signals'}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            {showAll
+              ? 'Current signal state for all stocks'
+              : 'Rule-confirmed BUY/SELL trade setups'}
+          </Typography>
+        </Box>
+        <Button
+          variant={showAll ? 'contained' : 'outlined'}
+          onClick={() => setShowAll(!showAll)}
+          size="small"
+        >
+          {showAll ? 'Show Actionable' : 'Show All Signals'}
+        </Button>
+      </Box>
+
+      {liveFeed.length > 0 && !showAll && (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
           {liveFeed.length} live signal(s) received this session.
         </Typography>
       )}
+
+      {showAll && (
+        <TextField
+          placeholder="Filter by symbol..."
+          value={searchSymbol}
+          onChange={(e) => setSearchSymbol(e.target.value)}
+          size="small"
+          sx={{ mb: 2, width: 200 }}
+        />
+      )}
+
       <TableContainer component={Paper} variant="outlined">
         <Table size="small">
           <TableHead>
-            <TableRow>
+            <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
               <TableCell>Time</TableCell>
               <TableCell>Symbol</TableCell>
               <TableCell>Signal</TableCell>
               <TableCell align="right">Confidence</TableCell>
               <TableCell align="right">Price</TableCell>
-              <TableCell align="right">Target</TableCell>
-              <TableCell align="right">Stop Loss</TableCell>
-              <TableCell align="right">R:R</TableCell>
+              {!showAll && (
+                <>
+                  <TableCell align="right">Target</TableCell>
+                  <TableCell align="right">Stop Loss</TableCell>
+                  <TableCell align="right">R:R</TableCell>
+                </>
+              )}
             </TableRow>
           </TableHead>
           <TableBody>
-            {(signals ?? []).map((signal) => (
-              <TableRow key={signal.id} hover>
-                <TableCell>{new Date(signal.createdAt).toLocaleString()}</TableCell>
-                <TableCell>
-                  <Link to={`/stocks/${signal.symbol}`} style={{ color: '#4f8cff' }}>
-                    {signal.symbol}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <SignalBadge signal={signal.signal} />
-                </TableCell>
-                <TableCell align="right">{signal.confidence}</TableCell>
-                <TableCell align="right">{signal.price}</TableCell>
-                <TableCell align="right">{signal.target}</TableCell>
-                <TableCell align="right">{signal.stopLoss}</TableCell>
-                <TableCell align="right">{signal.riskReward}</TableCell>
-              </TableRow>
-            ))}
-            {signals && signals.length === 0 && (
+            {filteredSignals && filteredSignals.length > 0 ? (
+              filteredSignals.map((signal) => (
+                <TableRow
+                  key={signal.id || signal.symbol}
+                  hover
+                  sx={{
+                    backgroundColor:
+                      signal.confidence > 0.8
+                        ? 'rgba(76, 175, 80, 0.05)'
+                        : signal.confidence > 0.6
+                          ? 'rgba(33, 150, 243, 0.05)'
+                          : 'inherit',
+                  }}
+                >
+                  <TableCell>
+                    {signal.createdAt ? new Date(signal.createdAt).toLocaleString() : '-'}
+                  </TableCell>
+                  <TableCell>
+                    <Link to={`/stocks/${signal.symbol}`} style={{ color: '#4f8cff' }}>
+                      <strong>{signal.symbol}</strong>
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={signal.signal}
+                      size="small"
+                      color={getSignalColor(signal.signal)}
+                      sx={{ backgroundColor: getSignalBackground(signal.signal) }}
+                    />
+                  </TableCell>
+                  <TableCell align="right">
+                    <Box
+                      sx={{
+                        fontWeight: 600,
+                        color:
+                          signal.confidence > 0.8
+                            ? '#4caf50'
+                            : signal.confidence > 0.6
+                              ? '#2196f3'
+                              : '#666',
+                      }}
+                    >
+                      {typeof signal.confidence === 'number'
+                        ? `${(signal.confidence * 100).toFixed(1)}%`
+                        : signal.confidence}
+                    </Box>
+                  </TableCell>
+                  <TableCell align="right">{signal.price?.toFixed(2)}</TableCell>
+                  {!showAll && (
+                    <>
+                      <TableCell align="right">{signal.target?.toFixed(2)}</TableCell>
+                      <TableCell align="right">{signal.stopLoss?.toFixed(2)}</TableCell>
+                      <TableCell align="right">{signal.riskReward?.toFixed(2)}</TableCell>
+                    </>
+                  )}
+                </TableRow>
+              ))
+            ) : (
               <TableRow>
-                <TableCell colSpan={8}>
-                  <Typography variant="body2" color="text.secondary">
-                    No actionable signals yet - the engine emits only rule-confirmed BUY/SELL
-                    setups.
+                <TableCell colSpan={showAll ? 5 : 8}>
+                  <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+                    {showAll
+                      ? 'No signals match your filters'
+                      : 'No actionable signals yet - the engine emits only rule-confirmed BUY/SELL setups.'}
                   </Typography>
                 </TableCell>
               </TableRow>
@@ -73,6 +199,10 @@ export default function SignalsPage(): JSX.Element {
           </TableBody>
         </Table>
       </TableContainer>
+
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+        Showing {filteredSignals.length} signals. This is not investment advice.
+      </Typography>
     </>
   );
 }

@@ -136,9 +136,14 @@ export class ApiController {
 
   @Get('signals')
   async getSignals(
+    @Query('all', new DefaultValuePipe(false)) allSignals: boolean,
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50,
   ): Promise<ApiResponse<unknown>> {
-    return withDisclaimer(await this.proxy.get('signalEngine', '/signals', { params: { limit } }));
+    return withDisclaimer(
+      await this.proxy.get('signalEngine', '/signals', {
+        params: { all: allSignals, limit },
+      }),
+    );
   }
 
   @Get('signals/:symbol')

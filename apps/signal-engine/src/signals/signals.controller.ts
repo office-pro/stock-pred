@@ -7,9 +7,13 @@ export class SignalsController {
   constructor(private readonly signals: SignalsService) {}
 
   @Get('signals')
-  getRecent(
+  getSignals(
+    @Query('all', new DefaultValuePipe(false)) allSignals: boolean,
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50,
   ): Promise<unknown[]> {
+    if (allSignals) {
+      return this.signals.getAllSignals(Math.min(limit, 500));
+    }
     return this.signals.getRecentSignals(Math.min(limit, 500));
   }
 
