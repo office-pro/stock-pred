@@ -1,5 +1,7 @@
 # StockPred — Indian Stock Market AI Trading Platform
 
+/remember realtime-all-stocks-impl
+
 A production-grade, event-driven monorepo for NSE/BSE market analytics: live
 market data, rule-based trading signals, chart-pattern recognition, ML
 direction prediction (XGBoost + LightGBM + LSTM + Transformer ensemble),

@@ -25,6 +25,7 @@
     "prisma:generate": "npm run generate -w @stockpred/database",
     "prisma:migrate": "npm run migrate:deploy -w @stockpred/database",
     "prisma:seed": "npm run seed -w @stockpred/database",
+    "setup:npm": "bash scripts/setup-npm.sh",
     "start:all": "node scripts/platform.js start",
     "stop:all": "node scripts/platform.js stop",
     "restart:all": "node scripts/platform.js restart",

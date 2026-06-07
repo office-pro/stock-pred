@@ -18,6 +18,12 @@ if [ ! -f .env ]; then
   cp .env.example .env
 fi
 
+# Configure npm to prevent timeout during Docker build
+echo "==> Configuring npm (increasing timeout for Docker build)"
+npm config set fetch-timeout 600000 2>/dev/null || true
+npm config set fetch-retry-mintimeout 20000 2>/dev/null || true
+npm config set fetch-retry-maxtimeout 120000 2>/dev/null || true
+
 # 1-4: infrastructure (Postgres, Redis, Kafka)
 echo "==> Starting infrastructure (postgres, redis, kafka)"
 docker compose up -d postgres redis kafka
@@ -43,7 +49,29 @@ done
 # Clear any half-created one-shot container left behind by an interrupted run.
 docker compose --profile apps rm -fs migrate >/dev/null 2>&1 || true
 echo "==> Building and starting all services (this builds images on first run)"
-docker compose --profile apps up -d --build
+
+# Build with retry logic (npm timeout during build is common on first run)
+BUILD_RETRIES=3
+BUILD_ATTEMPT=1
+while [ $BUILD_ATTEMPT -le $BUILD_RETRIES ]; do
+  echo "    [Attempt $BUILD_ATTEMPT/$BUILD_RETRIES] Building Docker images..."
+  if docker compose --profile apps up -d --build; then
+    echo "    ✅ Build succeeded"
+    break
+  else
+    EXIT_CODE=$?
+    if [ $BUILD_ATTEMPT -lt $BUILD_RETRIES ]; then
+      echo "    ⚠️  Build failed (attempt $BUILD_ATTEMPT), retrying in 10 seconds..."
+      sleep 10
+      # Clean up any partial containers
+      docker compose --profile apps down 2>/dev/null || true
+    else
+      echo "    ❌ Build failed after $BUILD_RETRIES attempts"
+      exit $EXIT_CODE
+    fi
+  fi
+  BUILD_ATTEMPT=$((BUILD_ATTEMPT + 1))
+done
 
 # 8: verify health checks
 echo "==> Verifying service health"
@@ -90,5 +118,10 @@ echo "    ML Engine:    http://localhost:8000/health"
 echo ""
 echo "    Train ML models:   npm run train:ml   (or: docker compose exec ml-engine python -m app.train --synthetic)"
 echo "    Run a backtest:    npm run backtest -- --symbol RELIANCE --years 3"
+echo ""
+echo "==> Useful commands:"
+echo "    View logs:         docker compose logs -f <service>"
+echo "    Stop services:     npm run stop:all"
+echo "    Restart services:  npm run restart:all"
 echo ""
 echo "This is not investment advice. Paper trading is enabled by default."
