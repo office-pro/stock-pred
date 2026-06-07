@@ -159,63 +159,51 @@ def export_html(predictions: list, output_file: str = "predictions.html"):
     """Export predictions to interactive HTML."""
     df = pd.DataFrame(predictions)
 
-    # Create color mapping for directions
-    colors = {
-        "UP": "#28a745",
-        "DOWN": "#dc3545",
-        "SIDEWAYS": "#ffc107",
-    }
+    html_header = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Stock Predictions</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; }}
+        h1 {{ color: #333; }}
+        table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
+        th {{ background: #333; color: white; padding: 10px; text-align: left; }}
+        td {{ padding: 10px; border-bottom: 1px solid #ddd; }}
+        tr:hover {{ background: #f5f5f5; }}
+        .up {{ background: #d4edda; color: #155724; font-weight: bold; }}
+        .down {{ background: #f8d7da; color: #721c24; font-weight: bold; }}
+        .sideways {{ background: #fff3cd; color: #856404; font-weight: bold; }}
+        .metric {{ display: inline-block; margin-right: 30px; }}
+        .summary {{ background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; }}
+    </style>
+</head>
+<body>
+    <h1>Stock Predictions Report</h1>
+    <div class="summary">
+        <div class="metric"><strong>Total Predictions:</strong> {len(predictions)}</div>
+        <div class="metric"><strong>Unique Symbols:</strong> {df['symbol'].nunique()}</div>
+        <div class="metric"><strong>Horizons:</strong> {", ".join(df['horizon'].unique())}</div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Symbol</th>
+                <th>Horizon</th>
+                <th>Direction</th>
+                <th>Confidence</th>
+                <th>Expected Move</th>
+                <th>DOWN %</th>
+                <th>SIDEWAYS %</th>
+                <th>UP %</th>
+            </tr>
+        </thead>
+        <tbody>
+"""
 
-    html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Stock Predictions</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            h1 { color: #333; }
-            table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-            th { background: #333; color: white; padding: 10px; text-align: left; }
-            td { padding: 10px; border-bottom: 1px solid #ddd; }
-            tr:hover { background: #f5f5f5; }
-            .up { background: #d4edda; color: #155724; font-weight: bold; }
-            .down { background: #f8d7da; color: #721c24; font-weight: bold; }
-            .sideways { background: #fff3cd; color: #856404; font-weight: bold; }
-            .metric { display: inline-block; margin-right: 30px; }
-            .summary { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; }
-        </style>
-    </head>
-    <body>
-        <h1>📈 Stock Predictions Report</h1>
-        <div class="summary">
-            <div class="metric"><strong>Total Predictions:</strong> %d</div>
-            <div class="metric"><strong>Unique Symbols:</strong> %d</div>
-            <div class="metric"><strong>Horizons:</strong> %s</div>
-        </div>
-        <table>
-            <thead>
-                <tr>
-                    <th>Symbol</th>
-                    <th>Horizon</th>
-                    <th>Direction</th>
-                    <th>Confidence</th>
-                    <th>Expected Move</th>
-                    <th>DOWN %%</th>
-                    <th>SIDEWAYS %%</th>
-                    <th>UP %%</th>
-                </tr>
-            </thead>
-            <tbody>
-    """ % (
-        len(predictions),
-        df["symbol"].nunique(),
-        ", ".join(df["horizon"].unique()),
-    )
-
+    html_rows = ""
     for _, row in df.iterrows():
         direction_class = row["direction"].lower()
-        html += f"""
-            <tr>
+        html_rows += f"""            <tr>
                 <td><strong>{row['symbol']}</strong></td>
                 <td>{row['horizon']}</td>
                 <td class="{direction_class}">{row['direction']}</td>
@@ -225,14 +213,14 @@ def export_html(predictions: list, output_file: str = "predictions.html"):
                 <td>{row['probabilities']['SIDEWAYS']:.1f}%</td>
                 <td>{row['probabilities']['UP']:.1f}%</td>
             </tr>
-        """
+"""
 
-    html += """
-            </tbody>
-        </table>
-    </body>
-    </html>
-    """
+    html_footer = """        </tbody>
+    </table>
+</body>
+</html>"""
+
+    html = html_header + html_rows + html_footer
 
     with open(output_file, "w") as f:
         f.write(html)
