@@ -122,10 +122,19 @@ export const api = createApi({
       return headers;
     },
   }),
-  tagTypes: ['Stocks', 'Signals', 'Portfolio', 'Trades'],
+  tagTypes: ['Stocks', 'Signals', 'Predictions', 'Portfolio', 'Trades'],
   endpoints: (builder) => ({
-    getStocks: builder.query<StockQuote[], void>({
-      query: () => '/stocks',
+    getStocks: builder.query<
+      { data: StockQuote[]; total: number; page: number; limit: number; hasMore: boolean },
+      { page?: number; limit?: number; search?: string }
+    >({
+      query: ({ page = 1, limit = 50, search } = {}) => {
+        const params = new URLSearchParams();
+        params.append('page', page.toString());
+        params.append('limit', limit.toString());
+        if (search) params.append('search', search);
+        return `/stocks?${params.toString()}`;
+      },
       providesTags: ['Stocks'],
     }),
     getStock: builder.query<StockQuote, string>({
@@ -154,6 +163,36 @@ export const api = createApi({
     getSignals: builder.query<SignalRow[], void>({
       query: () => '/signals',
       transformResponse: unwrap<SignalRow[]>,
+      providesTags: ['Signals'],
+    }),
+    getSignalsPaginated: builder.query<
+      {
+        data: SignalRow[];
+        total: number;
+        page: number;
+        limit: number;
+        hasMore: boolean;
+      },
+      { page?: number; limit?: number; search?: string; signal?: string; all?: boolean }
+    >({
+      query: ({ page = 1, limit = 50, search, signal, all = true } = {}) => {
+        const params = new URLSearchParams();
+        params.append('page', page.toString());
+        params.append('limit', limit.toString());
+        params.append('all', all.toString());
+        if (search) params.append('search', search);
+        if (signal) params.append('signal', signal);
+        return `/signals?${params.toString()}`;
+      },
+      transformResponse: (
+        response: ApiResponse<{
+          data: SignalRow[];
+          total: number;
+          page: number;
+          limit: number;
+          hasMore: boolean;
+        }>,
+      ) => response.data,
       providesTags: ['Signals'],
     }),
     getSymbolSignals: builder.query<SymbolSignals, string>({
@@ -274,6 +313,7 @@ export const {
   useGetDepthQuery,
   useGetCompareQuery,
   useGetSignalsQuery,
+  useGetSignalsPaginatedQuery,
   useGetSymbolSignalsQuery,
   useGetSupportResistanceQuery,
   useGetSymbolPatternsQuery,

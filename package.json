@@ -29,6 +29,7 @@
     "clean": "node scripts/diagnose.js",
     "start:all": "node scripts/platform.js start",
     "start:all-stocks": "cmd /c \"set STOCK_UNIVERSE_MODE=full-universe && npm run start:all\"",
+    "clean-start": "node scripts/clean-start.js",
     "stop:all": "node scripts/platform.js stop",
     "restart:all": "node scripts/platform.js restart",
     "train:ml": "python ml/train.py",

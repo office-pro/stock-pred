@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { getPrismaClient, STOCK_UNIVERSE, UniverseStock } from '@stockpred/database';
+import { getPrismaClient, UniverseStock, getStockUniverse } from '@stockpred/database';
 import { KAFKA_TOPICS, MarketCandleEvent, MarketTickEvent } from '@stockpred/shared-events';
 import {
   Candle,
@@ -132,6 +132,28 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     return [...this.stocks.values()].map((state) => this.toQuote(state));
   }
 
+  getQuotesPaginated(
+    page: number,
+    limit: number,
+    search?: string,
+  ): { data: StockQuote[]; total: number; page: number; limit: number; hasMore: boolean } {
+    let quotes = [...this.stocks.values()].map((state) => this.toQuote(state));
+
+    if (search) {
+      const searchUpper = search.toUpperCase();
+      quotes = quotes.filter(
+        (q) => q.symbol.includes(searchUpper) || q.name.toUpperCase().includes(searchUpper),
+      );
+    }
+
+    const total = quotes.length;
+    const start = (page - 1) * limit;
+    const data = quotes.slice(start, start + limit);
+    const hasMore = start + limit < total;
+
+    return { data, total, page, limit, hasMore };
+  }
+
   getQuote(symbol: string): StockQuote {
     const state = this.requireSymbol(symbol);
     return this.toQuote(state);
@@ -226,8 +248,9 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       const prisma = getPrismaClient();
       const rows = await prisma.stock.findMany();
       if (rows.length > 0) {
+        const configuredUniverse = getStockUniverse();
         return rows.map((row) => {
-          const base = STOCK_UNIVERSE.find((s) => s.symbol === row.symbol);
+          const base = configuredUniverse.find((s) => s.symbol === row.symbol);
           return {
             symbol: row.symbol,
             name: row.name,
@@ -243,7 +266,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
         `[market-data] database unavailable (${(error as Error).message}); using built-in universe`,
       );
     }
-    return STOCK_UNIVERSE;
+    return getStockUniverse();
   }
 
   private async bootstrapSymbol(stock: UniverseStock): Promise<void> {

@@ -81,8 +81,14 @@ export class ApiController {
   // ------------------------------------------------------------ market data
 
   @Get('stocks')
-  getStocks(): Promise<unknown> {
-    return this.proxy.get('marketData', '/stocks');
+  getStocks(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50,
+    @Query('search') search?: string,
+  ): Promise<unknown> {
+    return this.proxy.get('marketData', '/stocks', {
+      params: { page, limit, search },
+    });
   }
 
   @Get('stocks/:symbol')
@@ -137,11 +143,14 @@ export class ApiController {
   @Get('signals')
   async getSignals(
     @Query('all', new DefaultValuePipe(false)) allSignals: boolean,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50,
+    @Query('search') search?: string,
+    @Query('signal') signal?: string,
   ): Promise<ApiResponse<unknown>> {
     return withDisclaimer(
       await this.proxy.get('signalEngine', '/signals', {
-        params: { all: allSignals, limit },
+        params: { all: allSignals, page, limit, search, signal },
       }),
     );
   }

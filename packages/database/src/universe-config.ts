@@ -31,21 +31,32 @@ export function getStockUniverse(mode?: UniverseMode): UniverseStock[] {
 
 /**
  * Get full universe (all NSE/BSE stocks)
- * Loads from expanded universe file if available
+ * Loads from complete universe file if available
  */
 function getFullUniverse(): UniverseStock[] {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const expanded: { STOCK_UNIVERSE: UniverseStock[] } = require('./universe-expanded');
+    const completeModule = require('./universe-complete') as {
+      STOCK_UNIVERSE_COMPLETE_FULL: UniverseStock[];
+    };
     console.log(
-      `[universe-config] Loaded full universe with ${expanded.STOCK_UNIVERSE.length} stocks`,
+      `[universe-config] Loaded full universe with ${completeModule.STOCK_UNIVERSE_COMPLETE_FULL.length} stocks`,
     );
-    return expanded.STOCK_UNIVERSE;
+    return completeModule.STOCK_UNIVERSE_COMPLETE_FULL;
   } catch {
-    console.warn(
-      `[universe-config] universe-expanded.ts not found. Run: npx ts-node scripts/fetch-all-stocks.ts`,
-    );
-    return DEFAULT_UNIVERSE; // Fallback to quick-start
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const expandedModule = require('./universe-expanded') as { STOCK_UNIVERSE: UniverseStock[] };
+      console.log(
+        `[universe-config] Loaded expanded universe with ${expandedModule.STOCK_UNIVERSE.length} stocks`,
+      );
+      return expandedModule.STOCK_UNIVERSE;
+    } catch {
+      console.warn(
+        `[universe-config] Full universe files not found. Falling back to default 33 stocks.`,
+      );
+      return DEFAULT_UNIVERSE; // Fallback to quick-start
+    }
   }
 }
 

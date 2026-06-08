@@ -169,6 +169,108 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
     return { support: detail.support, resistance: detail.resistance };
   }
 
+  async getSignalsPaginated(
+    page: number,
+    limit: number,
+    search?: string,
+    signalFilter?: string,
+    allSignals?: boolean,
+  ): Promise<{
+    data: Array<{
+      symbol: string;
+      signal: string;
+      confidence: number;
+      price: number;
+      target: number;
+      stopLoss: number;
+      riskReward: number;
+      rules: Record<string, unknown>;
+      createdAt: Date;
+    }>;
+    total: number;
+    page: number;
+    limit: number;
+    hasMore: boolean;
+  }> {
+    try {
+      interface SignalData {
+        symbol: string;
+        signal: string;
+        confidence: number;
+        price: number;
+        target: number;
+        stopLoss: number;
+        riskReward: number;
+        rules: Record<string, unknown>;
+        createdAt: Date;
+      }
+
+      let signals: SignalData[] = [];
+
+      if (allSignals) {
+        // Get current signal evaluation for all symbols
+        for (const symbol of this.store.symbols()) {
+          const candles = this.store.get(symbol);
+          if (candles.length === 0) continue;
+
+          const evaluation = evaluateSignal(candles);
+          signals.push({
+            symbol,
+            signal: evaluation.type,
+            confidence: evaluation.confidence,
+            price: evaluation.price,
+            target: evaluation.target ?? 0,
+            stopLoss: evaluation.stopLoss ?? 0,
+            riskReward: evaluation.riskReward ?? 0,
+            rules: evaluation.rules,
+            createdAt: new Date(),
+          });
+        }
+      } else {
+        // Get recent signals from database
+        const dbSignals = await this.prisma.signal.findMany({
+          orderBy: { createdAt: 'desc' },
+          take: 10000, // Fetch more for filtering
+        });
+        signals = dbSignals.map((s) => ({
+          symbol: s.symbol,
+          signal: s.signal,
+          confidence: typeof s.confidence === 'number' ? s.confidence : 0,
+          price: typeof s.price === 'number' ? s.price : 0,
+          target: typeof s.target === 'number' ? s.target : 0,
+          stopLoss: typeof s.stopLoss === 'number' ? s.stopLoss : 0,
+          riskReward: typeof s.riskReward === 'number' ? s.riskReward : 0,
+          rules: s.rules as Record<string, unknown>,
+          createdAt: s.createdAt,
+        }));
+      }
+
+      // Filter by search term (symbol or name)
+      if (search) {
+        const searchUpper = search.toUpperCase();
+        signals = signals.filter((s) => s.symbol.includes(searchUpper));
+      }
+
+      // Filter by signal type (BUY, SELL, HOLD)
+      if (signalFilter) {
+        signals = signals.filter((s) => s.signal === signalFilter);
+      }
+
+      // Sort by confidence descending
+      signals.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
+
+      const total = signals.length;
+      const start = (page - 1) * limit;
+      const data = signals.slice(start, start + limit);
+      const hasMore = start + limit < total;
+
+      return { data, total, page, limit, hasMore };
+    } catch (error) {
+      console.warn(`[signal-engine] getSignalsPaginated failed: ${(error as Error).message}`);
+      return { data: [], total: 0, page, limit, hasMore: false };
+    }
+  }
+
   // ------------------------------------------------------------- internals
 
   /** Single connection attempt; throws so the retry loop can back off. */
