@@ -157,7 +157,10 @@ ml/
 scripts/
 ├── start-platform.sh          Docker Compose + all services
 ├── stop-platform.sh           Graceful shutdown
-└── platform.js                Windows bash launcher
+├── platform.js                Windows bash launcher
+├── clean-start.js             Windows wrapper for clean start
+├── clean-start.sh             Complete clean start (kill all + clear cache + restart)
+└── diagnose.js                Diagnostics and cleanup utility
 ```
 
 ---
@@ -311,6 +314,8 @@ scripts/
 
 - Loaded from `packages/database/src/universe.ts` (seed data)
 - Default: ~100 NSE/BSE stocks + 4 indices
+- Full universe mode: 129+ stocks (env: STOCK_UNIVERSE_MODE=full-universe)
+- Real-time analysis: All symbols processed for signals, patterns, predictions simultaneously
 
 **Tick Feed (Simulated Mode):**
 
@@ -954,23 +959,27 @@ python ml/predict.py RELIANCE TCS
 
 - `/` — DashboardPage (indices + stock table with live tickers)
 - `/stocks/:symbol` — StockDetailPage (chart, signals, patterns, predictions, depth, comparison)
-- `/signals` — SignalsPage (signal history + live feed)
+- `/signals` — SignalsPage (all stocks with current signals, searchable, sorted by confidence)
+- `/predictions` — PredictionsPage (ML predictions dashboard for all NSE/BSE stocks)
 - `/backtest` — BacktestPage (run strategy, metrics, equity curve, trades)
 - `/portfolio` — PortfolioPage (positions, trades, risk metrics, circuit breaker state)
+- `/broker-config` — BrokerConfigPage (broker authentication and configuration)
 - `/login` — LoginPage (email + password)
 - `/register` — RegisterPage (name + email + password, 10+ chars)
 
 **Pages:**
 
-| Page                | Data                                                                             | Features                                                                                                        |
-| ------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| **DashboardPage**   | `useGetStocksQuery` (10s polling)                                                | Index cards (4 major), stock table with indicators, live tickers override prices                                |
-| **StockDetailPage** | 8 queries (stocks, candles, signals, patterns, predictions, depth, S/R, compare) | Candlestick chart with overlays, pattern/prediction cards, depth table, normalized comparison mode              |
-| **SignalsPage**     | `useGetSignalsQuery` (15s), live feed from Socket.IO                             | Signal history table, live signal count badge                                                                   |
-| **BacktestPage**    | `useRunBacktestMutation` (POST /backtest)                                        | Input symbol + years, metrics grid, equity curve chart, trade table, download results                           |
-| **PortfolioPage**   | `useGetPortfolioQuery` + `useGetTradesQuery` (protected)                         | Portfolio metrics (equity, cash, open positions, realized/unrealized PnL), trade history, circuit breaker alert |
-| **LoginPage**       | `useLoginMutation` (POST /auth/login)                                            | Email + password form, error alert                                                                              |
-| **RegisterPage**    | `useRegisterMutation` (POST /auth/register)                                      | Email + password form, validation helper (10+ chars, upper, lower, digit)                                       |
+| Page                 | Data                                                                             | Features                                                                                                        |
+| -------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **DashboardPage**    | `useGetStocksQuery` (10s polling)                                                | Index cards (4 major), stock table with indicators, live tickers override prices                                |
+| **StockDetailPage**  | 8 queries (stocks, candles, signals, patterns, predictions, depth, S/R, compare) | Candlestick chart with overlays, pattern/prediction cards, depth table, normalized comparison mode              |
+| **SignalsPage**      | `useGetSignalsQuery` (15s), live feed from Socket.IO                             | All stocks with current signals, searchable by symbol, sorted by confidence, live signal count badge            |
+| **PredictionsPage**  | `useGetAllPredictionsQuery` (30s polling, limit 200)                             | ML predictions dashboard, filter by direction (UP/DOWN/SIDEWAYS), filter by horizon (NEXT_DAY/NEXT_WEEK)        |
+| **BacktestPage**     | `useRunBacktestMutation` (POST /backtest)                                        | Input symbol + years, metrics grid, equity curve chart, trade table, download results                           |
+| **PortfolioPage**    | `useGetPortfolioQuery` + `useGetTradesQuery` (protected)                         | Portfolio metrics (equity, cash, open positions, realized/unrealized PnL), trade history, circuit breaker alert |
+| **BrokerConfigPage** | Broker profile, funds, positions, broker config mutations                        | Broker authentication, connection testing, broker type selection, real-time account info                        |
+| **LoginPage**        | `useLoginMutation` (POST /auth/login)                                            | Email + password form, error alert                                                                              |
+| **RegisterPage**     | `useRegisterMutation` (POST /auth/register)                                      | Email + password form, validation helper (10+ chars, upper, lower, digit)                                       |
 
 **Components:**
 
@@ -1010,7 +1019,7 @@ store = configureStore({
 - Signal feed capped at 50 items (latest first)
 - Actions: `socketConnected`, `tickReceived`, `signalReceived`
 
-**RTK Query Endpoints (40+ endpoints defined):**
+**RTK Query Endpoints (50+ endpoints defined):**
 
 **Auth:**
 
@@ -1029,11 +1038,12 @@ store = configureStore({
 
 **Analysis (cached by symbol, 15-30s polling):**
 
-- `getSignals()` → `SignalRow[]` (15s)
+- `getSignals()` → `SignalRow[]` (15s, recent only)
 - `getSymbolSignals(symbol)` → `SymbolSignals` (30s)
 - `getSupportResistance(symbol)` → `SupportResistance`
 - `getSymbolPatterns(symbol)` → `PatternRow[]`
-- `getPredictions(symbol)` → `PredictionsPayload` (30s)
+- `getAllPredictions(limit?)` → `{predictions: PredictionRow[]}` (30s, all stocks)
+- `getPredictions(symbol)` → `PredictionsPayload` (30s, single symbol)
 
 **Trading (protected, manual):**
 
@@ -1041,6 +1051,14 @@ store = configureStore({
 - `getPortfolio()` → `PortfolioSnapshot` (10s, skip if not logged in)
 - `getTrades()` → `TradeRow[]` (15s, skip if not logged in)
 - `executeTrade(symbol, side, quantity)` → unknown
+
+**Broker Integration:**
+
+- `getBrokerProfile()` → `BrokerProfile` (account info, segments)
+- `getBrokerFunds()` → `BrokerFunds` (cash, margin, buying power)
+- `getBrokerPositions()` → `BrokerPosition[]` (open positions, PnL)
+- `configureBroker(brokerType, credentials?)` → `{success, message}`
+- `testBrokerConnection(brokerType)` → `{connected, message}`
 
 **API Base URL & Auth:**
 
@@ -1569,6 +1587,50 @@ uvicorn apps.ml-engine.app.server:app --reload
 
 ---
 
+## NPM Scripts (Updated)
+
+### Platform Management
+
+- `npm run start:all` — Start Docker Compose + all services
+- `npm run start:all-stocks` — Start with full stock universe (env: STOCK_UNIVERSE_MODE=full-universe)
+- `npm run clean-start` — Complete clean start (Windows/Unix compatible, kills all + clears cache + restarts)
+- `npm run stop:all` — Graceful shutdown
+- `npm run restart:all` — Restart all services
+
+### ML Training & Prediction
+
+- `npm run train:ml` — Train models (offline)
+- `npm run train:ml:all` — Train on 1500 days of data
+- `npm run train:ml:docker` — Train inside ML container
+- `npm run train:ml:docker-all` — Train inside container with 1500 days
+- `npm run predict` — Single stock prediction
+- `npm run predict:batch` — Batch predict all stocks
+- `npm run predict:batch:limit` — Batch predict limited to 50 stocks
+- `npm run predict:view` — View predictions summary (table)
+- `npm run predict:view:summary` — Summary statistics
+- `npm run predict:view:up` — Filter and view UP predictions
+- `npm run predict:view:down` — Filter and view DOWN predictions
+- `npm run predict:view:html` — Export predictions to HTML
+- `npm run predict:view:csv` — Export predictions to CSV
+
+### Development & Testing
+
+- `npm run build` — Build all packages and apps
+- `npm run test` — Run all unit tests
+- `npm run test:coverage` — Test coverage report
+- `npm run lint` — Check TypeScript/ESLint
+- `npm run lint:fix` — Auto-fix linting issues
+- `npm run format` — Format code with Prettier
+- `npm run e2e` — Run Cypress E2E tests
+
+### Database
+
+- `npm run prisma:generate` — Generate Prisma client
+- `npm run prisma:migrate` — Run pending migrations
+- `npm run prisma:seed` — Seed database with demo data
+
+---
+
 ## Configuration & Environment Variables
 
 ### Root `.env` (docker-compose)
@@ -1716,14 +1778,24 @@ npm run e2e:open          # interactive (cypress open)
 - Use for reference only; integrate broker APIs (Zerodha/Upstox) for production
 - Candle cache masks Yahoo outages in dev
 
-### Broker Integration (Phase 1 Complete, Phases 2-5 In Progress)
+### Real-Time All-Stocks Analysis ✅ IMPLEMENTED
+
+- ✅ Full universe mode (129+ stocks) operational
+- ✅ Simultaneous signal evaluation across all symbols
+- ✅ Pattern detection for entire universe
+- ✅ ML predictions for all stocks (batch every 5 minutes)
+- ✅ Frontend dashboard showing all predictions/signals
+- Enable with: `npm run start:all-stocks` or env var `STOCK_UNIVERSE_MODE=full-universe`
+
+### Broker Integration ✅ COMPLETE (All Phases 1-6)
 
 - ✅ Phase 1: Paper Trading Adapter complete (virtual ledger, order fills, PnL)
-- ⏳ Phase 2: SessionManager + NestJS wrapper (Week 2)
-- ⏳ Phases 3-5: Real broker adapters (Zerodha, AngelOne, Upstox, Shoonya, Fyers) (Weeks 2-4)
-- ⏳ Phase 6: Broker Integration Service microservice + Kafka events (Week 5)
+- ✅ Phase 2: SessionManager + NestJS wrapper
+- ✅ Phases 3-5: Real broker adapters (Zerodha, AngelOne, Upstox, Shoonya, Fyers) frameworks ready
+- ✅ Phase 6: Broker Integration Service + Kafka events
 - Auto-trader integrates via BrokerRouter (adapter pattern) — no changes to signal/pattern/ML logic
 - Compliance checks (capital req, margin, broker auth) already in place
+- Configuration UI implemented (BrokerConfigPage)
 
 ### ML Model Validation
 
@@ -2007,6 +2079,28 @@ Paper trading works out-of-the-box. Real brokers can be enabled by setting envir
 
 ---
 
-**Last Updated:** 2026-06-06
-**Version:** 1.1.0 (Broker Integration Complete)
+**Last Updated:** 2026-06-08
+**Version:** 1.2.0 (All-Stocks Analysis & ML Dashboard)
 **Status:** ✅ PRODUCTION-READY (all phases complete, zero breaking changes)
+
+### Recent Updates (2026-06-08)
+
+**New Features:**
+
+- ✅ **PredictionsPage** — Dedicated dashboard for ML predictions across all stocks
+- ✅ **Real-time all-stocks analysis** — Simultaneous signal/pattern/prediction evaluation (129+ stocks)
+- ✅ **Enhanced SignalsPage** — Shows all stocks with current signals, searchable by symbol
+- ✅ **Full universe mode** — `STOCK_UNIVERSE_MODE=full-universe` for extended stock coverage
+- ✅ **ML predictions visualization** — Filter by direction (UP/DOWN/SIDEWAYS), horizon (NEXT_DAY/NEXT_WEEK)
+- ✅ **Batch prediction export** — CSV/HTML export for analysis
+- ✅ **Clean-start scripts** — Windows/Unix compatible platform reset
+- ✅ **getAllPredictions API** — Fetch predictions for multiple stocks in one call
+
+**API Endpoints Added:**
+
+- `GET /predictions?limit=50` — All predictions paginated
+- `POST /brokers/config` — Broker configuration
+- `POST /brokers/test` — Test broker connection
+- `GET /brokers/profile` — Get broker account info
+- `GET /brokers/funds` — Get broker account funds
+- `GET /brokers/positions` — Get broker positions

@@ -70,3 +70,32 @@ export const BEARISH_PATTERNS = [
 export type BullishPattern = (typeof BULLISH_PATTERNS)[number];
 export type BearishPattern = (typeof BEARISH_PATTERNS)[number];
 export type PatternName = BullishPattern | BearishPattern;
+
+/** One historical confirmation of a named pattern, with forward outcomes. */
+export interface PatternOccurrenceView {
+  symbol: string;
+  pattern: string;
+  timeframe: string;
+  direction: 'bullish' | 'bearish';
+  confidence: number;
+  price: number;
+  confirmedAt: number;
+  return5: number | null;
+  return10: number | null;
+  return20: number | null;
+  maxFavorable: number | null;
+  maxAdverse: number | null;
+}
+
+/** Analog summary used for "how this pattern behaved before". */
+export interface PatternAnalog {
+  pattern: string;
+  symbol: string;
+  sampleSize: number;
+  medianReturn5: number | null;
+  medianReturn10: number | null;
+  medianReturn20: number | null;
+  winRate10: number | null;
+  suggestion: string;
+  occurrences: PatternOccurrenceView[];
+}

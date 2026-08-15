@@ -109,7 +109,7 @@ def load_candles(
     a missing feed raises so predictions are only ever made on real data.
     """
     frame = fetch_candles(symbol, limit, is_index)
-    if frame is not None and len(frame) >= min(limit, 260):
+    if frame is not None and len(frame) >= 40:
         return frame
     if allow_synthetic:
         return synthetic_candles(symbol, limit)
@@ -120,15 +120,64 @@ def load_candles(
 
 
 def load_universe() -> List[str]:
+    """Load symbols from market-data (paged), then database, then fallback.
+
+    No minimum-size cutoff: a partial list is better than silently dropping
+    to 20 hardcoded names while thousands are still loading.
+    """
     try:
-        response = httpx.get(f"{settings.market_data_url}/stocks", timeout=10.0)
-        response.raise_for_status()
-        symbols = [row["symbol"] for row in response.json()]
+        symbols: List[str] = []
+        page = 1
+        while page <= 20:
+            response = httpx.get(
+                f"{settings.market_data_url}/stocks",
+                params={"page": page, "limit": 1000},
+                timeout=15.0,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if isinstance(payload, dict) and "data" in payload:
+                rows = payload["data"]
+                has_more = bool(payload.get("hasMore"))
+            else:
+                rows = payload if isinstance(payload, list) else []
+                has_more = False
+            symbols.extend(row["symbol"] for row in rows if row.get("symbol"))
+            if not has_more or not rows:
+                break
+            page += 1
         if symbols:
+            print(f"Loaded {len(symbols)} stocks from market-data-service")
             return symbols
-    except Exception:
-        pass
-    return list(FALLBACK_SYMBOLS)
+        print("Market-data-service returned no stocks, trying database...")
+    except Exception as e:
+        print(f"Market-data-service unavailable: {e}, trying database...")
+
+    try:
+        import asyncio
+
+        import asyncpg
+
+        async def fetch_from_db() -> List[str]:
+            conn = await asyncpg.connect(settings.asyncpg_dsn)
+            rows = await conn.fetch(
+                "SELECT symbol FROM stocks WHERE listed = true ORDER BY symbol"
+            )
+            await conn.close()
+            return [row["symbol"] for row in rows]
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        symbols = loop.run_until_complete(fetch_from_db())
+        loop.close()
+        if symbols:
+            print(f"Loaded {len(symbols)} stocks from database")
+            return symbols
+    except Exception as e:
+        print(f"Database query failed: {e}, using fallback...")
+
+    print(f"Using {len(FALLBACK_SYMBOLS)} fallback stocks")
+    return list(dict.fromkeys(FALLBACK_SYMBOLS))
 
 
 def load_market_context(limit: int) -> Dict[str, pd.DataFrame]:

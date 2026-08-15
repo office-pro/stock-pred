@@ -7,10 +7,14 @@ export class SignalsController {
   constructor(private readonly signals: SignalsService) {}
 
   @Get('signals')
-  getRecent(
+  async getSignals(
+    @Query('all', new DefaultValuePipe(false)) allSignals: boolean,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50,
-  ): Promise<unknown[]> {
-    return this.signals.getRecentSignals(Math.min(limit, 500));
+    @Query('search') search?: string,
+    @Query('signal') signal?: string,
+  ): Promise<unknown> {
+    return this.signals.getSignalsPaginated(page, Math.min(limit, 500), search, signal, allSignals);
   }
 
   @Get('signals/:symbol')

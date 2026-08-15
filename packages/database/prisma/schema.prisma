@@ -12,20 +12,29 @@ datasource db {
 }
 
 model Stock {
-  id        String   @id @default(uuid())
-  symbol    String   @unique
-  name      String
-  exchange  String
-  sector    String
-  indices   String[]
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id           String    @id @default(uuid())
+  symbol       String    @unique
+  name         String
+  exchange     String
+  sector       String
+  indices      String[]
+  isin         String?   @unique
+  series       String?
+  bseCode      String?   @map("bse_code")
+  yahooSymbol  String?   @map("yahoo_symbol")
+  listed       Boolean   @default(true)
+  listingDate  DateTime? @map("listing_date")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  signals     Signal[]
-  predictions Prediction[]
-  patterns    Pattern[]
-  trades      Trade[]
+  signals             Signal[]
+  predictions         Prediction[]
+  predictionOutcomes  PredictionOutcome[]
+  patterns            Pattern[]
+  trades              Trade[]
+  patternOccurrences  PatternOccurrence[]
 
+  @@index([listed, exchange])
   @@map("stocks")
 }
 
@@ -61,6 +70,29 @@ model Prediction {
 
   @@index([symbol, horizon, createdAt])
   @@map("predictions")
+}
+
+model PredictionOutcome {
+  id            String    @id @default(uuid())
+  symbol        String
+  horizon       String
+  predicted     String
+  confidence    Float
+  entry         Float
+  target        Float?
+  stopLoss      Float?    @map("stop_loss")
+  quantity      Int       @default(0)
+  actualReturn  Float?    @map("actual_return")
+  correct       Boolean?
+  predictedAt   BigInt    @map("predicted_at")
+  scoredAt      DateTime? @map("scored_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  stock Stock @relation(fields: [symbol], references: [symbol])
+
+  @@index([horizon, scoredAt])
+  @@index([symbol, horizon, predictedAt])
+  @@map("prediction_outcomes")
 }
 
 model Pattern {
@@ -195,6 +227,30 @@ model CandleRow {
   @@unique([symbol, timeframe, time])
   @@index([symbol, timeframe])
   @@map("candles")
+}
+
+// Historical named-pattern hits + forward outcomes (analog suggestions).
+model PatternOccurrence {
+  id           String   @id @default(uuid())
+  symbol       String
+  pattern      String
+  timeframe    String   @default("1d")
+  direction    String
+  confidence   Float
+  price        Float
+  confirmedAt  BigInt   @map("confirmed_at")
+  return5      Float?   @map("return_5")
+  return10     Float?   @map("return_10")
+  return20     Float?   @map("return_20")
+  maxFavorable Float?   @map("max_favorable")
+  maxAdverse   Float?   @map("max_adverse")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  stock Stock @relation(fields: [symbol], references: [symbol])
+
+  @@unique([symbol, pattern, timeframe, confirmedAt])
+  @@index([symbol, pattern])
+  @@map("pattern_occurrences")
 }
 
 model BacktestRun {

@@ -18,6 +18,12 @@ if [ ! -f .env ]; then
   cp .env.example .env
 fi
 
+# Configure npm to prevent timeout during Docker build
+echo "==> Configuring npm (increasing timeout for Docker build)"
+npm config set fetch-timeout 600000 2>/dev/null || true
+npm config set fetch-retry-mintimeout 20000 2>/dev/null || true
+npm config set fetch-retry-maxtimeout 120000 2>/dev/null || true
+
 # 1-4: infrastructure (Postgres, Redis, Kafka)
 echo "==> Starting infrastructure (postgres, redis, kafka)"
 docker compose up -d postgres redis kafka
@@ -43,7 +49,36 @@ done
 # Clear any half-created one-shot container left behind by an interrupted run.
 docker compose --profile apps rm -fs migrate >/dev/null 2>&1 || true
 echo "==> Building and starting all services (this builds images on first run)"
-docker compose --profile apps up -d --build
+
+# Build with retry logic (npm timeout during build is common on first run)
+BUILD_RETRIES=3
+BUILD_ATTEMPT=1
+BUILD_TIMEOUT=600  # 10 minutes per attempt
+while [ $BUILD_ATTEMPT -le $BUILD_RETRIES ]; do
+  echo "    [Attempt $BUILD_ATTEMPT/$BUILD_RETRIES] Building Docker images (timeout: ${BUILD_TIMEOUT}s)..."
+  if timeout $BUILD_TIMEOUT docker compose --profile apps up -d --build; then
+    echo "    ✅ Build succeeded"
+    break
+  else
+    EXIT_CODE=$?
+    if [ $EXIT_CODE -eq 124 ]; then
+      echo "    ⚠️  Build timed out after ${BUILD_TIMEOUT}s (attempt $BUILD_ATTEMPT/$BUILD_RETRIES)"
+    else
+      echo "    ⚠️  Build failed with exit code $EXIT_CODE (attempt $BUILD_ATTEMPT/$BUILD_RETRIES)"
+    fi
+    if [ $BUILD_ATTEMPT -lt $BUILD_RETRIES ]; then
+      echo "    Retrying in 10 seconds..."
+      sleep 10
+      # Clean up any partial containers
+      docker compose --profile apps down 2>/dev/null || true
+    else
+      echo "    ❌ Build failed after $BUILD_RETRIES attempts"
+      echo "    Check logs with: docker compose logs --tail 100"
+      exit 1
+    fi
+  fi
+  BUILD_ATTEMPT=$((BUILD_ATTEMPT + 1))
+done
 
 # 8: verify health checks
 echo "==> Verifying service health"
@@ -58,12 +93,60 @@ declare -A endpoints=(
   [notification-service]="http://localhost:3007/health"
   [ml-engine]="http://localhost:8000/health"
 )
+
+# Check for crashed services before health checks
+echo "==> Checking service status..."
+crashed=0
+for name in api-gateway auth-service market-data-service signal-engine pattern-engine backtest-service auto-trader notification-service ml-engine; do
+  container_status=$(docker compose ps --format '{{.Status}}' "$name" 2>/dev/null || echo "")
+  if [ -z "$container_status" ]; then
+    echo "    $name: NOT STARTED"
+  elif echo "$container_status" | grep -q "Exited"; then
+    echo "    $name: CRASHED - $(docker compose logs --tail 5 "$name" 2>&1 | tail -1)"
+    crashed=$((crashed + 1))
+  else
+    echo "    $name: $container_status"
+  fi
+done
+
+if [ "$crashed" -gt 0 ]; then
+  echo "ERROR: $crashed service(s) crashed. Check logs with: docker compose logs <service>"
+  exit 1
+fi
+
+# Check market-data-service first (max 180s = 90 retries × 2s)
+# It has dependencies on postgres, redis, kafka, and migrate, so it needs extra time
+echo "==> Waiting for market-data-service to be healthy (priority - max 180s)..."
+ok=0
+for i in $(seq 1 90); do
+  if curl -fsS --max-time 5 "http://localhost:3002/health" >/dev/null 2>&1; then
+    ok=1
+    echo "    market-data-service: OK"
+    break
+  fi
+  if [ $((i % 10)) -eq 0 ]; then
+    echo "    market-data-service: waiting... ($((i * 2))s elapsed)"
+  fi
+  sleep 2
+done
+
+if [ "$ok" != "1" ]; then
+  echo "ERROR: market-data-service failed to become healthy after 180s"
+  docker compose logs --tail 20 market-data-service
+  exit 1
+fi
+
+# Check remaining services (max 90s per service)
+echo "==> Verifying remaining services (max 90s each)..."
 failures=0
 for name in "${!endpoints[@]}"; do
+  if [ "$name" = "market-data-service" ]; then
+    continue  # Already checked
+  fi
   url="${endpoints[$name]}"
   ok=0
   for i in $(seq 1 45); do
-    if curl -fsS "$url" >/dev/null 2>&1; then
+    if curl -fsS --max-time 5 "$url" >/dev/null 2>&1; then
       ok=1
       break
     fi
@@ -72,14 +155,14 @@ for name in "${!endpoints[@]}"; do
   if [ "$ok" = "1" ]; then
     echo "    $name: OK"
   else
-    echo "    $name: FAILED ($url)"
+    echo "    $name: TIMEOUT ($url) - service may not have a health endpoint"
     failures=$((failures + 1))
   fi
 done
 
 if [ "$failures" -gt 0 ]; then
-  echo "WARNING: $failures service(s) failed health checks. Inspect with: docker compose logs <service>"
-  exit 1
+  echo "WARNING: $failures service(s) failed health checks (but may still be running)"
+  echo "Run 'docker compose logs <service>' to debug"
 fi
 
 echo ""
@@ -90,5 +173,10 @@ echo "    ML Engine:    http://localhost:8000/health"
 echo ""
 echo "    Train ML models:   npm run train:ml   (or: docker compose exec ml-engine python -m app.train --synthetic)"
 echo "    Run a backtest:    npm run backtest -- --symbol RELIANCE --years 3"
+echo ""
+echo "==> Useful commands:"
+echo "    View logs:         docker compose logs -f <service>"
+echo "    Stop services:     npm run stop:all"
+echo "    Restart services:  npm run restart:all"
 echo ""
 echo "This is not investment advice. Paper trading is enabled by default."

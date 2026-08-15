@@ -48,13 +48,23 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async initialize(): Promise<void> {
+    console.log('[signal-engine] starting initialization...');
     await this.store.warmup().catch((error: Error) => {
       console.warn(`[signal-engine] warmup incomplete: ${error.message}`);
     });
+    const symbolCount = this.store.symbols().length;
+    console.log(`[signal-engine] initialization: ${symbolCount} symbols loaded`);
+
     void this.maintainKafka();
     // Evaluate the warmed-up universe once at boot.
-    for (const symbol of this.store.symbols()) {
-      await this.evaluateSymbol(symbol, true);
+    if (symbolCount > 0) {
+      console.log('[signal-engine] evaluating all symbols...');
+      for (const symbol of this.store.symbols()) {
+        await this.evaluateSymbol(symbol, true);
+      }
+      console.log('[signal-engine] initialization complete');
+    } else {
+      console.warn('[signal-engine] no symbols to evaluate');
     }
   }
 
@@ -109,6 +119,35 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async getAllSignals(limit: number): Promise<unknown[]> {
+    try {
+      // Get current signal evaluation for all symbols
+      const signals = [];
+      for (const symbol of this.store.symbols()) {
+        const candles = this.store.get(symbol);
+        if (candles.length === 0) continue;
+
+        const evaluation = evaluateSignal(candles);
+        signals.push({
+          symbol,
+          signal: evaluation.type,
+          confidence: evaluation.confidence,
+          price: evaluation.price,
+          target: evaluation.target ?? 0,
+          stopLoss: evaluation.stopLoss ?? 0,
+          riskReward: evaluation.riskReward ?? 0,
+          rules: evaluation.rules,
+          createdAt: new Date(),
+        });
+      }
+      // Sort by confidence descending and limit
+      return signals.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0)).slice(0, limit);
+    } catch (error) {
+      console.warn(`[signal-engine] getAllSignals failed: ${(error as Error).message}`);
+      return [];
+    }
+  }
+
   async getSignalsForSymbol(
     symbol: string,
     limit: number,
@@ -138,6 +177,117 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
     const vwapValue = lastFinite(vwap(candles.slice(-30)));
     const detail = computeSupportResistance(candles, { vwapValue });
     return { support: detail.support, resistance: detail.resistance };
+  }
+
+  async getSignalsPaginated(
+    page: number,
+    limit: number,
+    search?: string,
+    signalFilter?: string,
+    allSignals?: boolean,
+  ): Promise<{
+    data: Array<{
+      symbol: string;
+      signal: string;
+      confidence: number;
+      price: number;
+      target: number;
+      stopLoss: number;
+      riskReward: number;
+      rules: Record<string, unknown>;
+      createdAt: Date;
+    }>;
+    total: number;
+    page: number;
+    limit: number;
+    hasMore: boolean;
+  }> {
+    try {
+      interface SignalData {
+        symbol: string;
+        signal: string;
+        confidence: number;
+        price: number;
+        target: number;
+        stopLoss: number;
+        riskReward: number;
+        rules: Record<string, unknown>;
+        createdAt: Date;
+      }
+
+      let signals: SignalData[] = [];
+      let useDatabase = allSignals === false;
+
+      // If database signals are requested, try to load them
+      if (useDatabase) {
+        const dbSignals = await this.prisma.signal.findMany({
+          orderBy: { createdAt: 'desc' },
+          take: 10000, // Fetch more for filtering
+        });
+        if (dbSignals.length > 0) {
+          signals = dbSignals.map((s) => ({
+            symbol: s.symbol,
+            signal: s.signal,
+            confidence: typeof s.confidence === 'number' ? s.confidence : 0,
+            price: typeof s.price === 'number' ? s.price : 0,
+            target: typeof s.target === 'number' ? s.target : 0,
+            stopLoss: typeof s.stopLoss === 'number' ? s.stopLoss : 0,
+            riskReward: typeof s.riskReward === 'number' ? s.riskReward : 0,
+            rules: s.rules as Record<string, unknown>,
+            createdAt: s.createdAt,
+          }));
+        } else {
+          // No database signals, fall back to live evaluation
+          console.log('[signal-engine] no database signals found, falling back to live evaluation');
+          useDatabase = false;
+        }
+      }
+
+      // If not using database (or no results), get current live signal evaluation
+      if (!useDatabase && signals.length === 0) {
+        for (const symbol of this.store.symbols()) {
+          const candles = this.store.get(symbol);
+          if (candles.length === 0) continue;
+
+          const evaluation = evaluateSignal(candles);
+          signals.push({
+            symbol,
+            signal: evaluation.type,
+            confidence: evaluation.confidence,
+            price: evaluation.price,
+            target: evaluation.target ?? 0,
+            stopLoss: evaluation.stopLoss ?? 0,
+            riskReward: evaluation.riskReward ?? 0,
+            rules: evaluation.rules,
+            createdAt: new Date(),
+          });
+        }
+      }
+
+      // Filter by search term (symbol or name)
+      if (search) {
+        const searchUpper = search.toUpperCase();
+        signals = signals.filter((s) => s.symbol.includes(searchUpper));
+      }
+
+      // Filter by signal type (BUY, SELL, HOLD)
+      if (signalFilter) {
+        signals = signals.filter((s) => s.signal === signalFilter);
+      }
+
+      // Sort by confidence descending
+      signals.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
+
+      const total = signals.length;
+      const start = (page - 1) * limit;
+      const data = signals.slice(start, start + limit);
+      const hasMore = start + limit < total;
+
+      return { data, total, page, limit, hasMore };
+    } catch (error) {
+      console.warn(`[signal-engine] getSignalsPaginated failed: ${(error as Error).message}`);
+      return { data: [], total: 0, page, limit, hasMore: false };
+    }
   }
 
   // ------------------------------------------------------------- internals

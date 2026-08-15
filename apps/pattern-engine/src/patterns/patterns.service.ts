@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { getPrismaClient } from '@stockpred/database';
 import {
   createKafkaClient,
@@ -8,9 +8,10 @@ import {
   MarketCandleEvent,
   PatternDetectedEvent,
 } from '@stockpred/shared-events';
-import { DetectedPattern, Timeframe } from '@stockpred/shared-types';
+import { DetectedPattern, PatternAnalog, Timeframe } from '@stockpred/shared-types';
 import { CandleStore } from './candle-store';
 import { detectPatterns } from './detectors';
+import { buildAnalog } from './history-scan';
 
 const DETECTION_INTERVAL_MS = 60 * 1000;
 const PATTERN_COOLDOWN_MS = 30 * 60 * 1000;
@@ -92,7 +93,7 @@ export class PatternsService implements OnModuleInit, OnModuleDestroy {
 
   async getPatternsForSymbol(symbol: string, limit: number): Promise<unknown> {
     const candles = this.store.get(symbol);
-    if (candles.length === 0) throw new NotFoundException(`No data for symbol: ${symbol}`);
+    const current = candles.length >= 30 ? detectPatterns(candles) : [];
     let history: unknown[] = [];
     try {
       history = await this.prisma.pattern.findMany({
@@ -103,7 +104,65 @@ export class PatternsService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       console.warn(`[pattern-engine] history read failed: ${(error as Error).message}`);
     }
-    return { history, current: detectPatterns(candles) };
+
+    let occurrences: unknown[] = [];
+    let analog: unknown = null;
+    try {
+      occurrences = (
+        await this.prisma.patternOccurrence.findMany({
+          where: { symbol },
+          orderBy: { confirmedAt: 'desc' },
+          take: 40,
+        })
+      ).map((row) => ({
+        ...row,
+        confirmedAt: Number(row.confirmedAt),
+      }));
+      analog = await this.getAnalog(symbol, current[0]?.pattern);
+    } catch (error) {
+      console.warn(`[pattern-engine] analog read failed: ${(error as Error).message}`);
+    }
+
+    return { history, current, analog, occurrences };
+  }
+
+  async getAnalog(
+    symbol: string,
+    pattern?: string,
+  ): Promise<PatternAnalog | { available: string[] }> {
+    const current = detectPatterns(this.store.get(symbol));
+    const chosen = pattern ?? current[0]?.pattern;
+    const grouped = await this.prisma.patternOccurrence.groupBy({
+      by: ['pattern'],
+      where: { symbol },
+      _count: { pattern: true },
+    });
+    const available = grouped.map((row) => row.pattern);
+    if (!chosen) return { available };
+
+    const rows = await this.prisma.patternOccurrence.findMany({
+      where: { symbol, pattern: chosen },
+      orderBy: { confirmedAt: 'desc' },
+      take: 50,
+    });
+    return buildAnalog(
+      symbol,
+      chosen,
+      rows.map((row) => ({
+        symbol: row.symbol,
+        pattern: row.pattern,
+        timeframe: row.timeframe,
+        direction: row.direction as 'bullish' | 'bearish',
+        confidence: row.confidence,
+        price: row.price,
+        confirmedAt: Number(row.confirmedAt),
+        return5: row.return5,
+        return10: row.return10,
+        return20: row.return20,
+        maxFavorable: row.maxFavorable,
+        maxAdverse: row.maxAdverse,
+      })),
+    );
   }
 
   // ------------------------------------------------------------- internals

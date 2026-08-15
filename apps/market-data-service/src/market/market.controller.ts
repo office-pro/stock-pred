@@ -23,8 +23,23 @@ export class MarketController {
   constructor(private readonly market: MarketService) {}
 
   @Get('stocks')
-  getStocks(): StockQuote[] {
-    return this.market.getQuotes();
+  getStocks(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50,
+    @Query('search') search?: string,
+    @Query('exchange') exchange?: string,
+    @Query('suggestion') suggestion?: string,
+    @Query('horizon') horizon?: string,
+  ): {
+    data: StockQuote[];
+    total: number;
+    page: number;
+    limit: number;
+    hasMore: boolean;
+    counts: { NSE: number; BSE: number; all: number };
+    suggestions: { BUY: number; SELL: number; HOLD: number };
+  } {
+    return this.market.getQuotesPaginated(page, limit, search, exchange, suggestion, horizon);
   }
 
   @Get('stocks/:symbol')

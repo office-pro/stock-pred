@@ -19,4 +19,12 @@ export class PatternsController {
   ): Promise<unknown> {
     return this.patterns.getPatternsForSymbol(symbol.toUpperCase(), Math.min(limit, 200));
   }
+
+  @Get('patterns/:symbol/analogs')
+  getAnalogs(
+    @Param('symbol') symbol: string,
+    @Query('pattern') pattern?: string,
+  ): Promise<unknown> {
+    return this.patterns.getAnalog(symbol.toUpperCase(), pattern);
+  }
 }

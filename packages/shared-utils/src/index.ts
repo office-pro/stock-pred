@@ -2,6 +2,7 @@ export * from './math';
 export * from './indicators';
 export * from './support-resistance';
 export * from './signal-rules';
+export * from './advisory';
 export * from './metrics';
 export * from './risk';
 export * from './relative';

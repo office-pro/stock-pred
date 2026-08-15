@@ -8,7 +8,9 @@ import type {
   IndexQuote,
   MarketDepth,
   PortfolioSnapshot,
+  PredictionAccuracy,
   RelativeComparison,
+  PatternAnalog,
   StockQuote,
   SupportResistance,
 } from '@stockpred/shared-types';
@@ -122,10 +124,37 @@ export const api = createApi({
       return headers;
     },
   }),
-  tagTypes: ['Stocks', 'Signals', 'Portfolio', 'Trades'],
+  tagTypes: ['Stocks', 'Signals', 'Predictions', 'Portfolio', 'Trades'],
   endpoints: (builder) => ({
-    getStocks: builder.query<StockQuote[], void>({
-      query: () => '/stocks',
+    getStocks: builder.query<
+      {
+        data: StockQuote[];
+        total: number;
+        page: number;
+        limit: number;
+        hasMore: boolean;
+        counts?: { NSE: number; BSE: number; all: number };
+        suggestions?: { BUY: number; SELL: number; HOLD: number };
+      },
+      {
+        page?: number;
+        limit?: number;
+        search?: string;
+        exchange?: string;
+        suggestion?: string;
+        horizon?: string;
+      }
+    >({
+      query: ({ page = 1, limit = 50, search, exchange, suggestion, horizon } = {}) => {
+        const params = new URLSearchParams();
+        params.append('page', page.toString());
+        params.append('limit', limit.toString());
+        if (search) params.append('search', search);
+        if (exchange) params.append('exchange', exchange);
+        if (suggestion) params.append('suggestion', suggestion);
+        if (horizon) params.append('horizon', horizon);
+        return `/stocks?${params.toString()}`;
+      },
       providesTags: ['Stocks'],
     }),
     getStock: builder.query<StockQuote, string>({
@@ -156,6 +185,36 @@ export const api = createApi({
       transformResponse: unwrap<SignalRow[]>,
       providesTags: ['Signals'],
     }),
+    getSignalsPaginated: builder.query<
+      {
+        data: SignalRow[];
+        total: number;
+        page: number;
+        limit: number;
+        hasMore: boolean;
+      },
+      { page?: number; limit?: number; search?: string; signal?: string; all?: boolean }
+    >({
+      query: ({ page = 1, limit = 50, search, signal, all = true } = {}) => {
+        const params = new URLSearchParams();
+        params.append('page', page.toString());
+        params.append('limit', limit.toString());
+        params.append('all', all.toString());
+        if (search) params.append('search', search);
+        if (signal) params.append('signal', signal);
+        return `/signals?${params.toString()}`;
+      },
+      transformResponse: (
+        response: ApiResponse<{
+          data: SignalRow[];
+          total: number;
+          page: number;
+          limit: number;
+          hasMore: boolean;
+        }>,
+      ) => response.data,
+      providesTags: ['Signals'],
+    }),
     getSymbolSignals: builder.query<SymbolSignals, string>({
       query: (symbol) => `/signals/${symbol}`,
       transformResponse: unwrap<SymbolSignals>,
@@ -164,9 +223,81 @@ export const api = createApi({
       query: (symbol) => `/support-resistance/${symbol}`,
       transformResponse: unwrap<SupportResistance>,
     }),
-    getSymbolPatterns: builder.query<{ history: PatternRow[]; current: unknown[] }, string>({
+    getSymbolPatterns: builder.query<
+      {
+        history: PatternRow[];
+        current: unknown[];
+        analog?: PatternAnalog | { available: string[] } | null;
+        occurrences?: Array<{
+          id: string;
+          symbol: string;
+          pattern: string;
+          direction: string;
+          confidence: number;
+          price: number;
+          confirmedAt: string | number;
+          return5?: number | null;
+          return10?: number | null;
+          return20?: number | null;
+        }>;
+      },
+      string
+    >({
       query: (symbol) => `/patterns/${symbol}`,
-      transformResponse: unwrap<{ history: PatternRow[]; current: unknown[] }>,
+      transformResponse: unwrap<{
+        history: PatternRow[];
+        current: unknown[];
+        analog?: PatternAnalog | { available: string[] } | null;
+        occurrences?: Array<{
+          id: string;
+          symbol: string;
+          pattern: string;
+          direction: string;
+          confidence: number;
+          price: number;
+          confirmedAt: string | number;
+          return5?: number | null;
+          return10?: number | null;
+          return20?: number | null;
+        }>;
+      }>,
+    }),
+    getAllPredictions: builder.query<
+      {
+        predictions: Array<{
+          symbol: string;
+          horizon: string;
+          direction: string;
+          confidence: number;
+          expectedMove: number;
+          createdAt: string;
+        }>;
+        total?: number;
+        page?: number;
+        limit?: number;
+        hasMore?: boolean;
+      },
+      { limit?: number; page?: number; search?: string; horizon?: string; direction?: string }
+    >({
+      query: ({ limit = 50, page = 1, search, horizon, direction } = {}) => {
+        const params = new URLSearchParams();
+        params.append('limit', String(limit));
+        params.append('page', String(page));
+        if (search) params.append('search', search);
+        if (horizon) params.append('horizon', horizon);
+        if (direction) params.append('direction', direction);
+        return `/predictions?${params.toString()}`;
+      },
+      transformResponse: unwrap,
+      providesTags: ['Predictions'],
+    }),
+    getPredictionAccuracy: builder.query<PredictionAccuracy, { horizon?: string } | void>({
+      query: (arg) => {
+        const horizon = arg && 'horizon' in arg ? arg.horizon : 'NEXT_DAY';
+        return `/predictions/accuracy?horizon=${horizon ?? 'NEXT_DAY'}`;
+      },
+      transformResponse: unwrap<PredictionAccuracy>,
+      providesTags: ['Predictions'],
     }),
     getPredictions: builder.query<PredictionsPayload, string>({
       query: (symbol) => `/predictions/${symbol}`,
@@ -257,9 +388,12 @@ export const {
   useGetDepthQuery,
   useGetCompareQuery,
   useGetSignalsQuery,
+  useGetSignalsPaginatedQuery,
   useGetSymbolSignalsQuery,
   useGetSupportResistanceQuery,
   useGetSymbolPatternsQuery,
+  useGetAllPredictionsQuery,
+  useGetPredictionAccuracyQuery,
   useGetPredictionsQuery,
   useRunBacktestMutation,
   useGetPortfolioQuery,

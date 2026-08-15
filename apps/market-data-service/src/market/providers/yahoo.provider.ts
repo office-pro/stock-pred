@@ -114,16 +114,25 @@ export class YahooProvider implements MarketDataProvider {
 
   private async fetchChart(symbol: string, yahooSymbol: string, range: string): Promise<Candle[]> {
     const response = await withRetry(
-      () =>
-        axios.get<YahooChartResponse>(
-          `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}`,
-          {
-            params: { range, interval: '1d' },
-            timeout: 15_000,
-            headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
-          },
-        ),
-      { retries: 3, delayMs: 1500, backoff: 2 },
+      async () => {
+        try {
+          return await axios.get<YahooChartResponse>(
+            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}`,
+            {
+              params: { range, interval: '1d' },
+              timeout: 15_000,
+              headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+            },
+          );
+        } catch (error: unknown) {
+          // Fail fast on 404 - don't retry invalid tickers
+          if (axios.isAxiosError(error) && error.response?.status === 404) {
+            throw new Error(`Request failed with status code 404`);
+          }
+          throw error;
+        }
+      },
+      { retries: 1, delayMs: 500, backoff: 1 },
     );
     const result = response.data.chart.result?.[0];
     const quote = result?.indicators.quote[0];
