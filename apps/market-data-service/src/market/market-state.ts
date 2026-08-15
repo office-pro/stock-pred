@@ -21,6 +21,8 @@ export interface SymbolState {
   indicators: IndicatorSnapshot | null;
   /** Provenance: live provider, cached real data, or simulated fallback. */
   dataSource: MarketDataSource;
+  isin?: string | null;
+  bseCode?: string | null;
 }
 
 export const INTRADAY_BUFFER = 500;

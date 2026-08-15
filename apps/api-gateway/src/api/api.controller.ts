@@ -85,9 +85,12 @@ export class ApiController {
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50,
     @Query('search') search?: string,
+    @Query('exchange') exchange?: string,
+    @Query('suggestion') suggestion?: string,
+    @Query('horizon') horizon?: string,
   ): Promise<unknown> {
     return this.proxy.get('marketData', '/stocks', {
-      params: { page, limit, search },
+      params: { page, limit, search, exchange, suggestion, horizon },
     });
   }
 
@@ -187,14 +190,41 @@ export class ApiController {
     );
   }
 
+  @Get('patterns/:symbol/analogs')
+  async getPatternAnalogs(
+    @Param('symbol') symbol: string,
+    @Query('pattern') pattern?: string,
+  ): Promise<ApiResponse<unknown>> {
+    return withDisclaimer(
+      await this.proxy.get('patternEngine', `/patterns/${encodeURIComponent(symbol)}/analogs`, {
+        params: pattern ? { pattern } : undefined,
+      }),
+    );
+  }
+
   // ------------------------------------------------------------- predictions
 
   @Get('predictions')
   async getAllPredictions(
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
+    @Query('search') search?: string,
+    @Query('horizon') horizon?: string,
+    @Query('direction') direction?: string,
   ): Promise<ApiResponse<unknown>> {
     return withDisclaimer(
-      await this.proxy.get('mlEngine', '/predictions/all', { params: { limit } }),
+      await this.proxy.get('mlEngine', '/predictions/all', {
+        params: { limit: Math.min(limit, 5000), page, search, horizon, direction },
+      }),
+    );
+  }
+
+  @Get('predictions/accuracy')
+  async getPredictionAccuracy(
+    @Query('horizon') horizon = 'NEXT_DAY',
+  ): Promise<ApiResponse<unknown>> {
+    return withDisclaimer(
+      await this.proxy.get('mlEngine', '/predictions/accuracy', { params: { horizon } }),
     );
   }
 

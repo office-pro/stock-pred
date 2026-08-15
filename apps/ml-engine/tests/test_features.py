@@ -43,3 +43,12 @@ def test_make_dataset_shapes_align():
     assert x.shape[1] == len(FEATURE_COLUMNS)
     assert x.shape[0] > 200
     assert not np.isnan(x).any()
+
+
+def test_make_dataset_works_with_sixty_sessions():
+    candles = synthetic_candles("INFY", 80)
+    features = build_features(candles)
+    x, y, fwd = make_dataset(features, horizon_bars=1, threshold=0.01)
+    assert x.shape[0] == y.shape[0] == fwd.shape[0]
+    assert x.shape[0] > 20
+    assert not np.isnan(x).any()

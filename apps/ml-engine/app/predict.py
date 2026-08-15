@@ -52,14 +52,13 @@ def models_available() -> bool:
     )
 
 
-def predict_symbol(symbol: str, history_days: int = 420) -> List[Dict[str, object]]:
+def predict_symbol(symbol: str, history_days: int = 120) -> List[Dict[str, object]]:
     """Score one symbol for every horizon. Returns spec-shaped prediction dicts."""
     candles = load_candles(symbol, history_days)
     market = load_market_context(history_days)
     features = build_features(candles, market)
     matrix = features[FEATURE_COLUMNS].to_numpy(dtype="float32")
-    valid = ~np.isnan(matrix).any(axis=1)
-    matrix = matrix[valid]
+    matrix = np.nan_to_num(matrix, nan=0.0)
     if matrix.shape[0] < SEQUENCE_LENGTH:
         raise RuntimeError(f"Not enough feature history for {symbol}")
 

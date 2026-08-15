@@ -13,27 +13,50 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import DISCLAIMER, settings
 from .data import load_universe
-from .persistence import persist_prediction, publish_prediction, shutdown
+from .persistence import (
+    list_cached,
+    persist_latest_file,
+    persist_prediction,
+    publish_prediction,
+    shutdown,
+)
 from .predict import models_available, predict_symbol
+from .score import load_accuracy, score_all
 
 _background_task = None
+_scored_ledger = False
 
 
 async def prediction_loop() -> None:
     """Periodically score the universe and publish predictions.generated."""
+    global _scored_ledger
     await asyncio.sleep(15)  # let the platform settle on boot
     while True:
         if models_available():
-            symbols = load_universe()
+            symbols = load_universe()[:200]
             print(f"[ml-engine] scoring {len(symbols)} symbols")
+            scored = 0
             for symbol in symbols:
                 try:
                     predictions = await asyncio.to_thread(predict_symbol, symbol)
                     for prediction in predictions:
                         await persist_prediction(prediction)
                         await publish_prediction(prediction)
+                    scored += 1
+                    if scored % 20 == 0:
+                        persist_latest_file()
+                        print(f"[ml-engine] cached {scored}/{len(symbols)} symbols")
                 except Exception as error:  # noqa: BLE001
                     print(f"[ml-engine] scoring failed for {symbol}: {error}")
+            persist_latest_file()
+            print("[ml-engine] latest predictions cached to disk")
+            if not _scored_ledger:
+                try:
+                    await asyncio.to_thread(score_all)
+                    _scored_ledger = True
+                    print("[ml-engine] outcome ledger refreshed")
+                except Exception as error:  # noqa: BLE001
+                    print(f"[ml-engine] outcome scoring failed: {error}")
         else:
             print("[ml-engine] no trained models found - run `python ml/train.py`")
         await asyncio.sleep(settings.prediction_interval_seconds)
@@ -67,25 +90,46 @@ def health() -> Dict[str, object]:
 
 
 @app.get("/predictions/all")
-async def get_all_predictions(limit: int = 50) -> Dict[str, object]:
-    """Fetch latest predictions for all stocks from database."""
+async def get_all_predictions(
+    limit: int = 50,
+    page: int = 1,
+    search: str = "",
+    horizon: str = "",
+    direction: str = "",
+) -> Dict[str, object]:
+    """Latest prediction per symbol/horizon, paginated."""
+    page = max(page, 1)
+    limit = min(max(limit, 1), 5000)
+    offset = (page - 1) * limit
     try:
         import asyncpg
-        from .config import settings
+
         conn = await asyncpg.connect(settings.asyncpg_dsn)
-        # Get latest prediction per symbol per horizon
         rows = await conn.fetch(
             """
-            SELECT DISTINCT ON (symbol, horizon)
-              symbol, horizon, direction, confidence, expected_move, model_version, created_at
-            FROM predictions
-            ORDER BY symbol, horizon, created_at DESC
-            LIMIT $1
+            WITH latest AS (
+              SELECT DISTINCT ON (symbol, horizon)
+                symbol, horizon, direction, confidence, expected_move, model_version, created_at
+              FROM predictions
+              WHERE ($1 = '' OR symbol ILIKE '%' || $1 || '%')
+                AND ($2 = '' OR horizon = $2)
+                AND ($3 = '' OR direction = $3)
+              ORDER BY symbol, horizon, created_at DESC
+            )
+            SELECT *, COUNT(*) OVER() AS total
+            FROM latest
+            ORDER BY confidence DESC
+            LIMIT $4 OFFSET $5
             """,
-            limit * 2,  # fetch more to account for 2 horizons per symbol
+            search.upper(),
+            horizon,
+            direction,
+            limit,
+            offset,
         )
         await conn.close()
 
+        total = int(rows[0]["total"]) if rows else 0
         predictions = [
             {
                 "symbol": row["symbol"],
@@ -98,9 +142,48 @@ async def get_all_predictions(limit: int = 50) -> Dict[str, object]:
             }
             for row in rows
         ]
-        return {"predictions": predictions, "disclaimer": DISCLAIMER}
+        if predictions:
+            return {
+                "predictions": predictions,
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "hasMore": offset + len(predictions) < total,
+                "disclaimer": DISCLAIMER,
+            }
     except Exception as error:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(error)}") from error
+        print(f"[ml-engine] predictions/all db fallback: {error}")
+
+    cached = list_cached(search, horizon, direction, limit, offset)
+    return {
+        "predictions": cached["predictions"],
+        "total": cached["total"],
+        "page": page,
+        "limit": limit,
+        "hasMore": offset + len(cached["predictions"]) < cached["total"],
+        "disclaimer": DISCLAIMER,
+        "source": "cache",
+    }
+
+
+@app.get("/predictions/accuracy")
+def get_accuracy(horizon: str = "NEXT_DAY") -> Dict[str, object]:
+    payload = load_accuracy(horizon or None)
+    if not payload:
+        raise HTTPException(
+            status_code=404,
+            detail="Accuracy has not been scored yet. Run `python -m app.score`.",
+        )
+    payload["disclaimer"] = DISCLAIMER
+    return payload
+
+
+@app.post("/predictions/score")
+def trigger_score() -> Dict[str, object]:
+    try:
+        return score_all()
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @app.get("/predictions/{symbol}")

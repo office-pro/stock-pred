@@ -1,5 +1,10 @@
 import { Injectable, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { getPrismaClient, UniverseStock, getStockUniverse } from '@stockpred/database';
+import {
+  getPrismaClient,
+  UniverseStock,
+  getStockUniverse,
+  getUniverseMode,
+} from '@stockpred/database';
 import { KAFKA_TOPICS, MarketCandleEvent, MarketTickEvent } from '@stockpred/shared-events';
 import {
   Candle,
@@ -13,15 +18,29 @@ import {
   StockQuote,
   Tick,
   Timeframe,
+  TradeSuggestion,
+  PredictionHorizon,
 } from '@stockpred/shared-types';
 import {
   compareToBenchmark,
+  composeTradeAdvisory,
   computeIndicatorSnapshot,
   getEnv,
   getEnvNumber,
   round2,
+  DEFAULT_PAPER_CAPITAL,
 } from '@stockpred/shared-utils';
 import { CandleCache } from './candle-cache';
+import {
+  BhavQuote,
+  loadBhavcopySession,
+  loadLatestBhavcopy,
+  loadLatestIndexCloses,
+  OfficialIndexClose,
+  quoteToCandle,
+  recentWeekdays,
+} from './bhavcopy-quotes';
+import { PredictionCache } from './prediction-cache';
 import { KafkaProducerService } from './kafka.service';
 import { IndexState, INTRADAY_BUFFER, SymbolState } from './market-state';
 import { MarketDataProvider } from './providers/provider.interface';
@@ -34,14 +53,14 @@ const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HISTORY_DAYS = 2700; // ~10 trading years of calendar days
 /** Minimum cached candles considered a usable offline history. */
-const MIN_CACHED_CANDLES = 60;
+const MIN_CACHED_CANDLES = 40;
 
 const INDEX_CONFIG: { name: MarketIndex; displayName: string; basePrice: number }[] = [
   { name: MarketIndex.NIFTY_50, displayName: 'Nifty 50', basePrice: 24500 },
   { name: MarketIndex.NIFTY_MIDCAP_100, displayName: 'Nifty Midcap 100', basePrice: 57000 },
   {
     name: MarketIndex.NIFTY_SMALLCAP_100,
-    displayName: 'Nifty Smallcap 100 (ETF proxy)',
+    displayName: 'Nifty Smallcap 100',
     basePrice: 18500,
   },
   { name: MarketIndex.INDIA_VIX, displayName: 'India VIX', basePrice: 14 },
@@ -54,14 +73,20 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private readonly yahooProvider: YahooProvider | null;
   private readonly simulated = new SimulatedProvider();
   private readonly stocks = new Map<string, SymbolState>();
+  private readonly byIsin = new Map<string, string>();
+  private readonly byBseCode = new Map<string, string>();
   private readonly indices = new Map<string, IndexState>();
   private readonly rngs = new Map<string, () => number>();
   private tickTimer: NodeJS.Timeout | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
+  private predictionTimer: NodeJS.Timeout | null = null;
   private refreshing = false;
   private readonly tickIntervalMs = getEnvNumber('TICK_INTERVAL_MS', 1000);
   private readonly refreshIntervalMs = getEnvNumber('QUOTE_REFRESH_INTERVAL_MS', 60_000);
   private orchestrator: RealTimeOrchestrator | null = null;
+  private readonly predictions = new PredictionCache();
+  private readonly paperCapital = getEnvNumber('PAPER_TRADING_CAPITAL', DEFAULT_PAPER_CAPITAL);
+  private readonly advisoryMemo = new Map<string, ReturnType<typeof composeTradeAdvisory>>();
 
   constructor(
     private readonly kafka: KafkaProducerService,
@@ -91,14 +116,76 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
         `[market-data] real intraday refresh active (every ${this.refreshIntervalMs / 1000}s)`,
       );
       void this.refreshRealQuotes();
-    } else {
+    } else if (getUniverseMode() === 'quick-start') {
       this.tickTimer = setInterval(() => void this.emitTicks(), this.tickIntervalMs);
       console.log(
         `[market-data] simulated live feed started (every ${this.tickIntervalMs}ms) - set MARKET_DATA_PROVIDER=yahoo for real data`,
       );
+    } else {
+      console.log(
+        '[market-data] EOD-only mode: official bhavcopy/index closes, no simulated ticks',
+      );
     }
 
-    // Bootstrap stocks + indices in background (non-blocking)
+    // Register every listed symbol immediately so the UI can paginate the full universe.
+    for (const stock of universe) {
+      this.registerListed(stock);
+    }
+    console.log(`[market-data] listed ${universe.length} symbols (candles load in background)`);
+
+    // Official EOD first (prices on the dashboard), then cache/yahoo history.
+    void this.hydrateThenBootstrap(universe);
+    void this.predictions.refresh().then((count) => {
+      this.advisoryMemo.clear();
+      console.log(`[market-data] ML predictions loaded: ${count}`);
+    });
+    this.predictionTimer = setInterval(() => {
+      void this.predictions.refresh().then((count) => {
+        if (count > 0) this.advisoryMemo.clear();
+      });
+    }, 60_000);
+  }
+
+  private registerListed(stock: UniverseStock): void {
+    if (this.stocks.has(stock.symbol)) return;
+    this.stocks.set(stock.symbol, {
+      info: {
+        symbol: stock.symbol,
+        name: stock.name,
+        exchange: stock.exchange,
+        sector: stock.sector,
+        indices: stock.indices,
+      },
+      daily: [],
+      intraday: [],
+      currentMinute: null,
+      lastTick: null,
+      previousClose: stock.basePrice,
+      dayVolume: 0,
+      indicators: null,
+      dataSource: 'listed',
+      isin: stock.isin ?? null,
+      bseCode: stock.bseCode ?? null,
+    });
+    if (stock.isin) this.byIsin.set(stock.isin, stock.symbol);
+    if (stock.bseCode) this.byBseCode.set(stock.bseCode, stock.symbol);
+  }
+
+  private async hydrateThenBootstrap(universe: UniverseStock[]): Promise<void> {
+    try {
+      const [bhav, indexCloses] = await Promise.all([
+        loadLatestBhavcopy(),
+        loadLatestIndexCloses(),
+      ]);
+      const applied = this.applyBhavQuotes(bhav);
+      this.applyOfficialIndices(indexCloses);
+      console.log(
+        `[market-data] official EOD applied: ${applied} stock quotes, ${indexCloses.length} indices`,
+      );
+    } catch (error) {
+      console.warn(`[market-data] bhavcopy hydrate failed: ${(error as Error).message}`);
+    }
+    void this.backfillBhavcopyHistory();
     void this.bootstrapInBackground(universe);
   }
 
@@ -110,7 +197,18 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     // Load indices first (required for API queries)
     await Promise.all(
       INDEX_CONFIG.map(async (index) => {
-        const { candles, source } = await this.loadDaily(index.name, index.basePrice);
+        const existing = this.indices.get(index.name);
+        if (existing && existing.dataSource !== 'simulated' && existing.daily.length > 0) {
+          return;
+        }
+        let { candles, source } = await this.loadDaily(index.name, index.basePrice);
+        if (candles.length === 0) {
+          if (getUniverseMode() !== 'quick-start') {
+            return;
+          }
+          candles = await this.simulated.getDailyHistory(index.name, HISTORY_DAYS, index.basePrice);
+          source = 'simulated';
+        }
         const value = candles[candles.length - 1].close;
         this.indices.set(index.name, {
           name: index.name,
@@ -163,6 +261,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     if (this.tickTimer) clearInterval(this.tickTimer);
     if (this.refreshTimer) clearInterval(this.refreshTimer);
+    if (this.predictionTimer) clearInterval(this.predictionTimer);
     if (this.orchestrator) {
       await this.orchestrator.shutdown();
     }
@@ -178,8 +277,33 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     page: number,
     limit: number,
     search?: string,
-  ): { data: StockQuote[]; total: number; page: number; limit: number; hasMore: boolean } {
-    let quotes = [...this.stocks.values()].map((state) => this.toQuote(state));
+    exchange?: string,
+    suggestion?: string,
+    horizon?: string,
+  ): {
+    data: StockQuote[];
+    total: number;
+    page: number;
+    limit: number;
+    hasMore: boolean;
+    counts: { NSE: number; BSE: number; all: number };
+    suggestions: { BUY: number; SELL: number; HOLD: number };
+  } {
+    const horizonKey =
+      horizon?.trim().toUpperCase() === PredictionHorizon.NEXT_WEEK
+        ? PredictionHorizon.NEXT_WEEK
+        : PredictionHorizon.NEXT_DAY;
+    let quotes = [...this.stocks.values()].map((state) => this.toQuote(state, horizonKey));
+    const counts = {
+      NSE: quotes.filter((q) => q.exchange === Exchange.NSE).length,
+      BSE: quotes.filter((q) => q.exchange === Exchange.BSE).length,
+      all: quotes.length,
+    };
+
+    const exchangeUpper = exchange?.trim().toUpperCase();
+    if (exchangeUpper === Exchange.NSE || exchangeUpper === Exchange.BSE) {
+      quotes = quotes.filter((q) => q.exchange === exchangeUpper);
+    }
 
     if (search) {
       const searchUpper = search.toUpperCase();
@@ -188,12 +312,25 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
+    const suggestions = {
+      BUY: quotes.filter((q) => q.suggestion === 'BUY').length,
+      SELL: quotes.filter((q) => q.suggestion === 'SELL').length,
+      HOLD: quotes.filter((q) => q.suggestion === 'HOLD').length,
+    };
+
+    const suggestionUpper = suggestion?.trim().toUpperCase();
+    if (suggestionUpper === 'BUY' || suggestionUpper === 'SELL' || suggestionUpper === 'HOLD') {
+      quotes = quotes.filter((q) => q.suggestion === suggestionUpper);
+    }
+
+    quotes.sort((a, b) => a.symbol.localeCompare(b.symbol));
+
     const total = quotes.length;
     const start = (page - 1) * limit;
     const data = quotes.slice(start, start + limit);
     const hasMore = start + limit < total;
 
-    return { data, total, page, limit, hasMore };
+    return { data, total, page, limit, hasMore, counts, suggestions };
   }
 
   getQuote(symbol: string): StockQuote {
@@ -205,9 +342,9 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     const state = this.stocks.get(symbol);
     const index = this.indices.get(symbol);
     const daily = state?.daily ?? index?.daily;
-    if (!daily) throw new NotFoundException(`Unknown symbol: ${symbol}`);
+    if (!daily && !state) throw new NotFoundException(`Unknown symbol: ${symbol}`);
     if (timeframe === Timeframe.ONE_DAY) {
-      return daily.slice(-limit);
+      return (daily ?? []).slice(-limit);
     }
     if (!state) throw new NotFoundException(`Intraday data not available for ${symbol}`);
     return state.intraday.slice(-limit);
@@ -252,14 +389,16 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   // ------------------------------------------------------------- data chain
 
   /**
-   * Real-data chain: live provider -> database cache (real, possibly stale)
-   * -> simulation as a clearly-flagged last resort. Simulated candles are
-   * NEVER written to the cache.
+   * Real-data chain: live provider -> database cache (bhavcopy / previous
+   * Yahoo) -> listed-with-no-candles. Simulated candles are only used in
+   * quick-start mode and are NEVER written to the cache.
    */
   private async loadDaily(
     symbol: string,
     basePrice: number,
   ): Promise<{ candles: Candle[]; source: MarketDataSource }> {
+    const cached = await this.cache.load(symbol, HISTORY_DAYS);
+
     if (this.yahooProvider) {
       try {
         const candles = await this.yahooProvider.getDailyHistory(symbol, HISTORY_DAYS, basePrice);
@@ -270,19 +409,18 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
           `[market-data] live history failed for ${symbol} (${(error as Error).message}); trying cache`,
         );
       }
-      const cached = await this.cache.load(symbol, HISTORY_DAYS);
-      if (cached.length >= MIN_CACHED_CANDLES) {
-        console.log(
-          `[market-data] ${symbol}: serving ${cached.length} cached REAL candles (offline mode)`,
-        );
-        return { candles: cached, source: 'cached' };
-      }
-      console.warn(
-        `[market-data] ${symbol}: no usable cache - simulated last resort (flagged on the quote)`,
-      );
     }
-    const candles = await this.simulated.getDailyHistory(symbol, HISTORY_DAYS, basePrice);
-    return { candles, source: 'simulated' };
+
+    if (cached.length >= 1) {
+      return { candles: cached, source: 'cached' };
+    }
+
+    if (!this.yahooProvider && getUniverseMode() === 'quick-start') {
+      const candles = await this.simulated.getDailyHistory(symbol, HISTORY_DAYS, basePrice);
+      return { candles, source: 'simulated' };
+    }
+
+    return { candles: [], source: 'listed' };
   }
 
   private async loadUniverse(): Promise<UniverseStock[]> {
@@ -299,7 +437,9 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
             exchange: row.exchange as Exchange,
             sector: row.sector,
             indices: row.indices as MarketIndex[],
-            basePrice: base?.basePrice ?? 1000,
+            basePrice: base?.basePrice ?? 0,
+            isin: row.isin,
+            bseCode: row.bseCode,
           };
         });
       }
@@ -314,28 +454,47 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private async bootstrapSymbol(stock: UniverseStock): Promise<void> {
     try {
       const { candles, source } = await this.loadDaily(stock.symbol, stock.basePrice);
-      const last = candles[candles.length - 1];
+      const existing = this.stocks.get(stock.symbol);
+      if (candles.length === 0) {
+        // Keep bhavcopy / listed state instead of wiping it to empty.
+        return;
+      }
+      const merged = new Map<number, Candle>();
+      for (const bar of existing?.daily ?? []) merged.set(bar.time, bar);
+      for (const bar of candles) {
+        if (!merged.has(bar.time)) merged.set(bar.time, bar);
+      }
+      const daily = [...merged.values()].sort((a, b) => a.time - b.time);
+      const last = daily[daily.length - 1];
       const state: SymbolState = {
-        info: {
+        info: existing?.info ?? {
           symbol: stock.symbol,
           name: stock.name,
           exchange: stock.exchange,
           sector: stock.sector,
           indices: stock.indices,
         },
-        daily: candles,
-        intraday: [],
-        currentMinute: null,
-        lastTick: null,
-        previousClose: candles[candles.length - 2]?.close ?? last.close,
-        dayVolume: last.volume,
-        indicators: computeIndicatorSnapshot(stock.symbol, candles),
-        dataSource: source,
+        daily,
+        intraday: existing?.intraday ?? [],
+        currentMinute: existing?.currentMinute ?? null,
+        lastTick: existing?.lastTick ?? {
+          symbol: stock.symbol,
+          exchange: stock.exchange,
+          price: last.close,
+          volume: last.volume,
+          time: last.time,
+        },
+        previousClose:
+          daily.length >= 2 ? daily[daily.length - 2].close : (last?.close ?? stock.basePrice),
+        dayVolume: last?.volume ?? 0,
+        indicators:
+          daily.length >= MIN_CACHED_CANDLES ? computeIndicatorSnapshot(stock.symbol, daily) : null,
+        dataSource: existing?.dataSource === 'cached' ? 'cached' : source,
+        isin: existing?.isin ?? stock.isin ?? null,
+        bseCode: existing?.bseCode ?? stock.bseCode ?? null,
       };
       this.stocks.set(stock.symbol, state);
     } catch (error) {
-      // Best-effort: if a stock fails, continue with others
-      // (in yahoo mode, this is expected for delisted/invalid symbols)
       if (process.env.DEBUG_STOCK_LOAD === 'true') {
         console.warn(`[market-data] failed to load ${stock.symbol}: ${(error as Error).message}`);
       }
@@ -436,6 +595,9 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     const tasks: AnalysisTask[] = [];
 
     for (const state of this.stocks.values()) {
+      if (state.daily.length === 0) continue;
+      // Official EOD / live quotes stay put; only the simulated feed wanders.
+      if (state.dataSource !== 'simulated') continue;
       const tick = this.nextTick(state, now);
       state.lastTick = tick;
       this.applyTickToCandles(state, tick);
@@ -565,22 +727,180 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private toQuote(state: SymbolState): StockQuote {
+  private toQuote(
+    state: SymbolState,
+    horizon: PredictionHorizon = PredictionHorizon.NEXT_DAY,
+  ): StockQuote {
+    const advisoryDefaults = {
+      suggestion: 'HOLD' as TradeSuggestion,
+      horizon,
+      entry: null as number | null,
+      target: null as number | null,
+      stopLoss: null as number | null,
+      quantity: 0,
+      confidence: 0,
+      expectedMove: 0,
+      modelVersion: null as string | null,
+    };
     const today = state.daily[state.daily.length - 1];
+    if (!today) {
+      return {
+        ...state.info,
+        price: 0,
+        change: 0,
+        changePercent: 0,
+        volume: 0,
+        dayHigh: 0,
+        dayLow: 0,
+        previousClose: state.previousClose,
+        indicators: null,
+        dataSource: 'listed',
+        ...advisoryDefaults,
+        updatedAt: Date.now(),
+      };
+    }
     const price = state.lastTick?.price ?? today.close;
+    const prev = state.previousClose > 0 ? state.previousClose : today.open;
+    const ml = this.predictions.get(state.info.symbol, horizon);
+    const memoKey = `${state.info.symbol}|${horizon}|${ml?.direction ?? ''}|${ml?.confidence ?? 0}|${today.time}|${state.daily.length}`;
+    let advisory = this.advisoryMemo.get(memoKey);
+    if (!advisory) {
+      advisory = composeTradeAdvisory({
+        candles: state.daily.length > 80 ? state.daily.slice(-80) : state.daily,
+        direction: ml?.direction,
+        confidence: ml?.confidence,
+        expectedMove: ml?.expectedMove,
+        modelVersion: ml?.modelVersion,
+        horizon,
+        capital: this.paperCapital,
+      });
+      this.advisoryMemo.set(memoKey, advisory);
+    }
     return {
       ...state.info,
       price: round2(price),
-      change: round2(price - state.previousClose),
-      changePercent: round2(((price - state.previousClose) / state.previousClose) * 100),
+      change: round2(price - prev),
+      changePercent: prev > 0 ? round2(((price - prev) / prev) * 100) : 0,
       volume: today.volume,
       dayHigh: today.high,
       dayLow: today.low,
-      previousClose: state.previousClose,
+      previousClose: prev,
       indicators: state.indicators,
       dataSource: state.dataSource,
+      suggestion: advisory.action,
+      horizon: advisory.horizon,
+      entry: advisory.entry,
+      target: advisory.target,
+      stopLoss: advisory.stopLoss,
+      quantity: advisory.quantity,
+      confidence: advisory.confidence,
+      expectedMove: advisory.expectedMove,
+      modelVersion: advisory.modelVersion,
       updatedAt: state.lastTick?.time ?? today.time,
     };
+  }
+
+  private findStateForBhav(row: BhavQuote): SymbolState | undefined {
+    if (row.exchange === Exchange.NSE) {
+      const bySymbol = this.stocks.get(row.symbol);
+      if (bySymbol && bySymbol.info.exchange === Exchange.NSE) return bySymbol;
+      return undefined;
+    }
+
+    if (row.bseCode) {
+      const symbol = this.byBseCode.get(row.bseCode);
+      const byCode = symbol ? this.stocks.get(symbol) : undefined;
+      if (byCode && byCode.info.exchange === Exchange.BSE) return byCode;
+    }
+    if (row.symbol) {
+      const bySymbol = this.stocks.get(row.symbol);
+      if (bySymbol && bySymbol.info.exchange === Exchange.BSE) return bySymbol;
+    }
+    if (row.isin) {
+      const symbol = this.byIsin.get(row.isin);
+      const byIsin = symbol ? this.stocks.get(symbol) : undefined;
+      if (byIsin && byIsin.info.exchange === Exchange.BSE) return byIsin;
+    }
+    return undefined;
+  }
+
+  private applyBhavQuotes(rows: BhavQuote[]): number {
+    let applied = 0;
+    for (const row of rows) {
+      const state = this.findStateForBhav(row);
+      if (!state) continue;
+      if (state.dataSource === 'simulated') continue;
+      const candle = quoteToCandle({ ...row, symbol: state.info.symbol });
+      const existing = state.daily.find((c) => c.time === candle.time);
+      if (existing) {
+        if (state.dataSource === 'live') continue;
+        existing.open = candle.open;
+        existing.high = candle.high;
+        existing.low = candle.low;
+        existing.close = candle.close;
+        existing.volume = candle.volume;
+      } else {
+        state.daily.push(candle);
+        state.daily.sort((a, b) => a.time - b.time);
+      }
+      const last = state.daily[state.daily.length - 1];
+      if (last.time === candle.time) {
+        state.previousClose = row.prevClose > 0 ? row.prevClose : state.previousClose;
+        state.dayVolume = last.volume;
+        state.dataSource = 'cached';
+        state.lastTick = {
+          symbol: state.info.symbol,
+          exchange: state.info.exchange,
+          price: last.close,
+          volume: last.volume,
+          time: last.time,
+        };
+      } else if (state.daily.length >= 2) {
+        state.previousClose = state.daily[state.daily.length - 2].close;
+      }
+      applied += 1;
+    }
+    return applied;
+  }
+
+  private applyOfficialIndices(rows: OfficialIndexClose[]): void {
+    for (const row of rows) {
+      const cfg = INDEX_CONFIG.find((index) => index.name === row.index);
+      if (!cfg) continue;
+      const candle: Candle = {
+        symbol: row.index,
+        timeframe: Timeframe.ONE_DAY,
+        time: row.time,
+        open: row.open,
+        high: row.high,
+        low: row.low,
+        close: row.close,
+        volume: 0,
+      };
+      this.indices.set(row.index, {
+        name: row.index,
+        displayName: cfg.displayName,
+        daily: [candle],
+        value: row.close,
+        previousClose: row.prevClose,
+        dataSource: 'cached',
+      });
+    }
+  }
+
+  private async backfillBhavcopyHistory(): Promise<void> {
+    const sessions = recentWeekdays(90).slice(1);
+    let extra = 0;
+    for (const session of sessions) {
+      try {
+        const rows = await loadBhavcopySession(session);
+        if (rows.length === 0) continue;
+        extra += this.applyBhavQuotes(rows);
+      } catch {
+        /* skip missing sessions */
+      }
+    }
+    console.log(`[market-data] bhavcopy history merged (${extra} row updates)`);
   }
 
   private requireSymbol(symbol: string): SymbolState {

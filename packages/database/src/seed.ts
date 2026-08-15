@@ -2,23 +2,30 @@ import { hashSync } from 'bcryptjs';
 import { UserRole } from '@stockpred/shared-types';
 import { getPrismaClient, disconnectPrisma } from './index';
 import { getStockUniverse, getUniverseStats } from './universe-config';
+import { deletePlaceholderStocks } from './listings';
 
 /**
  * Seed: stock universe + demo users (one per role).
  * Demo passwords are for local development ONLY - rotate in any shared env.
  *
  * Usage:
- *   npm run prisma:seed                               # Quick-start (33 stocks)
- *   STOCK_UNIVERSE_MODE=full-universe npm run prisma:seed  # All NSE/BSE stocks
+ *   npm run prisma:seed
+ *   STOCK_UNIVERSE_MODE=quick-start npm run prisma:seed
+ *   npm run ingest:listings   # official NSE/BSE master, then re-seed or upserts itself
  */
 async function main(): Promise<void> {
   const prisma = getPrismaClient();
   const STOCK_UNIVERSE = getStockUniverse();
   const stats = getUniverseStats();
 
-  console.log(`\n🌍 Seeding ${stats.mode} universe...`);
+  console.log(`\nSeeding ${stats.mode} universe...`);
   console.log(`   Total stocks: ${stats.totalStocks}`);
   console.log(`   Sectors: ${Array.from(stats.sectors).length}\n`);
+
+  const removed = await deletePlaceholderStocks();
+  if (removed > 0) {
+    console.log(`Removed ${removed} placeholder NOM*/BSE#### symbols.`);
+  }
 
   for (const stock of STOCK_UNIVERSE) {
     await prisma.stock.upsert({
@@ -28,6 +35,7 @@ async function main(): Promise<void> {
         exchange: stock.exchange,
         sector: stock.sector,
         indices: stock.indices,
+        listed: true,
       },
       create: {
         symbol: stock.symbol,
@@ -35,6 +43,7 @@ async function main(): Promise<void> {
         exchange: stock.exchange,
         sector: stock.sector,
         indices: stock.indices,
+        listed: true,
       },
     });
   }
@@ -79,7 +88,7 @@ async function main(): Promise<void> {
     data: {
       actor: 'seed-script',
       action: 'DATABASE_SEEDED',
-      details: { stocks: STOCK_UNIVERSE.length, users: demoUsers.length },
+      details: { stocks: STOCK_UNIVERSE.length, users: demoUsers.length, mode: stats.mode },
     },
   });
 }

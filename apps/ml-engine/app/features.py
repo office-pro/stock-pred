@@ -166,6 +166,7 @@ def make_dataset(features: pd.DataFrame, horizon_bars: int, threshold: float):
     labels = label_direction(features["close"], horizon_bars, threshold)
     fwd = forward_returns(features["close"], horizon_bars)
     data = features[FEATURE_COLUMNS].copy()
+    data = data.fillna(0.0)
     mask = data.notna().all(axis=1) & (labels >= 0)
     return (
         data[mask].to_numpy(dtype="float32"),

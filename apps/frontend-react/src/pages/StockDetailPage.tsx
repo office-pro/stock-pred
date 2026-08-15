@@ -68,6 +68,8 @@ export default function StockDetailPage(): JSX.Element {
       .reverse();
   }, [signals]);
 
+  const analog = patterns?.analog && 'suggestion' in patterns.analog ? patterns.analog : null;
+  const occurrences = patterns?.occurrences ?? [];
   const current = signals?.current;
 
   return (
@@ -174,22 +176,47 @@ export default function StockDetailPage(): JSX.Element {
                   No confirmed patterns recently.
                 </Typography>
               )}
-              {patterns?.history.slice(0, 6).map((pattern) => (
-                <Stack
-                  key={pattern.id}
-                  direction="row"
-                  spacing={1}
-                  alignItems="center"
-                  sx={{ mb: 1 }}
+              {occurrences.slice(0, 8).map((row) => (
+                <Typography
+                  key={`${row.pattern}-${row.confirmedAt}`}
+                  variant="caption"
+                  display="block"
                 >
-                  <Chip
-                    size="small"
-                    color={pattern.direction === 'bullish' ? 'success' : 'error'}
-                    label={pattern.pattern.replaceAll('_', ' ')}
-                  />
-                  <Typography variant="body2">{pattern.confidence}%</Typography>
-                </Stack>
+                  {row.pattern.replaceAll('_', ' ')} ·{' '}
+                  {new Date(Number(row.confirmedAt)).toLocaleDateString()} · 10d{' '}
+                  {row.return10 == null
+                    ? 'n/a'
+                    : `${row.return10 > 0 ? '+' : ''}${Number(row.return10).toFixed(1)}%`}
+                </Typography>
               ))}
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} md={4}>
+          <Card variant="outlined">
+            <CardContent>
+              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                Historical analog
+              </Typography>
+              {analog ? (
+                <>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    {analog.suggestion}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Sample {analog.sampleSize}
+                    {analog.medianReturn10 != null &&
+                      ` · median 10d ${analog.medianReturn10 > 0 ? '+' : ''}${analog.medianReturn10.toFixed(1)}%`}
+                    {analog.winRate10 != null && ` · win ${analog.winRate10.toFixed(0)}%`}
+                  </Typography>
+                </>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  Run `npm run scan:patterns` after bhavcopy ingest to see how this setup behaved
+                  before.
+                </Typography>
+              )}
             </CardContent>
           </Card>
         </Grid>

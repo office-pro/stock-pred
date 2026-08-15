@@ -35,3 +35,34 @@ export const ENSEMBLE_WEIGHTS = {
   lstm: 0.2,
   transformer: 0.15,
 } as const;
+
+/** One confidence bucket vs realized hit rate (calibration). */
+export interface AccuracyBucket {
+  label: string;
+  minConfidence: number;
+  maxConfidence: number;
+  predicted: number;
+  correct: number;
+  hitRate: number | null;
+}
+
+export interface ActionAccuracy {
+  predicted: number;
+  correct: number;
+  hitRate: number | null;
+}
+
+/** Scored track record for a forecast horizon. */
+export interface PredictionAccuracy {
+  horizon: string;
+  sessions: number;
+  overallHitRate: number | null;
+  byAction: {
+    BUY: ActionAccuracy;
+    SELL: ActionAccuracy;
+    HOLD: ActionAccuracy;
+  };
+  calibration: AccuracyBucket[];
+  avgPnlPercent: number | null;
+  scoredCalls?: number;
+}

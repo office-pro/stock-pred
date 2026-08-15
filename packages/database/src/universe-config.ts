@@ -1,91 +1,67 @@
 /**
  * Universe Configuration System
  *
- * Allows switching between:
- * - Quick-start mode (33 stocks for testing)
- * - Full universe mode (all NSE/BSE stocks)
+ * - quick-start: liquid NSE names (~100) for fast local boots
+ * - full-universe: official NSE EQ + BSE equity master (ISIN-deduped)
  *
- * Does NOT break existing code - backward compatible via env vars
+ * Full list is produced by `npm run ingest:listings` into
+ * packages/database/data/equity-master.json.
  */
-
 import { STOCK_UNIVERSE as DEFAULT_UNIVERSE } from './universe';
 import type { UniverseStock } from './universe';
+import { isPlaceholderSymbol, listedToUniverse, loadEquityMaster } from './listings';
 
 export type UniverseMode = 'quick-start' | 'full-universe';
 
-/**
- * Get the universe based on env config
- * Defaults to 'quick-start' for backward compatibility
- */
-export function getStockUniverse(mode?: UniverseMode): UniverseStock[] {
-  const configMode = mode || (process.env.STOCK_UNIVERSE_MODE as UniverseMode) || 'quick-start';
+export function getUniverseMode(): UniverseMode {
+  return (process.env.STOCK_UNIVERSE_MODE as UniverseMode) || 'full-universe';
+}
 
+export function getStockUniverse(mode?: UniverseMode): UniverseStock[] {
+  const configMode = mode || getUniverseMode();
   console.log(`[universe-config] Using mode: ${configMode}`);
 
   if (configMode === 'full-universe') {
     return getFullUniverse();
   }
 
-  return DEFAULT_UNIVERSE;
+  return DEFAULT_UNIVERSE.filter((stock) => !isPlaceholderSymbol(stock.symbol));
 }
 
-/**
- * Get full universe (all NSE/BSE stocks)
- * Loads from complete universe file if available
- */
 function getFullUniverse(): UniverseStock[] {
+  const master = loadEquityMaster();
+  if (master.length > 0) {
+    console.log(`[universe-config] Loaded official equity master with ${master.length} stocks`);
+    return master.map(listedToUniverse);
+  }
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const completeModule = require('./universe-complete') as {
-      STOCK_UNIVERSE_COMPLETE_FULL: UniverseStock[];
+      STOCK_UNIVERSE_COMPLETE: UniverseStock[];
     };
-    console.log(
-      `[universe-config] Loaded full universe with ${completeModule.STOCK_UNIVERSE_COMPLETE_FULL.length} stocks`,
+    const real = completeModule.STOCK_UNIVERSE_COMPLETE.filter(
+      (stock) => !isPlaceholderSymbol(stock.symbol),
     );
-    return completeModule.STOCK_UNIVERSE_COMPLETE_FULL;
+    console.log(
+      `[universe-config] equity-master.json missing; using curated ${real.length} stocks. Run npm run ingest:listings`,
+    );
+    return real;
   } catch {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const expandedModule = require('./universe-expanded') as { STOCK_UNIVERSE: UniverseStock[] };
-      console.log(
-        `[universe-config] Loaded expanded universe with ${expandedModule.STOCK_UNIVERSE.length} stocks`,
-      );
-      return expandedModule.STOCK_UNIVERSE;
-    } catch {
-      console.warn(
-        `[universe-config] Full universe files not found. Falling back to default 33 stocks.`,
-      );
-      return DEFAULT_UNIVERSE; // Fallback to quick-start
-    }
+    console.warn(
+      '[universe-config] Falling back to quick-start universe. Run npm run ingest:listings',
+    );
+    return DEFAULT_UNIVERSE.filter((stock) => !isPlaceholderSymbol(stock.symbol));
   }
 }
 
-/**
- * Get universe stats
- */
 export function getUniverseStats(): {
   mode: UniverseMode;
   totalStocks: number;
   sectors: Set<string>;
 } {
-  const mode = (process.env.STOCK_UNIVERSE_MODE as UniverseMode) || 'quick-start';
+  const mode = getUniverseMode();
   const universe = getStockUniverse(mode);
   const sectors = new Set(universe.map((s) => s.sector));
-
-  return {
-    mode,
-    totalStocks: universe.length,
-    sectors,
-  };
+  return { mode, totalStocks: universe.length, sectors };
 }
-
-/**
- * Environment variable usage:
- *
- * STOCK_UNIVERSE_MODE=quick-start    # Default (33 stocks, fast)
- * STOCK_UNIVERSE_MODE=full-universe  # All NSE/BSE stocks (~2000+)
- *
- * Example:
- *   STOCK_UNIVERSE_MODE=full-universe npm run prisma:seed
- *   STOCK_UNIVERSE_MODE=full-universe npm run start:all
- */

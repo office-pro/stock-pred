@@ -1,3 +1,5 @@
+import { PredictionHorizon } from './ml';
+
 /** Exchanges supported by the platform. */
 export enum Exchange {
   NSE = 'NSE',
@@ -88,9 +90,25 @@ export interface StockInfo {
  * Provenance of a symbol's data:
  *  - live: real provider data, refreshed this session
  *  - cached: real data served from the database (offline mode)
+ *  - listed: in the official NSE/BSE master, candles not loaded yet
  *  - simulated: synthetic fallback (fresh install with no network/cache)
  */
-export type MarketDataSource = 'live' | 'cached' | 'simulated';
+export type MarketDataSource = 'live' | 'cached' | 'listed' | 'simulated';
+
+export type TradeSuggestion = 'BUY' | 'SELL' | 'HOLD';
+
+/** Actionable paper-trading levels derived from ML + ATR. */
+export interface TradeAdvisory {
+  action: TradeSuggestion;
+  horizon: PredictionHorizon;
+  entry: number | null;
+  target: number | null;
+  stopLoss: number | null;
+  quantity: number;
+  confidence: number;
+  expectedMove: number;
+  modelVersion: string | null;
+}
 
 /** Live quote merged with indicator snapshot for dashboard rows. */
 export interface StockQuote extends StockInfo {
@@ -103,6 +121,16 @@ export interface StockQuote extends StockInfo {
   previousClose: number;
   indicators: IndicatorSnapshot | null;
   dataSource: MarketDataSource;
+  /** BUY/SELL/HOLD from the ML advisory (HOLD if models are missing). */
+  suggestion: TradeSuggestion;
+  horizon: PredictionHorizon;
+  entry: number | null;
+  target: number | null;
+  stopLoss: number | null;
+  quantity: number;
+  confidence: number;
+  expectedMove: number;
+  modelVersion: string | null;
   updatedAt: number;
 }
 

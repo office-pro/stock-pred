@@ -1,6 +1,7 @@
 import {
   Box,
   Chip,
+  Pagination,
   Paper,
   Table,
   TableBody,
@@ -12,7 +13,7 @@ import {
   TextField,
   Stack,
 } from '@mui/material';
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useGetAllPredictionsQuery } from '../store/api';
 
@@ -26,26 +27,26 @@ interface Prediction {
 }
 
 export default function PredictionsPage(): JSX.Element {
-  const { data } = useGetAllPredictionsQuery({ limit: 200 }, { pollingInterval: 30_000 });
+  const [page, setPage] = useState(1);
   const [searchSymbol, setSearchSymbol] = useState('');
   const [filterDirection, setFilterDirection] = useState<string | null>(null);
   const [filterHorizon, setFilterHorizon] = useState<string | null>(null);
+  const limit = 50;
 
-  const predictions = useMemo(() => {
-    let result = data?.predictions ?? [];
+  const { data } = useGetAllPredictionsQuery(
+    {
+      page,
+      limit,
+      search: searchSymbol || undefined,
+      horizon: filterHorizon ?? undefined,
+      direction: filterDirection ?? undefined,
+    },
+    { pollingInterval: 30_000 },
+  );
 
-    if (searchSymbol) {
-      result = result.filter((p) => p.symbol.includes(searchSymbol.toUpperCase()));
-    }
-    if (filterDirection) {
-      result = result.filter((p) => p.direction === filterDirection);
-    }
-    if (filterHorizon) {
-      result = result.filter((p) => p.horizon === filterHorizon);
-    }
-
-    return result.sort((a, b) => b.confidence - a.confidence);
-  }, [data?.predictions, searchSymbol, filterDirection, filterHorizon]);
+  const predictions = data?.predictions ?? [];
+  const total = data?.total ?? predictions.length;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
 
   const getDirectionColor = (direction: string): 'success' | 'error' | 'warning' => {
     switch (direction) {
@@ -82,27 +83,34 @@ export default function PredictionsPage(): JSX.Element {
         <TextField
           placeholder="Filter by symbol..."
           value={searchSymbol}
-          onChange={(e) => setSearchSymbol(e.target.value)}
+          onChange={(e) => {
+            setSearchSymbol(e.target.value);
+            setPage(1);
+          }}
           size="small"
           sx={{ width: 200 }}
         />
         <Chip
           label={filterDirection ? `Direction: ${filterDirection}` : 'All Directions'}
-          onClick={() => setFilterDirection(filterDirection === null ? 'UP' : null)}
+          onClick={() => {
+            setFilterDirection(filterDirection === null ? 'UP' : null);
+            setPage(1);
+          }}
           color={filterDirection === 'UP' ? 'success' : 'default'}
           variant="outlined"
         />
         <Chip
           label={filterHorizon || 'All Horizons'}
-          onClick={() =>
+          onClick={() => {
             setFilterHorizon(
               filterHorizon === null
                 ? 'NEXT_DAY'
                 : filterHorizon === 'NEXT_DAY'
                   ? 'NEXT_WEEK'
                   : null,
-            )
-          }
+            );
+            setPage(1);
+          }}
           color={filterHorizon ? 'primary' : 'default'}
           variant="outlined"
         />
@@ -195,12 +203,15 @@ export default function PredictionsPage(): JSX.Element {
         </Table>
       </TableContainer>
 
+      {totalPages > 1 && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+          <Pagination count={totalPages} page={page} onChange={(_e, value) => setPage(value)} />
+        </Box>
+      )}
+
       <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-        Showing {predictions.length} of {data?.predictions?.length ?? 0} predictions. Models are{' '}
-        <strong>
-          {predictions.length > 0 ? 'trained and predicting' : 'training or initializing'}
-        </strong>
-        . This is not investment advice.
+        Showing {predictions.length} of {total} predictions (page {page}/{totalPages}). This is not
+        investment advice.
       </Typography>
     </>
   );
