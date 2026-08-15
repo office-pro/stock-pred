@@ -48,13 +48,23 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async initialize(): Promise<void> {
+    console.log('[signal-engine] starting initialization...');
     await this.store.warmup().catch((error: Error) => {
       console.warn(`[signal-engine] warmup incomplete: ${error.message}`);
     });
+    const symbolCount = this.store.symbols().length;
+    console.log(`[signal-engine] initialization: ${symbolCount} symbols loaded`);
+
     void this.maintainKafka();
     // Evaluate the warmed-up universe once at boot.
-    for (const symbol of this.store.symbols()) {
-      await this.evaluateSymbol(symbol, true);
+    if (symbolCount > 0) {
+      console.log('[signal-engine] evaluating all symbols...');
+      for (const symbol of this.store.symbols()) {
+        await this.evaluateSymbol(symbol, true);
+      }
+      console.log('[signal-engine] initialization complete');
+    } else {
+      console.warn('[signal-engine] no symbols to evaluate');
     }
   }
 
@@ -206,9 +216,35 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
       }
 
       let signals: SignalData[] = [];
+      let useDatabase = allSignals === false;
 
-      if (allSignals) {
-        // Get current signal evaluation for all symbols
+      // If database signals are requested, try to load them
+      if (useDatabase) {
+        const dbSignals = await this.prisma.signal.findMany({
+          orderBy: { createdAt: 'desc' },
+          take: 10000, // Fetch more for filtering
+        });
+        if (dbSignals.length > 0) {
+          signals = dbSignals.map((s) => ({
+            symbol: s.symbol,
+            signal: s.signal,
+            confidence: typeof s.confidence === 'number' ? s.confidence : 0,
+            price: typeof s.price === 'number' ? s.price : 0,
+            target: typeof s.target === 'number' ? s.target : 0,
+            stopLoss: typeof s.stopLoss === 'number' ? s.stopLoss : 0,
+            riskReward: typeof s.riskReward === 'number' ? s.riskReward : 0,
+            rules: s.rules as Record<string, unknown>,
+            createdAt: s.createdAt,
+          }));
+        } else {
+          // No database signals, fall back to live evaluation
+          console.log('[signal-engine] no database signals found, falling back to live evaluation');
+          useDatabase = false;
+        }
+      }
+
+      // If not using database (or no results), get current live signal evaluation
+      if (!useDatabase && signals.length === 0) {
         for (const symbol of this.store.symbols()) {
           const candles = this.store.get(symbol);
           if (candles.length === 0) continue;
@@ -226,23 +262,6 @@ export class SignalsService implements OnModuleInit, OnModuleDestroy {
             createdAt: new Date(),
           });
         }
-      } else {
-        // Get recent signals from database
-        const dbSignals = await this.prisma.signal.findMany({
-          orderBy: { createdAt: 'desc' },
-          take: 10000, // Fetch more for filtering
-        });
-        signals = dbSignals.map((s) => ({
-          symbol: s.symbol,
-          signal: s.signal,
-          confidence: typeof s.confidence === 'number' ? s.confidence : 0,
-          price: typeof s.price === 'number' ? s.price : 0,
-          target: typeof s.target === 'number' ? s.target : 0,
-          stopLoss: typeof s.stopLoss === 'number' ? s.stopLoss : 0,
-          riskReward: typeof s.riskReward === 'number' ? s.riskReward : 0,
-          rules: s.rules as Record<string, unknown>,
-          createdAt: s.createdAt,
-        }));
       }
 
       // Filter by search term (symbol or name)

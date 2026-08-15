@@ -120,14 +120,57 @@ def load_candles(
 
 
 def load_universe() -> List[str]:
+    """Load universe from market-data-service, database, or fallback.
+
+    Priority:
+    1. Market-data-service /stocks endpoint (if >=150 stocks)
+    2. Database direct query (to get all seeded stocks)
+    3. Fallback hardcoded list (20 stocks)
+    """
+    # Try market-data-service first (stocks already loaded in memory)
     try:
-        response = httpx.get(f"{settings.market_data_url}/stocks", timeout=10.0)
+        response = httpx.get(f"{settings.market_data_url}/stocks?limit=5000", timeout=10.0)
         response.raise_for_status()
-        symbols = [row["symbol"] for row in response.json()]
-        if symbols:
+        data = response.json()
+        if isinstance(data, dict) and "data" in data:
+            symbols = [row["symbol"] for row in data["data"]]
+        else:
+            symbols = [row["symbol"] for row in data] if data else []
+
+        if len(symbols) >= 150:
+            print(f"Loaded {len(symbols)} stocks from market-data-service")
             return symbols
-    except Exception:
-        pass
+        elif len(symbols) > 0:
+            print(f"Found only {len(symbols)} stocks from market-data-service, trying database...")
+    except Exception as e:
+        print(f"Market-data-service unavailable: {e}, trying database...")
+
+    # Try database as fallback (has all seeded stocks)
+    try:
+        import asyncpg
+        import asyncio
+
+        async def fetch_from_db() -> List[str]:
+            conn = await asyncpg.connect(settings.asyncpg_dsn)
+            rows = await conn.fetch("SELECT symbol FROM stock")
+            await conn.close()
+            return [row["symbol"] for row in rows]
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        symbols = loop.run_until_complete(fetch_from_db())
+        loop.close()
+
+        if len(symbols) >= 150:
+            print(f"Loaded {len(symbols)} stocks from database")
+            return symbols
+        elif len(symbols) > 0:
+            print(f"Found only {len(symbols)} stocks from database, falling back to hardcoded list...")
+    except Exception as e:
+        print(f"Database query failed: {e}, using fallback...")
+
+    # Last resort: hardcoded fallback (20 stocks)
+    print(f"Using {len(FALLBACK_SYMBOLS)} fallback stocks")
     return list(FALLBACK_SYMBOLS)
 
 

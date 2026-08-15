@@ -79,10 +79,35 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit(): Promise<void> {
     const universe = await this.loadUniverse();
+
+    // Initialize orchestrator first (for health checks)
+    this.orchestrator = getOrchestrator();
+    this.setupOrchestratorListeners();
+
+    // Start live feed immediately (before stocks load) so health checks pass
+    if (this.yahooProvider) {
+      this.refreshTimer = setInterval(() => void this.refreshRealQuotes(), this.refreshIntervalMs);
+      console.log(
+        `[market-data] real intraday refresh active (every ${this.refreshIntervalMs / 1000}s)`,
+      );
+      void this.refreshRealQuotes();
+    } else {
+      this.tickTimer = setInterval(() => void this.emitTicks(), this.tickIntervalMs);
+      console.log(
+        `[market-data] simulated live feed started (every ${this.tickIntervalMs}ms) - set MARKET_DATA_PROVIDER=yahoo for real data`,
+      );
+    }
+
+    // Bootstrap stocks + indices in background (non-blocking)
+    void this.bootstrapInBackground(universe);
+  }
+
+  private async bootstrapInBackground(universe: UniverseStock[]): Promise<void> {
     console.log(
-      `[market-data] bootstrapping ${universe.length} symbols via "${this.provider.name}" provider...`,
+      `[market-data] bootstrapping ${universe.length} symbols in background via "${this.provider.name}" provider...`,
     );
-    await Promise.all(universe.map((stock) => this.bootstrapSymbol(stock)));
+
+    // Load indices first (required for API queries)
     await Promise.all(
       INDEX_CONFIG.map(async (index) => {
         const { candles, source } = await this.loadDaily(index.name, index.basePrice);
@@ -97,25 +122,42 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
         });
       }),
     );
+    console.log(`[market-data] indices loaded (${INDEX_CONFIG.length})`);
 
-    // Initialize orchestrator for parallel analysis
-    this.orchestrator = getOrchestrator();
-    this.setupOrchestratorListeners();
+    // Bootstrap stocks in batches to avoid overwhelming the provider
+    // In yahoo mode, use smaller batches + timeout to fail fast on many invalid tickers
+    const BATCH_SIZE = this.yahooProvider ? 5 : 10;
+    const BATCH_TIMEOUT_MS = this.yahooProvider ? 30_000 : 60_000;
+    let loaded = 0;
+    let skipped = 0;
 
-    if (this.yahooProvider) {
-      // Real data mode: prices move only on real quote refreshes - no
-      // synthetic jitter. The sweep is serialized by the provider's queue.
-      this.refreshTimer = setInterval(() => void this.refreshRealQuotes(), this.refreshIntervalMs);
-      console.log(
-        `[market-data] real intraday refresh active (every ${this.refreshIntervalMs / 1000}s)`,
-      );
-      void this.refreshRealQuotes();
-    } else {
-      this.tickTimer = setInterval(() => void this.emitTicks(), this.tickIntervalMs);
-      console.log(
-        `[market-data] simulated live feed started (every ${this.tickIntervalMs}ms) - set MARKET_DATA_PROVIDER=yahoo for real data`,
-      );
+    for (let i = 0; i < universe.length; i += BATCH_SIZE) {
+      const batch = universe.slice(i, i + BATCH_SIZE);
+      try {
+        // Each batch has a timeout to prevent hanging on invalid stocks
+        await Promise.race([
+          Promise.all(batch.map((stock) => this.bootstrapSymbol(stock))),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Batch timeout')), BATCH_TIMEOUT_MS),
+          ),
+        ]);
+        loaded += batch.length;
+      } catch (error) {
+        // Batch timeout or other error: count as skipped but continue
+        skipped += batch.length;
+        console.warn(
+          `[market-data] batch [${i}-${i + BATCH_SIZE}] failed: ${(error as Error).message}`,
+        );
+      }
+      if ((loaded + skipped) % 50 === 0 || loaded + skipped === universe.length) {
+        console.log(
+          `[market-data] progress: ${loaded}/${universe.length} loaded, ${skipped} skipped`,
+        );
+      }
     }
+    console.log(
+      `[market-data] bootstrap complete: ${loaded}/${universe.length} loaded, ${skipped} skipped`,
+    );
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -270,26 +312,34 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async bootstrapSymbol(stock: UniverseStock): Promise<void> {
-    const { candles, source } = await this.loadDaily(stock.symbol, stock.basePrice);
-    const last = candles[candles.length - 1];
-    const state: SymbolState = {
-      info: {
-        symbol: stock.symbol,
-        name: stock.name,
-        exchange: stock.exchange,
-        sector: stock.sector,
-        indices: stock.indices,
-      },
-      daily: candles,
-      intraday: [],
-      currentMinute: null,
-      lastTick: null,
-      previousClose: candles[candles.length - 2]?.close ?? last.close,
-      dayVolume: last.volume,
-      indicators: computeIndicatorSnapshot(stock.symbol, candles),
-      dataSource: source,
-    };
-    this.stocks.set(stock.symbol, state);
+    try {
+      const { candles, source } = await this.loadDaily(stock.symbol, stock.basePrice);
+      const last = candles[candles.length - 1];
+      const state: SymbolState = {
+        info: {
+          symbol: stock.symbol,
+          name: stock.name,
+          exchange: stock.exchange,
+          sector: stock.sector,
+          indices: stock.indices,
+        },
+        daily: candles,
+        intraday: [],
+        currentMinute: null,
+        lastTick: null,
+        previousClose: candles[candles.length - 2]?.close ?? last.close,
+        dayVolume: last.volume,
+        indicators: computeIndicatorSnapshot(stock.symbol, candles),
+        dataSource: source,
+      };
+      this.stocks.set(stock.symbol, state);
+    } catch (error) {
+      // Best-effort: if a stock fails, continue with others
+      // (in yahoo mode, this is expected for delisted/invalid symbols)
+      if (process.env.DEBUG_STOCK_LOAD === 'true') {
+        console.warn(`[market-data] failed to load ${stock.symbol}: ${(error as Error).message}`);
+      }
+    }
   }
 
   // ------------------------------------------------- real intraday refresh

@@ -81,7 +81,7 @@ while [ $BUILD_ATTEMPT -le $BUILD_RETRIES ]; do
 done
 
 # 8: verify health checks
-echo "==> Verifying service health (max 90s per service)"
+echo "==> Verifying service health"
 declare -A endpoints=(
   [api-gateway]="http://localhost:3000/health"
   [auth-service]="http://localhost:3001/health"
@@ -114,8 +114,35 @@ if [ "$crashed" -gt 0 ]; then
   exit 1
 fi
 
+# Check market-data-service first (max 180s = 90 retries × 2s)
+# It has dependencies on postgres, redis, kafka, and migrate, so it needs extra time
+echo "==> Waiting for market-data-service to be healthy (priority - max 180s)..."
+ok=0
+for i in $(seq 1 90); do
+  if curl -fsS --max-time 5 "http://localhost:3002/health" >/dev/null 2>&1; then
+    ok=1
+    echo "    market-data-service: OK"
+    break
+  fi
+  if [ $((i % 10)) -eq 0 ]; then
+    echo "    market-data-service: waiting... ($((i * 2))s elapsed)"
+  fi
+  sleep 2
+done
+
+if [ "$ok" != "1" ]; then
+  echo "ERROR: market-data-service failed to become healthy after 180s"
+  docker compose logs --tail 20 market-data-service
+  exit 1
+fi
+
+# Check remaining services (max 90s per service)
+echo "==> Verifying remaining services (max 90s each)..."
 failures=0
 for name in "${!endpoints[@]}"; do
+  if [ "$name" = "market-data-service" ]; then
+    continue  # Already checked
+  fi
   url="${endpoints[$name]}"
   ok=0
   for i in $(seq 1 45); do

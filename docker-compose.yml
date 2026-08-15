@@ -101,20 +101,7 @@ services:
         condition: service_healthy
 
   # ------------------------------------------------------------ microservices
-  auth-service:
-    profiles: ['apps']
-    build:
-      context: .
-      dockerfile: infrastructure/docker/node-service.Dockerfile
-      args: { APP: auth-service }
-    environment:
-      <<: *node-env
-      AUTH_SERVICE_PORT: '3001'
-    ports: ['3001:3001']
-    depends_on:
-      postgres: { condition: service_healthy }
-      migrate: { condition: service_completed_successfully }
-
+  # market-data-service starts first (other services depend on it)
   market-data-service:
     profiles: ['apps']
     build:
@@ -131,6 +118,20 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       kafka: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  auth-service:
+    profiles: ['apps']
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args: { APP: auth-service }
+    environment:
+      <<: *node-env
+      AUTH_SERVICE_PORT: '3001'
+    ports: ['3001:3001']
+    depends_on:
+      postgres: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
 
   signal-engine:
