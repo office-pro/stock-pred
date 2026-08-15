@@ -5,7 +5,8 @@
   "description": "Indian Stock Market AI Trading Platform - monorepo",
   "license": "UNLICENSED",
   "engines": {
-    "node": ">=20"
+    "node": ">=20",
+    "npm": ">=10"
   },
   "workspaces": [
     "packages/*",
@@ -33,9 +34,14 @@
     "ingest:bhavcopy": "npm run build -w @stockpred/database && node packages/database/dist/ingest-bhavcopy.js",
     "scan:patterns": "npm run build -w @stockpred/pattern-engine && node apps/pattern-engine/dist/scan-history.js",
     "setup:npm": "bash scripts/setup-npm.sh",
+    "check:deps": "node scripts/check-deps.js",
     "clean": "node scripts/diagnose.js",
     "start:all": "node scripts/platform.js start",
     "start:all-stocks": "cmd /c \"set STOCK_UNIVERSE_MODE=full-universe && npm run start:all\"",
+    "start": "node scripts/dev-supervisor.js",
+    "app": "node scripts/dev-supervisor.js",
+    "start:app": "node scripts/dev-supervisor.js",
+    "stop:app": "node scripts/dev-supervisor.js stop",
     "clean-start": "node scripts/clean-start.js",
     "stop:all": "node scripts/platform.js stop",
     "restart:all": "node scripts/platform.js restart",

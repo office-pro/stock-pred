@@ -113,12 +113,48 @@ scripts/                 start-platform.sh / stop-platform.sh / restart-platform
 
 ---
 
+## Prerequisites
+
+Run this first on a new machine — it prints every tool, version, and install hint:
+
+```bash
+npm run check:deps
+```
+
+| Need               | Version                                              | Why                                 |
+| ------------------ | ---------------------------------------------------- | ----------------------------------- |
+| **Node.js**        | 20+ (see `.nvmrc`)                                   | NestJS services, React UI, Prisma   |
+| **npm**            | 10+ (bundled with Node 20)                           | workspaces                          |
+| **Docker Desktop** | Compose v2 (`docker compose`)                        | PostgreSQL 16, Redis 7, Kafka       |
+| **Python**         | 3.11 preferred, 3.10–3.12 OK (see `.python-version`) | `ml-engine` (FastAPI / uvicorn)     |
+| **pip packages**   | `apps/ml-engine/requirements.txt`                    | XGBoost, LightGBM, PyTorch, FastAPI |
+
+Windows: install Python from python.org and tick **Add python.exe to PATH**. Start Docker Desktop before `npm start`.
+
+---
+
 ## Quick start
 
 ```bash
-cp .env.example .env          # adjust secrets for anything non-local
+cp .env.example .env          # Windows: copy .env.example .env
 npm install
-npm run start:all             # Docker: postgres + redis + kafka + migrate + seed + all services
+pip install -r apps/ml-engine/requirements.txt
+npm run check:deps            # fail fast if Node / Docker / Python are missing
+npm start                     # Docker infra + all host services (Ctrl+C stops them)
+# Frontend:    http://localhost:5173
+# API gateway: http://localhost:3000/health
+```
+
+After Postgres is up (first clone only):
+
+```bash
+npm run prisma:migrate && npm run prisma:seed
+```
+
+All-in-Docker alternative:
+
+```bash
+npm run start:all             # compose --profile apps: postgres + redis + kafka + every service
 # Frontend:    http://localhost:8080
 # API gateway: http://localhost:3000
 ```
