@@ -30,6 +30,7 @@
     "prisma:generate": "npm run generate -w @stockpred/database",
     "prisma:migrate": "npm run migrate:deploy -w @stockpred/database",
     "prisma:seed": "npm run seed -w @stockpred/database",
+    "prisma:seed:users": "npm run seed:users -w @stockpred/database",
     "ingest:listings": "npm run build -w @stockpred/database && node packages/database/dist/ingest-listings.js",
     "ingest:bhavcopy": "npm run build -w @stockpred/database && node packages/database/dist/ingest-bhavcopy.js",
     "scan:patterns": "npm run build -w @stockpred/pattern-engine && node apps/pattern-engine/dist/scan-history.js",

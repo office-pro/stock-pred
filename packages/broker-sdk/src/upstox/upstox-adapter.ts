@@ -2,12 +2,22 @@
  * Upstox Broker Adapter - Skeleton
  */
 
-import { v4 as uuid } from 'uuid';
+import { uuid } from '../common/id';
 import type { BrokerAdapter, BrokerAdapterEvent } from '../common/interfaces/broker-adapter';
-import type { OrderRequest, OrderResponse, OrderModification, BrokerProfile, BrokerFunds, BrokerPosition, BrokerHolding, BrokerOrder, BrokerTrade } from '../common/types/index';
+import type {
+  OrderRequest,
+  OrderResponse,
+  OrderModification,
+  BrokerProfile,
+  BrokerFunds,
+  BrokerPosition,
+  BrokerHolding,
+  BrokerOrder,
+  BrokerTrade,
+} from '../common/types/index';
 
 export class UpstoxAdapter implements BrokerAdapter {
-  private listeners = new Map<string, Function[]>();
+  private listeners = new Map<string, Array<(data: unknown) => void>>();
   private authenticated = false;
 
   constructor(private apiKey: string) {}

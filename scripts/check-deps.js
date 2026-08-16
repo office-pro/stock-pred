@@ -243,8 +243,20 @@ function checkWorkspace() {
 }
 
 async function checkPorts() {
+  const envFile = path.join(ROOT, '.env');
+  const env = {};
+  if (fs.existsSync(envFile)) {
+    for (const raw of fs.readFileSync(envFile, 'utf8').split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line || line.startsWith('#')) continue;
+      const cut = line.indexOf('=');
+      if (cut <= 0) continue;
+      env[line.slice(0, cut).trim()] = line.slice(cut + 1).trim();
+    }
+  }
+  const postgresPort = Number(env.POSTGRES_PORT || 5432);
   const ports = [
-    ['Postgres', 5432, 'docker compose up -d postgres'],
+    ['Postgres', postgresPort, 'docker compose up -d postgres'],
     ['Redis', 6379, 'docker compose up -d redis'],
     [
       'Kafka (host listener)',

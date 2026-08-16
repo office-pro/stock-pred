@@ -1,6 +1,7 @@
 import { Alert, Box, Button, Card, CardContent, TextField, Typography } from '@mui/material';
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { authErrorMessage } from '../lib/auth-errors';
 import { useAppDispatch } from '../store';
 import { useRegisterMutation } from '../store/api';
 import { setCredentials } from '../store/authSlice';
@@ -31,7 +32,10 @@ export default function RegisterPage(): JSX.Element {
           </Typography>
           {Boolean(error) && (
             <Alert severity="error" sx={{ mb: 2 }}>
-              Registration failed. Password needs 10+ chars with upper, lower and a digit.
+              {authErrorMessage(
+                error,
+                'Registration failed. Password needs 10+ chars with upper, lower and a digit.',
+              )}
             </Alert>
           )}
           <Box component="form" onSubmit={(e) => void onSubmit(e)}>

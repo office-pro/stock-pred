@@ -8,6 +8,7 @@ import {
   Grid,
   IconButton,
   Skeleton,
+  Snackbar,
   Stack,
   Switch,
   Table,
@@ -26,6 +27,7 @@ import { useParams } from 'react-router-dom';
 import type { PatternEventView } from '@stockpred/shared-types';
 import CandleChart, { ChartSignalMarker } from '../components/CandleChart';
 import ChangeCell from '../components/ChangeCell';
+import PaperBuyButton from '../components/PaperBuyButton';
 import SignalBadge from '../components/SignalBadge';
 import {
   useGetCandlesQuery,
@@ -79,6 +81,10 @@ export default function StockDetailPage(): JSX.Element {
   const [showPatterns, setShowPatterns] = useState(false);
   const [chartExpanded, setChartExpanded] = useState(false);
   const [chartHeight, setChartHeight] = useState(480);
+  const [toast, setToast] = useState<{
+    text: string;
+    severity: 'success' | 'error' | 'info';
+  } | null>(null);
 
   const { data: stock } = useGetStockQuery(upper, { pollingInterval: 10_000 });
   const { data: candles, isLoading } = useGetCandlesQuery({
@@ -238,6 +244,12 @@ export default function StockDetailPage(): JSX.Element {
             Paper <b>{paperAction}</b> at ₹{fmtPrice(stock?.entry)} · target ₹
             {fmtPrice(stock?.target)} · stop ₹{fmtPrice(stock?.stopLoss)}
             {stock?.confidence ? ` · ${stock.confidence.toFixed(0)}%` : ''}.{' '}
+            {stock && (
+              <PaperBuyButton
+                stock={stock}
+                onResult={(text, severity) => setToast({ text, severity })}
+              />
+            )}{' '}
           </>
         ) : (
           <>ML chip is Hold. </>
@@ -585,6 +597,18 @@ export default function StockDetailPage(): JSX.Element {
           </Card>
         </Grid>
       </Grid>
+      <Snackbar
+        open={Boolean(toast)}
+        autoHideDuration={6000}
+        onClose={() => setToast(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        {toast ? (
+          <Alert severity={toast.severity} onClose={() => setToast(null)} variant="filled">
+            {toast.text}
+          </Alert>
+        ) : undefined}
+      </Snackbar>
     </>
   );
 }

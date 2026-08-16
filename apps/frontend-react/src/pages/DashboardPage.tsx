@@ -21,7 +21,9 @@ type SuggestionFilter = 'ALL' | 'BUY' | 'SELL';
 type HorizonFilter = 'NEXT_DAY' | 'NEXT_WEEK';
 
 export default function DashboardPage(): JSX.Element {
-  const [exchange, setExchange] = useState<ExchangeTab>('NSE');
+  const [exchange, setExchange] = useState<ExchangeTab>(() =>
+    new URLSearchParams(window.location.search).get('tab') === 'alerts' ? 'ALERTS' : 'NSE',
+  );
   const [suggestion, setSuggestion] = useState<SuggestionFilter>('ALL');
   const [horizon, setHorizon] = useState<HorizonFilter>('NEXT_DAY');
   const [page, setPage] = useState(1);
@@ -184,9 +186,9 @@ export default function DashboardPage(): JSX.Element {
 
       {alertsMode && (
         <Alert severity="info" sx={{ mb: 2 }} data-testid="alerts-banner">
-          Focus list: paper Buy and Sell chips ranked by blended ML + trend confidence. Click a row
-          for full history, historic pattern matches, and dated Buy/Sell prints. This is not
-          investment advice.
+          Focus list: paper Buy chips ranked by blended ML + trend confidence. Click{' '}
+          <b>Paper Buy</b> to open a lot in the paper book (₹10 L cash). Open lots and cash live
+          under Paper book. Click the row for chart history. This is not investment advice.
         </Alert>
       )}
       {provenance && provenance.simulated > 0 && (

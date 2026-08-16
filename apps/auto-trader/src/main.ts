@@ -4,8 +4,10 @@ import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import { getCorsOrigins, getEnvNumber } from '@stockpred/shared-utils';
 import { AppModule } from './app.module';
+import { loadLocalEnv } from './load-env';
 
 async function bootstrap(): Promise<void> {
+  loadLocalEnv();
   const app = await NestFactory.create(AppModule);
   app.use(helmet());
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));

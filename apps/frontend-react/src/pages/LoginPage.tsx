@@ -1,6 +1,7 @@
 import { Alert, Box, Button, Card, CardContent, TextField, Typography } from '@mui/material';
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { authErrorMessage } from '../lib/auth-errors';
 import { useAppDispatch } from '../store';
 import { useLoginMutation } from '../store/api';
 import { setCredentials } from '../store/authSlice';
@@ -29,8 +30,8 @@ export default function LoginPage(): JSX.Element {
             Login
           </Typography>
           {Boolean(error) && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              Invalid credentials.
+            <Alert severity="error" sx={{ mb: 2 }} data-testid="login-error">
+              {authErrorMessage(error, 'Invalid credentials.')}
             </Alert>
           )}
           <Box component="form" onSubmit={(e) => void onSubmit(e)}>
@@ -50,6 +51,7 @@ export default function LoginPage(): JSX.Element {
               margin="normal"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              helperText="Local paper: trader@stockpred.local / Trader@12345"
               inputProps={{ 'data-testid': 'login-password' }}
             />
             <Button

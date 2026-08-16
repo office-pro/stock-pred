@@ -13,7 +13,7 @@
  * Docs: https://kite.trade/docs/connect/v3/
  */
 
-import { v4 as uuid } from 'uuid';
+import { uuid } from '../common/id';
 import type { BrokerAdapter, BrokerAdapterEvent } from '../common/interfaces/broker-adapter';
 import type {
   OrderRequest,
@@ -58,7 +58,7 @@ export class ZerodhaSessionManager extends SessionManager {
 
 export class ZerodhaAdapter implements BrokerAdapter {
   private sessionManager: ZerodhaSessionManager;
-  private listeners = new Map<string, Function[]>();
+  private listeners = new Map<string, Array<(data: unknown) => void>>();
   private baseUrl = 'https://api.kite.trade';
 
   constructor(
@@ -72,7 +72,10 @@ export class ZerodhaAdapter implements BrokerAdapter {
   async login(): Promise<void> {
     try {
       // TODO: Implement Zerodha OAuth flow
-      this.emit('authenticated', { brokerAccountId: 'zerodha-' + uuid(), accountId: this.clientId });
+      this.emit('authenticated', {
+        brokerAccountId: 'zerodha-' + uuid(),
+        accountId: this.clientId,
+      });
     } catch (error) {
       throw new AuthenticationError(
         `Zerodha login failed: ${error instanceof Error ? error.message : 'unknown error'}`,
@@ -155,7 +158,11 @@ export class ZerodhaAdapter implements BrokerAdapter {
     return [];
   }
 
-  async getTrades(_filters?: { symbol?: string; from?: number; to?: number }): Promise<BrokerTrade[]> {
+  async getTrades(_filters?: {
+    symbol?: string;
+    from?: number;
+    to?: number;
+  }): Promise<BrokerTrade[]> {
     return [];
   }
 

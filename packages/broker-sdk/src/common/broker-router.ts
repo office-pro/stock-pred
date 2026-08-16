@@ -6,7 +6,7 @@
  * Also emits Kafka events for audit and downstream consumers.
  */
 
-import { v4 as uuid } from 'uuid';
+import { uuid } from './id';
 import type { BrokerAdapter } from './interfaces/broker-adapter';
 import type {
   OrderRequest,
@@ -21,15 +21,21 @@ import type {
 } from './types/index';
 import { BrokerFactory } from './broker-factory';
 
+type EventHandler = (data: unknown) => void;
+
+interface KafkaLikeProducer {
+  emit(topic: string, event: unknown): Promise<unknown> | unknown;
+}
+
 export interface BrokerRouterConfig {
   brokerType?: string; // 'PAPER', 'ZERODHA', 'ANGELONE', etc.
-  kafkaProducer?: any; // Optional: EventProducer for Kafka events
+  kafkaProducer?: KafkaLikeProducer;
 }
 
 export class BrokerRouter {
   private adapter: BrokerAdapter;
-  private kafkaProducer?: any;
-  private listeners = new Map<string, Function[]>();
+  private kafkaProducer?: KafkaLikeProducer;
+  private listeners = new Map<string, EventHandler[]>();
 
   constructor(config: BrokerRouterConfig = {}) {
     const brokerType = config.brokerType || process.env.BROKER_TYPE || 'PAPER';
@@ -88,7 +94,11 @@ export class BrokerRouter {
     return this.adapter.getOrders(status);
   }
 
-  async getTrades(filters?: { symbol?: string; from?: number; to?: number }): Promise<BrokerTrade[]> {
+  async getTrades(filters?: {
+    symbol?: string;
+    from?: number;
+    to?: number;
+  }): Promise<BrokerTrade[]> {
     return this.adapter.getTrades(filters);
   }
 
@@ -148,14 +158,14 @@ export class BrokerRouter {
 
   // ===== EVENT MANAGEMENT =====
 
-  on(event: string, handler: Function): void {
+  on(event: string, handler: EventHandler): void {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, []);
     }
     this.listeners.get(event)!.push(handler);
   }
 
-  off(event: string, handler: Function): void {
+  off(event: string, handler: EventHandler): void {
     const handlers = this.listeners.get(event);
     if (handlers) {
       const idx = handlers.indexOf(handler);
@@ -163,7 +173,7 @@ export class BrokerRouter {
     }
   }
 
-  private emit(event: string, data: any): void {
+  private emit(event: string, data: unknown): void {
     const handlers = this.listeners.get(event) || [];
     for (const handler of handlers) {
       try {

@@ -5,7 +5,8 @@ let client: PrismaClient | undefined;
 /** Process-wide Prisma singleton (avoids connection-pool exhaustion). */
 export function getPrismaClient(): PrismaClient {
   if (!client) {
-    client = new PrismaClient();
+    const url = process.env.DATABASE_URL;
+    client = url ? new PrismaClient({ datasources: { db: { url } } }) : new PrismaClient();
   }
   return client;
 }
@@ -25,3 +26,4 @@ export { getStockUniverse, getUniverseStats, getUniverseMode } from './universe-
 export type { UniverseMode } from './universe-config';
 export { isPlaceholderSymbol, loadEquityMaster, listedToUniverse } from './listings';
 export type { ListedEquity } from './listings';
+export { DEMO_USERS, ensureDemoUsers } from './demo-users';
