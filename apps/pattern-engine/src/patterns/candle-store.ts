@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { Candle, Timeframe } from '@stockpred/shared-types';
 import { getEnv, withRetry } from '@stockpred/shared-utils';
 
-const MAX_DAILY_CANDLES = 3000;
+const MAX_DAILY_CANDLES = 5000;
 
 /** Daily candle buffers warmed over REST and kept fresh from Kafka. */
 @Injectable()
@@ -36,31 +36,47 @@ export class CandleStore {
   }
 
   async warmup(): Promise<void> {
-    const { data: stocks } = await withRetry(
-      () => axios.get<{ symbol: string }[]>(`${this.marketDataUrl}/stocks`, { timeout: 10_000 }),
+    await withRetry(
+      () =>
+        axios.get(`${this.marketDataUrl}/stocks`, {
+          params: { page: 1, limit: 1 },
+          timeout: 10_000,
+        }),
       { retries: 12, delayMs: 2500, backoff: 1.2 },
     );
-    await Promise.all(
-      stocks.map(async ({ symbol }) => {
-        try {
-          const { data } = await axios.get<Candle[]>(
-            `${this.marketDataUrl}/stocks/${symbol}/candles`,
-            { params: { timeframe: Timeframe.ONE_DAY, limit: 300 }, timeout: 10_000 },
-          );
-          this.candles.set(symbol, data);
-        } catch (error) {
-          console.warn(`[pattern-engine] warmup failed for ${symbol}: ${(error as Error).message}`);
-        }
-      }),
-    );
-    console.log(`[pattern-engine] warmed up ${this.candles.size} symbols`);
+    console.log('[pattern-engine] market-data is up; history loads per symbol on the detail page');
   }
 
   async refreshFromRest(symbol: string): Promise<void> {
+    const existing = this.candles.get(symbol) ?? [];
+    const limit = Math.min(Math.max(existing.length, 300), MAX_DAILY_CANDLES);
     const { data } = await axios.get<Candle[]>(`${this.marketDataUrl}/stocks/${symbol}/candles`, {
-      params: { timeframe: Timeframe.ONE_DAY, limit: 300 },
-      timeout: 10_000,
+      params: { timeframe: Timeframe.ONE_DAY, limit },
+      timeout: 15_000,
     });
-    this.candles.set(symbol, data);
+    if (data.length >= existing.length) {
+      this.candles.set(symbol, data);
+    }
+  }
+
+  /** Pull the longest daily series market-data will serve (detail page / analog). */
+  async ensureHistory(symbol: string): Promise<Candle[]> {
+    const existing = this.candles.get(symbol) ?? [];
+    if (existing.length >= 500) return existing;
+    try {
+      const { data } = await axios.get<Candle[]>(`${this.marketDataUrl}/stocks/${symbol}/candles`, {
+        params: { timeframe: Timeframe.ONE_DAY, limit: MAX_DAILY_CANDLES },
+        timeout: 55_000,
+      });
+      if (data.length >= existing.length) {
+        this.candles.set(symbol, data);
+        return data;
+      }
+    } catch (error) {
+      console.warn(
+        `[pattern-engine] full-history fetch failed for ${symbol}: ${(error as Error).message}`,
+      );
+    }
+    return existing;
   }
 }

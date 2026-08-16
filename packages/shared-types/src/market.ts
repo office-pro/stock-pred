@@ -121,7 +121,7 @@ export interface StockQuote extends StockInfo {
   previousClose: number;
   indicators: IndicatorSnapshot | null;
   dataSource: MarketDataSource;
-  /** BUY/SELL/HOLD from the ML advisory (HOLD if models are missing). */
+  /** BUY/SELL/HOLD from blended ML confidence + stock/Nifty trend. */
   suggestion: TradeSuggestion;
   horizon: PredictionHorizon;
   entry: number | null;

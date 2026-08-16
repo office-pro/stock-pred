@@ -87,6 +87,8 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private readonly predictions = new PredictionCache();
   private readonly paperCapital = getEnvNumber('PAPER_TRADING_CAPITAL', DEFAULT_PAPER_CAPITAL);
   private readonly advisoryMemo = new Map<string, ReturnType<typeof composeTradeAdvisory>>();
+  private readonly hydrateJobs = new Map<string, Promise<void>>();
+  private readonly hydrateTried = new Set<string>();
 
   constructor(
     private readonly kafka: KafkaProducerService,
@@ -166,6 +168,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       dataSource: 'listed',
       isin: stock.isin ?? null,
       bseCode: stock.bseCode ?? null,
+      yahooSymbol: stock.yahooSymbol ?? null,
     });
     if (stock.isin) this.byIsin.set(stock.isin, stock.symbol);
     if (stock.bseCode) this.byBseCode.set(stock.bseCode, stock.symbol);
@@ -280,6 +283,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     exchange?: string,
     suggestion?: string,
     horizon?: string,
+    sort?: string,
   ): {
     data: StockQuote[];
     total: number;
@@ -321,9 +325,16 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     const suggestionUpper = suggestion?.trim().toUpperCase();
     if (suggestionUpper === 'BUY' || suggestionUpper === 'SELL' || suggestionUpper === 'HOLD') {
       quotes = quotes.filter((q) => q.suggestion === suggestionUpper);
+    } else if (suggestionUpper === 'ACTIONABLE') {
+      quotes = quotes.filter((q) => q.suggestion === 'BUY' || q.suggestion === 'SELL');
     }
 
-    quotes.sort((a, b) => a.symbol.localeCompare(b.symbol));
+    const sortKey = sort?.trim().toLowerCase();
+    if (sortKey === 'confidence') {
+      quotes.sort((a, b) => b.confidence - a.confidence || a.symbol.localeCompare(b.symbol));
+    } else {
+      quotes.sort((a, b) => a.symbol.localeCompare(b.symbol));
+    }
 
     const total = quotes.length;
     const start = (page - 1) * limit;
@@ -338,15 +349,16 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     return this.toQuote(state);
   }
 
-  getCandles(symbol: string, timeframe: Timeframe, limit: number): Candle[] {
-    const state = this.stocks.get(symbol);
+  async getCandles(symbol: string, timeframe: Timeframe, limit: number): Promise<Candle[]> {
     const index = this.indices.get(symbol);
-    const daily = state?.daily ?? index?.daily;
-    if (!daily && !state) throw new NotFoundException(`Unknown symbol: ${symbol}`);
-    if (timeframe === Timeframe.ONE_DAY) {
-      return (daily ?? []).slice(-limit);
+    if (index) {
+      return timeframe === Timeframe.ONE_DAY ? index.daily.slice(-limit) : [];
     }
-    if (!state) throw new NotFoundException(`Intraday data not available for ${symbol}`);
+    await this.ensureLoaded(symbol);
+    const state = this.requireSymbol(symbol);
+    if (timeframe === Timeframe.ONE_DAY) {
+      return state.daily.slice(-limit);
+    }
     return state.intraday.slice(-limit);
   }
 
@@ -401,7 +413,12 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
 
     if (this.yahooProvider) {
       try {
-        const candles = await this.yahooProvider.getDailyHistory(symbol, HISTORY_DAYS, basePrice);
+        const existing = this.stocks.get(symbol);
+        const candles = await this.yahooProvider.getDailyHistory(symbol, HISTORY_DAYS, basePrice, {
+          exchange: existing?.info.exchange,
+          bseCode: existing?.bseCode,
+          yahooSymbol: existing?.yahooSymbol,
+        });
         void this.cache.saveHistory(candles);
         return { candles, source: 'live' };
       } catch (error) {
@@ -424,31 +441,33 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async loadUniverse(): Promise<UniverseStock[]> {
+    const configuredUniverse = getStockUniverse();
     try {
       const prisma = getPrismaClient();
       const rows = await prisma.stock.findMany();
-      if (rows.length > 0) {
-        const configuredUniverse = getStockUniverse();
-        return rows.map((row) => {
-          const base = configuredUniverse.find((s) => s.symbol === row.symbol);
-          return {
-            symbol: row.symbol,
-            name: row.name,
-            exchange: row.exchange as Exchange,
-            sector: row.sector,
-            indices: row.indices as MarketIndex[],
-            basePrice: base?.basePrice ?? 0,
-            isin: row.isin,
-            bseCode: row.bseCode,
-          };
+      if (rows.length === 0) return configuredUniverse;
+      const bySymbol = new Map(configuredUniverse.map((stock) => [stock.symbol, stock]));
+      for (const row of rows) {
+        const base = bySymbol.get(row.symbol);
+        bySymbol.set(row.symbol, {
+          symbol: row.symbol,
+          name: row.name || base?.name || row.symbol,
+          exchange: (row.exchange as Exchange) || base?.exchange,
+          sector: row.sector || base?.sector || 'Unknown',
+          indices: (row.indices as MarketIndex[]) || base?.indices || [],
+          basePrice: base?.basePrice ?? 0,
+          isin: row.isin ?? base?.isin ?? null,
+          bseCode: row.bseCode ?? base?.bseCode ?? null,
+          yahooSymbol: row.yahooSymbol ?? base?.yahooSymbol ?? null,
         });
       }
+      return [...bySymbol.values()];
     } catch (error) {
       console.warn(
         `[market-data] database unavailable (${(error as Error).message}); using built-in universe`,
       );
     }
-    return getStockUniverse();
+    return configuredUniverse;
   }
 
   private async bootstrapSymbol(stock: UniverseStock): Promise<void> {
@@ -492,8 +511,10 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
         dataSource: existing?.dataSource === 'cached' ? 'cached' : source,
         isin: existing?.isin ?? stock.isin ?? null,
         bseCode: existing?.bseCode ?? stock.bseCode ?? null,
+        yahooSymbol: existing?.yahooSymbol ?? stock.yahooSymbol ?? null,
       };
       this.stocks.set(stock.symbol, state);
+      this.hydrateTried.add(stock.symbol);
     } catch (error) {
       if (process.env.DEBUG_STOCK_LOAD === 'true') {
         console.warn(`[market-data] failed to load ${stock.symbol}: ${(error as Error).message}`);
@@ -762,7 +783,9 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     const price = state.lastTick?.price ?? today.close;
     const prev = state.previousClose > 0 ? state.previousClose : today.open;
     const ml = this.predictions.get(state.info.symbol, horizon);
-    const memoKey = `${state.info.symbol}|${horizon}|${ml?.direction ?? ''}|${ml?.confidence ?? 0}|${today.time}|${state.daily.length}`;
+    const niftyDaily = this.indices.get(MarketIndex.NIFTY_50)?.daily ?? [];
+    const niftyStamp = niftyDaily[niftyDaily.length - 1]?.time ?? 0;
+    const memoKey = `${state.info.symbol}|${horizon}|${ml?.direction ?? ''}|${ml?.confidence ?? 0}|${today.time}|${state.daily.length}|${niftyStamp}`;
     let advisory = this.advisoryMemo.get(memoKey);
     if (!advisory) {
       advisory = composeTradeAdvisory({
@@ -773,6 +796,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
         modelVersion: ml?.modelVersion,
         horizon,
         capital: this.paperCapital,
+        marketCandles: niftyDaily.length > 6 ? niftyDaily.slice(-20) : niftyDaily,
       });
       this.advisoryMemo.set(memoKey, advisory);
     }
@@ -907,6 +931,38 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     const state = this.stocks.get(symbol);
     if (!state) throw new NotFoundException(`Unknown symbol: ${symbol}`);
     return state;
+  }
+
+  /**
+   * Load full daily history for a listed symbol the moment someone opens it.
+   * Background bootstrap can take hours across the full universe; the detail
+   * page must not wait for that queue.
+   */
+  private async ensureLoaded(symbol: string): Promise<void> {
+    const state = this.stocks.get(symbol);
+    if (!state) throw new NotFoundException(`Unknown symbol: ${symbol}`);
+    if (state.daily.length >= 500) return;
+    if (this.hydrateTried.has(symbol)) return;
+    const inflight = this.hydrateJobs.get(symbol);
+    if (inflight) return inflight;
+    const job = this.hydrateOnDemand(state).finally(() => this.hydrateJobs.delete(symbol));
+    this.hydrateJobs.set(symbol, job);
+    await job;
+  }
+
+  private async hydrateOnDemand(state: SymbolState): Promise<void> {
+    await this.bootstrapSymbol({
+      symbol: state.info.symbol,
+      name: state.info.name,
+      exchange: state.info.exchange,
+      sector: state.info.sector,
+      indices: state.info.indices,
+      basePrice: state.previousClose || 0,
+      isin: state.isin,
+      bseCode: state.bseCode,
+      yahooSymbol: state.yahooSymbol,
+    });
+    this.hydrateTried.add(state.info.symbol);
   }
 
   // -------------------------------------------------- orchestrator integration

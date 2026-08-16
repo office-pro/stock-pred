@@ -11,6 +11,8 @@ export interface UniverseStock {
   basePrice: number;
   isin?: string | null;
   bseCode?: string | null;
+  /** Official Yahoo ticker from the equity master when known. */
+  yahooSymbol?: string | null;
 }
 
 /**

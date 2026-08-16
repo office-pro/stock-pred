@@ -10,9 +10,9 @@ import type {
   PortfolioSnapshot,
   PredictionAccuracy,
   RelativeComparison,
-  PatternAnalog,
   StockQuote,
   SupportResistance,
+  SymbolPatternPayload,
 } from '@stockpred/shared-types';
 import { API_BASE_URL } from '../config';
 import type { RootState } from './index';
@@ -143,9 +143,10 @@ export const api = createApi({
         exchange?: string;
         suggestion?: string;
         horizon?: string;
+        sort?: string;
       }
     >({
-      query: ({ page = 1, limit = 50, search, exchange, suggestion, horizon } = {}) => {
+      query: ({ page = 1, limit = 50, search, exchange, suggestion, horizon, sort } = {}) => {
         const params = new URLSearchParams();
         params.append('page', page.toString());
         params.append('limit', limit.toString());
@@ -153,6 +154,7 @@ export const api = createApi({
         if (exchange) params.append('exchange', exchange);
         if (suggestion) params.append('suggestion', suggestion);
         if (horizon) params.append('horizon', horizon);
+        if (sort) params.append('sort', sort);
         return `/stocks?${params.toString()}`;
       },
       providesTags: ['Stocks'],
@@ -223,44 +225,9 @@ export const api = createApi({
       query: (symbol) => `/support-resistance/${symbol}`,
       transformResponse: unwrap<SupportResistance>,
     }),
-    getSymbolPatterns: builder.query<
-      {
-        history: PatternRow[];
-        current: unknown[];
-        analog?: PatternAnalog | { available: string[] } | null;
-        occurrences?: Array<{
-          id: string;
-          symbol: string;
-          pattern: string;
-          direction: string;
-          confidence: number;
-          price: number;
-          confirmedAt: string | number;
-          return5?: number | null;
-          return10?: number | null;
-          return20?: number | null;
-        }>;
-      },
-      string
-    >({
+    getSymbolPatterns: builder.query<SymbolPatternPayload, string>({
       query: (symbol) => `/patterns/${symbol}`,
-      transformResponse: unwrap<{
-        history: PatternRow[];
-        current: unknown[];
-        analog?: PatternAnalog | { available: string[] } | null;
-        occurrences?: Array<{
-          id: string;
-          symbol: string;
-          pattern: string;
-          direction: string;
-          confidence: number;
-          price: number;
-          confirmedAt: string | number;
-          return5?: number | null;
-          return10?: number | null;
-          return20?: number | null;
-        }>;
-      }>,
+      transformResponse: unwrap<SymbolPatternPayload>,
     }),
     getAllPredictions: builder.query<
       {

@@ -68,6 +68,7 @@ export function listedToUniverse(row: ListedEquity): UniverseStock {
     basePrice: 0,
     isin: row.isin,
     bseCode: row.bseCode,
+    yahooSymbol: row.yahooSymbol,
   };
 }
 

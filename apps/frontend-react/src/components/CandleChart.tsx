@@ -14,28 +14,54 @@ import type { Candle, SupportResistance } from '@stockpred/shared-types';
 export interface ChartSignalMarker {
   time: number;
   signal: 'BUY' | 'SELL';
-  text: string;
+  text?: string;
 }
 
 interface CandleChartProps {
   candles: Candle[];
   supportResistance?: SupportResistance | null;
+  showSupport?: boolean;
+  showResistance?: boolean;
   /** Latest actionable levels to draw (target / stop-loss). */
   target?: number | null;
   stopLoss?: number | null;
   markers?: ChartSignalMarker[];
+  /** When false, arrows have no pattern-name labels. */
+  markerLabels?: boolean;
   /** Normalized benchmark overlay for comparison mode. */
   comparison?: { name: string; candles: Candle[] } | null;
   height?: number;
+}
+
+const MAX_LEVELS = 3;
+
+function nearestLevels(levels: number[], price: number, limit = MAX_LEVELS): number[] {
+  return [...levels]
+    .sort((a, b) => Math.abs(a - price) - Math.abs(b - price))
+    .slice(0, limit)
+    .sort((a, b) => a - b);
+}
+
+function dedupeMarkers(markers: ChartSignalMarker[]): ChartSignalMarker[] {
+  const byDay = new Map<string, ChartSignalMarker>();
+  for (const marker of markers) {
+    const day = Math.floor(marker.time / 86_400_000);
+    const key = `${day}-${marker.signal}`;
+    if (!byDay.has(key)) byDay.set(key, marker);
+  }
+  return [...byDay.values()].sort((a, b) => a.time - b.time);
 }
 
 /** Candlestick + volume chart (TradingView lightweight-charts). */
 export default function CandleChart({
   candles,
   supportResistance,
+  showSupport = true,
+  showResistance = true,
   target,
   stopLoss,
   markers,
+  markerLabels = false,
   comparison,
   height = 480,
 }: CandleChartProps): JSX.Element {
@@ -46,6 +72,7 @@ export default function CandleChart({
     const container = containerRef.current;
     if (!container || candles.length === 0) return undefined;
 
+    const lastClose = candles[candles.length - 1].close;
     const chart = createChart(container, {
       height,
       layout: {
@@ -64,7 +91,6 @@ export default function CandleChart({
 
     const toTime = (ms: number): UTCTimestamp => Math.floor(ms / 1000) as UTCTimestamp;
 
-    // ---- candles
     const candleSeries = chart.addCandlestickSeries({
       upColor: '#26a69a',
       downColor: '#ef5350',
@@ -82,7 +108,6 @@ export default function CandleChart({
       })),
     );
 
-    // ---- volume
     const volumeSeries = chart.addHistogramSeries({
       priceFormat: { type: 'volume' },
       priceScaleId: 'volume',
@@ -96,29 +121,31 @@ export default function CandleChart({
       })),
     );
 
-    // ---- support / resistance price lines
-    for (const level of supportResistance?.support ?? []) {
-      candleSeries.createPriceLine({
-        price: level,
-        color: '#26a69a',
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: 'S',
-      });
+    if (showSupport) {
+      for (const level of nearestLevels(supportResistance?.support ?? [], lastClose)) {
+        candleSeries.createPriceLine({
+          price: level,
+          color: '#26a69a',
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: 'S',
+        });
+      }
     }
-    for (const level of supportResistance?.resistance ?? []) {
-      candleSeries.createPriceLine({
-        price: level,
-        color: '#ef5350',
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: 'R',
-      });
+    if (showResistance) {
+      for (const level of nearestLevels(supportResistance?.resistance ?? [], lastClose)) {
+        candleSeries.createPriceLine({
+          price: level,
+          color: '#ef5350',
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: 'R',
+        });
+      }
     }
 
-    // ---- target / stop-loss
     if (target != null) {
       candleSeries.createPriceLine({
         price: target,
@@ -140,19 +167,17 @@ export default function CandleChart({
       });
     }
 
-    // ---- buy/sell markers
     if (markers && markers.length > 0) {
-      const seriesMarkers: SeriesMarker<Time>[] = markers.map((m) => ({
+      const seriesMarkers: SeriesMarker<Time>[] = dedupeMarkers(markers).map((m) => ({
         time: toTime(m.time),
         position: m.signal === 'BUY' ? 'belowBar' : 'aboveBar',
         color: m.signal === 'BUY' ? '#26a69a' : '#ef5350',
         shape: m.signal === 'BUY' ? 'arrowUp' : 'arrowDown',
-        text: m.text,
+        ...(markerLabels && m.text ? { text: m.text } : {}),
       }));
       candleSeries.setMarkers(seriesMarkers);
     }
 
-    // ---- comparison overlay (normalized to the stock's first close)
     if (comparison && comparison.candles.length > 1) {
       const base = candles[0].close;
       const benchBase = comparison.candles[0].close;
@@ -183,7 +208,18 @@ export default function CandleChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, supportResistance, target, stopLoss, markers, comparison, height]);
+  }, [
+    candles,
+    supportResistance,
+    showSupport,
+    showResistance,
+    target,
+    stopLoss,
+    markers,
+    markerLabels,
+    comparison,
+    height,
+  ]);
 
   return <Box ref={containerRef} sx={{ width: '100%' }} data-testid="candle-chart" />;
 }

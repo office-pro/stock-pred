@@ -16,7 +16,7 @@ import IndexCards from '../components/IndexCards';
 import StockTable from '../components/StockTable';
 import { useGetPredictionAccuracyQuery, useGetStocksQuery } from '../store/api';
 
-type ExchangeTab = 'NSE' | 'BSE';
+type ExchangeTab = 'NSE' | 'BSE' | 'ALERTS';
 type SuggestionFilter = 'ALL' | 'BUY' | 'SELL';
 type HorizonFilter = 'NEXT_DAY' | 'NEXT_WEEK';
 
@@ -26,7 +26,8 @@ export default function DashboardPage(): JSX.Element {
   const [horizon, setHorizon] = useState<HorizonFilter>('NEXT_DAY');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const limit = 50;
+  const alertsMode = exchange === 'ALERTS';
+  const limit = alertsMode ? 40 : 50;
 
   const {
     currentData: paginatedData,
@@ -38,9 +39,16 @@ export default function DashboardPage(): JSX.Element {
       page,
       limit,
       search: search || undefined,
-      exchange,
-      suggestion: suggestion === 'ALL' ? undefined : suggestion,
+      exchange: alertsMode ? undefined : exchange,
+      suggestion: alertsMode
+        ? suggestion === 'ALL'
+          ? 'ACTIONABLE'
+          : suggestion
+        : suggestion === 'ALL'
+          ? undefined
+          : suggestion,
       horizon,
+      sort: alertsMode ? 'confidence' : undefined,
     },
     { pollingInterval: 10_000 },
   );
@@ -106,8 +114,9 @@ export default function DashboardPage(): JSX.Element {
       {typeof buyHit === 'number' && (
         <Alert severity="info" sx={{ mb: 2 }} data-testid="accuracy-banner">
           {horizonLabel} model track record: {accuracy?.overallHitRate}% of {scored ?? 0} scored
-          calls were labeled correctly (Buy ideas {buyHit}% right). Paper size is 1% of ₹10 L
-          capital. This is not investment advice.
+          calls were labeled correctly (Buy ideas {buyHit}% right). Chips blend the ML forecast with
+          stock trend and Nifty: they must not fight, and a weak model on a flat tape stays Hold.
+          Paper size is 1% of ₹10 L capital. This is not investment advice.
         </Alert>
       )}
       {accuracy == null && (
@@ -121,6 +130,7 @@ export default function DashboardPage(): JSX.Element {
         <Tabs value={exchange} onChange={handleExchangeChange}>
           <Tab value="NSE" label={`NSE (${counts.NSE})`} />
           <Tab value="BSE" label={`BSE (${counts.BSE})`} />
+          <Tab value="ALERTS" label="Alerts" />
         </Tabs>
       </Box>
 
@@ -133,7 +143,7 @@ export default function DashboardPage(): JSX.Element {
       >
         <TextField
           size="small"
-          placeholder={`Search ${exchange} stocks...`}
+          placeholder={alertsMode ? 'Search alerts...' : `Search ${exchange} stocks...`}
           value={search}
           onChange={(event) => {
             setSearch(event.target.value);
@@ -167,11 +177,18 @@ export default function DashboardPage(): JSX.Element {
           </ToggleButton>
         </ToggleButtonGroup>
         <Typography variant="body2" color="text.secondary">
-          {paginatedData?.total ?? 0} {exchange}
+          {paginatedData?.total ?? 0} {alertsMode ? 'focus' : exchange}
           {suggestion === 'ALL' ? '' : ` ${suggestion.toLowerCase()}`} stocks
         </Typography>
       </Stack>
 
+      {alertsMode && (
+        <Alert severity="info" sx={{ mb: 2 }} data-testid="alerts-banner">
+          Focus list: paper Buy and Sell chips ranked by blended ML + trend confidence. Click a row
+          for full history, historic pattern matches, and dated Buy/Sell prints. This is not
+          investment advice.
+        </Alert>
+      )}
       {provenance && provenance.simulated > 0 && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           {provenance.simulated} of {provenance.total} symbols on this page are showing SIMULATED
@@ -198,9 +215,13 @@ export default function DashboardPage(): JSX.Element {
       {stocks && stocks.length > 0 && <StockTable stocks={stocks} />}
       {!isLoading && stocks.length === 0 && (
         <Alert severity="info">
-          {suggestion === 'ALL'
-            ? `No ${exchange} stocks match this search.`
-            : `No ${suggestion} AI advisories on this ${exchange} page. Try All, or train models.`}
+          {alertsMode
+            ? suggestion === 'ALL'
+              ? 'No paper Buy or Sell alerts yet. Train models (`npm run train:ml`) or wait for the blend to fire.'
+              : `No ${suggestion} alerts right now. Try All, or train models.`
+            : suggestion === 'ALL'
+              ? `No ${exchange} stocks match this search.`
+              : `No ${suggestion} AI advisories on this ${exchange} page. Try All, or train models.`}
         </Alert>
       )}
 
@@ -213,8 +234,8 @@ export default function DashboardPage(): JSX.Element {
       {stocks && stocks.length > 0 && (
         <Box sx={{ mt: 2, textAlign: 'center' }}>
           <Typography variant="body2" color="text.secondary">
-            Showing {stocks.length} of {paginatedData?.total ?? 0} {exchange} stocks. Page {page} of{' '}
-            {totalPages}
+            Showing {stocks.length} of {paginatedData?.total ?? 0} {alertsMode ? 'focus' : exchange}{' '}
+            stocks. Page {page} of {totalPages}
           </Typography>
         </Box>
       )}

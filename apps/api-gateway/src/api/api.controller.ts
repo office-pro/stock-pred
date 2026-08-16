@@ -88,9 +88,10 @@ export class ApiController {
     @Query('exchange') exchange?: string,
     @Query('suggestion') suggestion?: string,
     @Query('horizon') horizon?: string,
+    @Query('sort') sort?: string,
   ): Promise<unknown> {
     return this.proxy.get('marketData', '/stocks', {
-      params: { page, limit, search, exchange, suggestion, horizon },
+      params: { page, limit, search, exchange, suggestion, horizon, sort },
     });
   }
 

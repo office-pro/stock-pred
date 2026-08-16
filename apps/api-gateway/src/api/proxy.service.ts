@@ -43,7 +43,7 @@ export class ProxyService {
     try {
       const response = await axios.request<T>({
         baseURL: this.urls[service],
-        timeout: 30_000,
+        timeout: 60_000,
         ...config,
       });
       return response.data;
