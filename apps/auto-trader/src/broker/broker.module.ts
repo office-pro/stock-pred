@@ -12,10 +12,15 @@ import { BrokerRouter } from '@stockpred/broker-sdk';
   providers: [
     {
       provide: BrokerRouter,
-      useFactory: () => {
-        const brokerType = process.env.BROKER_TYPE || 'PAPER';
+      useFactory: async () => {
+        const brokerType = (process.env.BROKER_TYPE || 'PAPER').toUpperCase();
         console.log(`[broker-module] Creating BrokerRouter with broker type: ${brokerType}`);
-        return new BrokerRouter({ brokerType });
+        const router = new BrokerRouter({ brokerType });
+        if (brokerType === 'PAPER') {
+          await router.login();
+          console.log('[broker-module] paper adapter ready (no credentials)');
+        }
+        return router;
       },
     },
   ],

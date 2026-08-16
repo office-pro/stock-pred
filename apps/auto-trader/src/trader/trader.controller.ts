@@ -8,7 +8,17 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { Transform } from 'class-transformer';
+import {
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { ExecutedTrade, PortfolioSnapshot, TradeSide } from '@stockpred/shared-types';
 import { TraderService } from './trader.service';
 
@@ -20,10 +30,26 @@ export class ExecuteTradeDto {
   @IsEnum(TradeSide)
   side!: TradeSide;
 
+  @Transform(({ value }) => Math.max(1, Math.round(Number(value))))
   @IsInt()
   @Min(1)
   @Max(1_000_000)
   quantity!: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0.01)
+  price?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0.01)
+  target?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0.01)
+  stopLoss?: number;
 }
 
 export class BrokerConfigDto {
@@ -44,7 +70,7 @@ export class TraderController {
   constructor(private readonly trader: TraderService) {}
 
   @Get('portfolio')
-  portfolio(): PortfolioSnapshot {
+  portfolio(): Promise<PortfolioSnapshot> {
     return this.trader.getPortfolio();
   }
 
@@ -62,6 +88,9 @@ export class TraderController {
       symbol: dto.symbol,
       side: dto.side,
       quantity: dto.quantity,
+      price: dto.price,
+      target: dto.target,
+      stopLoss: dto.stopLoss,
       userId,
     });
   }

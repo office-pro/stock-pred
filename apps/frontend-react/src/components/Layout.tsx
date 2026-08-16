@@ -11,7 +11,7 @@ const NAV_ITEMS = [
   { label: 'Signals', to: '/signals' },
   { label: 'ML Predictions', to: '/predictions' },
   { label: 'Backtest', to: '/backtest' },
-  { label: 'Portfolio', to: '/portfolio' },
+  { label: 'Paper book', to: '/portfolio' },
   { label: 'Brokers', to: '/broker-config' },
 ];
 
@@ -37,7 +37,7 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
           <Box sx={{ flexGrow: 1 }} />
           <Chip
             size="small"
-            label={connected ? 'LIVE' : 'OFFLINE'}
+            label={connected ? 'ONLINE' : 'OFFLINE'}
             color={connected ? 'success' : 'default'}
             sx={{ mr: 2 }}
           />

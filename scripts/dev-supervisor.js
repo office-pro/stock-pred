@@ -41,7 +41,8 @@ const DOCKER_MODE = args.has('--docker');
 
 /** @typedef {{ name: string, port: number, health: string, cwd: string, cmd: string, args: string[], workspace?: string, distFile?: string, graceMs: number }} ServiceSpec */
 
-function loadDotEnv(file) {
+/** Load .env. File values override inherited shell env by default. */
+function loadDotEnv(file, override = true) {
   if (!fs.existsSync(file)) return;
   const text = fs.readFileSync(file, 'utf8');
   for (const raw of text.split(/\r?\n/)) {
@@ -57,7 +58,7 @@ function loadDotEnv(file) {
     ) {
       value = value.slice(1, -1);
     }
-    if (process.env[key] === undefined || process.env[key] === '') {
+    if (process.env[key] === undefined || process.env[key] === '' || override) {
       process.env[key] = value;
     }
   }
@@ -288,7 +289,7 @@ async function startInfra() {
     return false;
   }
   const checks = [
-    ['postgres', 5432],
+    ['postgres', Number(process.env.POSTGRES_PORT || 5432)],
     ['redis', 6379],
     ['kafka', 29092],
   ];

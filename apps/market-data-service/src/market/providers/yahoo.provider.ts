@@ -23,14 +23,47 @@ interface YahooChartResponse {
 
 /** Yahoo rate-limits bursts hard; requests are serialized with this gap. */
 const REQUEST_GAP_MS = 350;
-/** Stale tickers can return a handful of rows; treat them as failures. */
-const MIN_USABLE_CANDLES = 60;
 /** A browser-like UA avoids Yahoo's bot filtering. */
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
+const INDEX_TICKERS: Record<string, string> = {
+  NIFTY_50: '^NSEI',
+  NIFTY_MIDCAP_100: 'NIFTY_MIDCAP_100.NS',
+  NIFTY_SMALLCAP_100: 'SML100CASE.NS',
+  INDIA_VIX: '^INDIAVIX',
+};
+
+export interface YahooSymbolHint {
+  exchange?: string;
+  bseCode?: string | null;
+  yahooSymbol?: string | null;
+}
+
+/** NSE, BSE, and scrip-code tickers so newly listed / BSE-primary names still resolve. */
+export function yahooTickerCandidates(symbol: string, hint?: YahooSymbolHint): string[] {
+  if (INDEX_TICKERS[symbol]) return [INDEX_TICKERS[symbol]];
+  const out: string[] = [];
+  const add = (ticker?: string | null): void => {
+    if (!ticker) return;
+    if (!out.includes(ticker)) out.push(ticker);
+  };
+  add(hint?.yahooSymbol);
+  const exchange = hint?.exchange?.toUpperCase();
+  if (exchange === 'BSE') {
+    if (hint?.bseCode) add(`${hint.bseCode}.BO`);
+    add(`${symbol}.BO`);
+    add(`${symbol}.NS`);
+  } else {
+    add(`${symbol}.NS`);
+    add(`${symbol}.BO`);
+    if (hint?.bseCode) add(`${hint.bseCode}.BO`);
+  }
+  return out;
+}
+
 /**
- * Real candles from Yahoo Finance (NSE symbols use the .NS suffix).
+ * Real candles from Yahoo Finance.
  * Unofficial endpoint: throttled and retried. Failures THROW - the
  * fallback chain (database cache, then simulation as a clearly-flagged
  * last resort) is owned by the MarketService, never hidden in here.
@@ -40,20 +73,42 @@ export class YahooProvider implements MarketDataProvider {
   /** Serialization chain: one in-flight Yahoo request at a time. */
   private chain: Promise<void> = Promise.resolve();
 
-  async getDailyHistory(symbol: string, days: number, _basePrice: number): Promise<Candle[]> {
+  async getDailyHistory(
+    symbol: string,
+    days: number,
+    _basePrice: number,
+    hint?: YahooSymbolHint,
+  ): Promise<Candle[]> {
     const range = days > 1825 ? '10y' : days > 1095 ? '5y' : days > 365 ? '3y' : '1y';
-    const yahooSymbol = this.toYahooSymbol(symbol);
-    const candles = await this.scheduled(() => this.fetchChart(symbol, yahooSymbol, range));
-    console.log(`[market-data] yahoo: ${symbol} -> ${candles.length} candles`);
-    return candles;
+    const tickers = yahooTickerCandidates(symbol, hint);
+    let lastError: Error | null = null;
+    for (const yahooSymbol of tickers) {
+      try {
+        const candles = await this.scheduled(() => this.fetchChart(symbol, yahooSymbol, range));
+        if (candles.length === 0) {
+          lastError = new Error(`${yahooSymbol} returned 0 candles`);
+          continue;
+        }
+        console.log(
+          `[market-data] yahoo: ${symbol} via ${yahooSymbol} -> ${candles.length} candles`,
+        );
+        return candles;
+      } catch (error) {
+        lastError = error as Error;
+        console.warn(
+          `[market-data] yahoo: ${symbol} via ${yahooSymbol} failed (${lastError.message})`,
+        );
+      }
+    }
+    throw lastError ?? new Error(`No Yahoo ticker resolved for ${symbol}`);
   }
 
   /**
    * Today's evolving daily candle, aggregated from real 5-minute intraday
    * rows. Returns null outside trading hours / when no intraday data exists.
    */
-  async getTodayCandle(symbol: string): Promise<Candle | null> {
-    const yahooSymbol = this.toYahooSymbol(symbol);
+  async getTodayCandle(symbol: string, hint?: YahooSymbolHint): Promise<Candle | null> {
+    const yahooSymbol = yahooTickerCandidates(symbol, hint)[0];
     return this.scheduled(async () => {
       const response = await axios.get<YahooChartResponse>(
         `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}`,
@@ -120,7 +175,7 @@ export class YahooProvider implements MarketDataProvider {
             `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}`,
             {
               params: { range, interval: '1d' },
-              timeout: 15_000,
+              timeout: 8_000,
               headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
             },
           );
@@ -157,21 +212,9 @@ export class YahooProvider implements MarketDataProvider {
         volume: quote.volume[i] ?? 0,
       });
     }
-    if (candles.length < MIN_USABLE_CANDLES) {
-      throw new Error(`Yahoo returned only ${candles.length} candles`);
+    if (candles.length === 0) {
+      throw new Error(`${yahooSymbol} returned 0 usable candles`);
     }
     return candles;
-  }
-
-  private toYahooSymbol(symbol: string): string {
-    const indexMap: Record<string, string> = {
-      NIFTY_50: '^NSEI',
-      NIFTY_MIDCAP_100: 'NIFTY_MIDCAP_100.NS',
-      // Yahoo's smallcap index tickers (^CNXSC, NIFTY_SMLCAP_100.NS) are
-      // stale; the Zerodha Smallcap-100 ETF tracks the index and trades live.
-      NIFTY_SMALLCAP_100: 'SML100CASE.NS',
-      INDIA_VIX: '^INDIAVIX',
-    };
-    return indexMap[symbol] ?? `${symbol}.NS`;
   }
 }

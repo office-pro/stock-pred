@@ -30,6 +30,7 @@ export class MarketController {
     @Query('exchange') exchange?: string,
     @Query('suggestion') suggestion?: string,
     @Query('horizon') horizon?: string,
+    @Query('sort') sort?: string,
   ): {
     data: StockQuote[];
     total: number;
@@ -39,7 +40,7 @@ export class MarketController {
     counts: { NSE: number; BSE: number; all: number };
     suggestions: { BUY: number; SELL: number; HOLD: number };
   } {
-    return this.market.getQuotesPaginated(page, limit, search, exchange, suggestion, horizon);
+    return this.market.getQuotesPaginated(page, limit, search, exchange, suggestion, horizon, sort);
   }
 
   @Get('stocks/:symbol')
@@ -52,7 +53,7 @@ export class MarketController {
     @Param('symbol') symbol: string,
     @Query('timeframe') timeframe = Timeframe.ONE_DAY,
     @Query('limit', new DefaultValuePipe(500), ParseIntPipe) limit = 500,
-  ): Candle[] {
+  ): Promise<Candle[]> {
     if (!Object.values(Timeframe).includes(timeframe)) {
       throw new BadRequestException(`Unsupported timeframe: ${String(timeframe)}`);
     }
@@ -85,7 +86,7 @@ export class MarketController {
   getIndexCandles(
     @Param('index') index: string,
     @Query('limit', new DefaultValuePipe(500), ParseIntPipe) limit = 500,
-  ): Candle[] {
+  ): Promise<Candle[]> {
     return this.market.getCandles(index.toUpperCase(), Timeframe.ONE_DAY, Math.min(limit, 5000));
   }
 }

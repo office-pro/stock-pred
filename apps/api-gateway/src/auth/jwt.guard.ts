@@ -5,7 +5,7 @@ import type { JwtPayload } from '@stockpred/shared-types';
 import { getEnv } from '@stockpred/shared-utils';
 
 export interface AuthenticatedRequest extends Request {
-  user: JwtPayload;
+  user?: JwtPayload;
 }
 
 /** Verifies the access token issued by the auth-service (shared HS256 secret). */
@@ -23,6 +23,29 @@ export class JwtAuthGuard implements CanActivate {
       request.user = jwt.verify(header.slice('Bearer '.length), this.secret) as JwtPayload;
     } catch {
       throw new UnauthorizedException('Invalid or expired access token');
+    }
+    return true;
+  }
+}
+
+/**
+ * Attaches a user when the access token is valid. Expired or missing tokens
+ * do not fail the request — paper trading stays usable for the full access-token lifetime.
+ */
+@Injectable()
+export class OptionalJwtAuthGuard implements CanActivate {
+  private readonly secret = getEnv('JWT_ACCESS_SECRET', 'dev-access-secret');
+
+  canActivate(context: ExecutionContext): boolean {
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    const header = request.headers.authorization;
+    if (!header || !header.startsWith('Bearer ')) {
+      return true;
+    }
+    try {
+      request.user = jwt.verify(header.slice('Bearer '.length), this.secret) as JwtPayload;
+    } catch {
+      /* ignore expired/invalid token for paper routes */
     }
     return true;
   }

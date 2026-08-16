@@ -1,14 +1,22 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  OnModuleInit,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { compare, hash } from 'bcryptjs';
-import { getPrismaClient } from '@stockpred/database';
+import { ensureDemoUsers, getPrismaClient } from '@stockpred/database';
 import { AuthTokens, AuthUser, UserRole } from '@stockpred/shared-types';
+import { getEnv } from '@stockpred/shared-utils';
 import { AuditService } from './audit.service';
+import { isDatabaseUnavailable } from './prisma-errors';
 import { TokenService } from './token.service';
 
 const BCRYPT_ROUNDS = 10;
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleInit {
   private readonly prisma = getPrismaClient();
 
   constructor(
@@ -16,12 +24,27 @@ export class AuthService {
     private readonly audit: AuditService,
   ) {}
 
+  async onModuleInit(): Promise<void> {
+    if (getEnv('NODE_ENV', 'development') === 'production') return;
+    try {
+      await ensureDemoUsers(this.prisma);
+    } catch (error) {
+      if (isDatabaseUnavailable(error)) {
+        console.error(
+          '[auth-service] Postgres is unreachable. Point DATABASE_URL at Docker Postgres (see POSTGRES_PORT) and run npm run prisma:migrate.',
+        );
+        return;
+      }
+      console.error('[auth-service] could not ensure demo users:', error);
+    }
+  }
+
   async register(
     email: string,
     password: string,
     name: string,
   ): Promise<{ user: AuthUser; tokens: AuthTokens }> {
-    const existing = await this.prisma.user.findUnique({ where: { email } });
+    const existing = await this.findUserByEmail(email);
     if (existing) {
       throw new ConflictException('An account with this email already exists');
     }
@@ -37,7 +60,7 @@ export class AuthService {
   }
 
   async login(email: string, password: string): Promise<{ user: AuthUser; tokens: AuthTokens }> {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const user = await this.findUserByEmail(email);
     // Constant-shape error: do not reveal whether the email exists.
     if (!user || !(await compare(password, user.passwordHash))) {
       await this.audit.log('LOGIN_FAILED', email);
@@ -87,6 +110,19 @@ export class AuthService {
       throw new UnauthorizedException('User no longer exists');
     }
     return this.toAuthUser(user);
+  }
+
+  private async findUserByEmail(email: string) {
+    try {
+      return await this.prisma.user.findUnique({ where: { email } });
+    } catch (error) {
+      if (isDatabaseUnavailable(error)) {
+        throw new ServiceUnavailableException(
+          'Database is unavailable. Start Docker Postgres and run npm run prisma:migrate.',
+        );
+      }
+      throw error;
+    }
   }
 
   private async issueAndStoreTokens(user: {

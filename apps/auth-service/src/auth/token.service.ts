@@ -14,7 +14,7 @@ export interface RefreshPayload {
 export class TokenService {
   private readonly accessSecret = getEnv('JWT_ACCESS_SECRET', 'dev-access-secret');
   private readonly refreshSecret = getEnv('JWT_REFRESH_SECRET', 'dev-refresh-secret');
-  private readonly accessTtl = getEnvNumber('JWT_ACCESS_TTL_SECONDS', 900);
+  private readonly accessTtl = getEnvNumber('JWT_ACCESS_TTL_SECONDS', 604800);
   private readonly refreshTtl = getEnvNumber('JWT_REFRESH_TTL_SECONDS', 604800);
 
   issueTokens(user: { id: string; email: string; role: string }): AuthTokens & { jti: string } {

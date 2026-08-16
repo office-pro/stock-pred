@@ -99,3 +99,36 @@ export interface PatternAnalog {
   suggestion: string;
   occurrences: PatternOccurrenceView[];
 }
+
+/** One dated Buy/Sell print from a named pattern on the chart. */
+export interface PatternEventView {
+  pattern: string;
+  action: 'BUY' | 'SELL';
+  price: number;
+  confirmedAt: number;
+  confidence: number;
+  return5: number | null;
+  return10: number | null;
+  return20: number | null;
+}
+
+export type PatternOutlook = 'GROW' | 'FALL' | 'UNCLEAR';
+
+/** On-demand briefing for the stock detail page (does not require a prior scan job). */
+export interface SymbolPatternPayload {
+  history: unknown[];
+  current: Array<{
+    pattern: string;
+    confidence: number;
+    signal: string;
+    direction: string;
+  }>;
+  analog: PatternAnalog | null;
+  occurrences: PatternOccurrenceView[];
+  events: PatternEventView[];
+  outlook: PatternOutlook;
+  outlookText: string;
+  barCount: number;
+  firstBarAt: number | null;
+  lastBarAt: number | null;
+}

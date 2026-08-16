@@ -11,7 +11,7 @@ import {
 import { DetectedPattern, PatternAnalog, Timeframe } from '@stockpred/shared-types';
 import { CandleStore } from './candle-store';
 import { detectPatterns } from './detectors';
-import { buildAnalog } from './history-scan';
+import { buildAnalog, composePatternBriefing } from './history-scan';
 
 const DETECTION_INTERVAL_MS = 60 * 1000;
 const PATTERN_COOLDOWN_MS = 30 * 60 * 1000;
@@ -27,6 +27,10 @@ export class PatternsService implements OnModuleInit, OnModuleDestroy {
   private readonly consumer = new EventConsumer(this.kafka, 'pattern-engine');
   private readonly lastDetectionAt = new Map<string, number>();
   private readonly lastEmitted = new Map<string, number>();
+  private readonly briefingMemo = new Map<
+    string,
+    { stamp: number; payload: ReturnType<typeof composePatternBriefing> }
+  >();
   private pollTimer: NodeJS.Timeout | null = null;
   private stopping = false;
 
@@ -92,8 +96,15 @@ export class PatternsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getPatternsForSymbol(symbol: string, limit: number): Promise<unknown> {
-    const candles = this.store.get(symbol);
-    const current = candles.length >= 30 ? detectPatterns(candles) : [];
+    const candles = await this.store.ensureHistory(symbol);
+    const lastStamp = candles[candles.length - 1]?.time ?? 0;
+    const memoKey = `${symbol}|${candles.length}|${lastStamp}`;
+    let briefing = this.briefingMemo.get(memoKey)?.payload;
+    if (!briefing) {
+      briefing = composePatternBriefing(symbol, candles);
+      this.briefingMemo.set(memoKey, { stamp: lastStamp, payload: briefing });
+    }
+
     let history: unknown[] = [];
     try {
       history = await this.prisma.pattern.findMany({
@@ -105,64 +116,19 @@ export class PatternsService implements OnModuleInit, OnModuleDestroy {
       console.warn(`[pattern-engine] history read failed: ${(error as Error).message}`);
     }
 
-    let occurrences: unknown[] = [];
-    let analog: unknown = null;
-    try {
-      occurrences = (
-        await this.prisma.patternOccurrence.findMany({
-          where: { symbol },
-          orderBy: { confirmedAt: 'desc' },
-          take: 40,
-        })
-      ).map((row) => ({
-        ...row,
-        confirmedAt: Number(row.confirmedAt),
-      }));
-      analog = await this.getAnalog(symbol, current[0]?.pattern);
-    } catch (error) {
-      console.warn(`[pattern-engine] analog read failed: ${(error as Error).message}`);
-    }
-
-    return { history, current, analog, occurrences };
+    return { ...briefing, history };
   }
 
   async getAnalog(
     symbol: string,
     pattern?: string,
   ): Promise<PatternAnalog | { available: string[] }> {
-    const current = detectPatterns(this.store.get(symbol));
-    const chosen = pattern ?? current[0]?.pattern;
-    const grouped = await this.prisma.patternOccurrence.groupBy({
-      by: ['pattern'],
-      where: { symbol },
-      _count: { pattern: true },
-    });
-    const available = grouped.map((row) => row.pattern);
+    const candles = await this.store.ensureHistory(symbol);
+    const briefing = composePatternBriefing(symbol, candles);
+    const chosen = pattern ?? briefing.current[0]?.pattern ?? briefing.analog?.pattern;
+    const available = [...new Set(briefing.occurrences.map((row) => row.pattern))];
     if (!chosen) return { available };
-
-    const rows = await this.prisma.patternOccurrence.findMany({
-      where: { symbol, pattern: chosen },
-      orderBy: { confirmedAt: 'desc' },
-      take: 50,
-    });
-    return buildAnalog(
-      symbol,
-      chosen,
-      rows.map((row) => ({
-        symbol: row.symbol,
-        pattern: row.pattern,
-        timeframe: row.timeframe,
-        direction: row.direction as 'bullish' | 'bearish',
-        confidence: row.confidence,
-        price: row.price,
-        confirmedAt: Number(row.confirmedAt),
-        return5: row.return5,
-        return10: row.return10,
-        return20: row.return20,
-        maxFavorable: row.maxFavorable,
-        maxAdverse: row.maxAdverse,
-      })),
-    );
+    return buildAnalog(symbol, chosen, briefing.occurrences);
   }
 
   // ------------------------------------------------------------- internals

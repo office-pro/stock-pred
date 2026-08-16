@@ -22,6 +22,7 @@ import {
 import {
   DEFAULT_RISK_LIMITS,
   ExecutedTrade,
+  PaperHolding,
   PortfolioSnapshot,
   PredictionDirection,
   TradeExitReason,
@@ -29,7 +30,7 @@ import {
   TradeStatus,
   TradingMode,
 } from '@stockpred/shared-types';
-import { getEnvNumber, positionSize, round2 } from '@stockpred/shared-utils';
+import { getEnv, getEnvNumber, positionSize, round2 } from '@stockpred/shared-utils';
 import { RiskManager } from './risk-manager';
 
 interface OpenPosition {
@@ -84,13 +85,15 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
   private cash = getEnvNumber('PAPER_TRADING_CAPITAL', 1_000_000);
   private readonly initialCapital = this.cash;
   private realizedPnl = 0;
+  private selectedBroker = 'PAPER';
   private readonly positions = new Map<string, OpenPosition>();
   private readonly lastPrices = new Map<string, number>();
+  private readonly tickets: ExecutedTrade[] = [];
   private readonly latestPatternConfidence = new Map<string, { confidence: number; at: number }>();
 
   private stopping = false;
 
-  onModuleInit(): void {
+  async onModuleInit(): Promise<void> {
     if (this.mode === TradingMode.LIVE) {
       console.warn(
         '[auto-trader] LIVE mode requested - live orders still require an authorized broker per trade',
@@ -98,8 +101,8 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     } else {
       console.log('[auto-trader] PAPER trading mode (default)');
     }
-    // Fire-and-forget: REST comes up immediately, the event loop attaches async
-    // and retries forever (topics auto-create asynchronously on fresh clusters).
+    await this.restorePaperBook();
+    // Fire-and-forget: Kafka attaches async and retries if the cluster is not ready.
     void this.maintainKafka();
   }
 
@@ -156,16 +159,87 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     await this.producer.disconnect().catch(() => undefined);
   }
 
+  /** Reload OPEN paper lots from Postgres so a process restart does not wipe the book. */
+  private async restorePaperBook(): Promise<void> {
+    if (this.mode !== TradingMode.PAPER) return;
+    try {
+      const openRows = await this.prisma.trade.findMany({
+        where: { status: TradeStatus.OPEN, mode: this.mode },
+        orderBy: { executedAt: 'asc' },
+      });
+      const closedRows = await this.prisma.trade.findMany({
+        where: { status: TradeStatus.CLOSED, mode: this.mode },
+        select: { pnl: true },
+      });
+      this.realizedPnl = closedRows.reduce((sum, row) => sum + (row.pnl ?? 0), 0);
+      this.positions.clear();
+      let invested = 0;
+      for (const row of openRows) {
+        invested += row.quantity * row.price;
+        const existing = this.positions.get(row.symbol);
+        if (existing) {
+          const totalQty = existing.quantity + row.quantity;
+          existing.entryPrice =
+            (existing.quantity * existing.entryPrice + row.quantity * row.price) / totalQty;
+          existing.quantity = totalQty;
+          if (row.target && row.target > 0) existing.target = row.target;
+          if (row.stopLoss && row.stopLoss > 0) existing.stopLoss = row.stopLoss;
+        } else {
+          this.positions.set(row.symbol, {
+            tradeId: row.id,
+            symbol: row.symbol,
+            quantity: row.quantity,
+            entryPrice: row.price,
+            target: row.target && row.target > 0 ? row.target : row.price * 1.05,
+            stopLoss: row.stopLoss && row.stopLoss > 0 ? row.stopLoss : row.price * 0.97,
+            openedAt: row.executedAt.getTime(),
+          });
+        }
+      }
+      this.cash = round2(this.initialCapital + this.realizedPnl - invested);
+      if (this.positions.size > 0) {
+        console.log(
+          `[auto-trader] restored ${this.positions.size} open paper lot(s), cash ${this.cash}`,
+        );
+      }
+    } catch (error) {
+      console.warn(`[auto-trader] paper book restore failed: ${(error as Error).message}`);
+    }
+  }
+
   // ---------------------------------------------------------------- queries
 
-  getPortfolio(): PortfolioSnapshot {
+  async getPortfolio(): Promise<PortfolioSnapshot> {
+    await this.refreshHoldingQuotes();
+    return this.snapshotPortfolio();
+  }
+
+  private snapshotPortfolio(): PortfolioSnapshot {
     let unrealized = 0;
     let marketValue = 0;
+    const holdings: PaperHolding[] = [];
     for (const position of this.positions.values()) {
       const price = this.lastPrices.get(position.symbol) ?? position.entryPrice;
-      unrealized += (price - position.entryPrice) * position.quantity;
-      marketValue += price * position.quantity;
+      const invested = position.quantity * position.entryPrice;
+      const lotValue = price * position.quantity;
+      const lotPnl = lotValue - invested;
+      unrealized += lotPnl;
+      marketValue += lotValue;
+      holdings.push({
+        symbol: position.symbol,
+        quantity: position.quantity,
+        entryPrice: round2(position.entryPrice),
+        currentPrice: round2(price),
+        target: round2(position.target),
+        stopLoss: round2(position.stopLoss),
+        invested: round2(invested),
+        marketValue: round2(lotValue),
+        unrealizedPnl: round2(lotPnl),
+        unrealizedPnlPercent: invested > 0 ? round2((lotPnl / invested) * 100) : 0,
+        openedAt: position.openedAt,
+      });
     }
+    holdings.sort((a, b) => a.symbol.localeCompare(b.symbol));
     return {
       mode: this.mode,
       capital: this.initialCapital,
@@ -175,16 +249,21 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
       realizedPnl: round2(this.realizedPnl),
       unrealizedPnl: round2(unrealized),
       circuitBreakerTripped: this.riskManager.isTripped,
+      holdings,
     };
   }
 
   async getTrades(limit: number): Promise<unknown[]> {
     try {
-      return await this.prisma.trade.findMany({ orderBy: { executedAt: 'desc' }, take: limit });
+      const rows = await this.prisma.trade.findMany({
+        orderBy: { executedAt: 'desc' },
+        take: limit,
+      });
+      if (rows.length > 0) return rows;
     } catch (error) {
       console.warn(`[auto-trader] trade history read failed: ${(error as Error).message}`);
-      return [];
     }
+    return this.tickets.slice(0, limit);
   }
 
   // -------------------------------------------------------- manual trading
@@ -193,13 +272,13 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     symbol: string;
     side: TradeSide;
     quantity: number;
+    price?: number;
+    target?: number;
+    stopLoss?: number;
     userId?: string;
   }): Promise<ExecutedTrade> {
     const symbol = input.symbol.toUpperCase();
-    const price = this.lastPrices.get(symbol);
-    if (!price) {
-      throw new BadRequestException(`No market price available yet for ${symbol}`);
-    }
+    const price = await this.resolvePrice(symbol, input.price);
     if (input.side === TradeSide.BUY) {
       if (this.riskManager.isTripped) {
         throw new ForbiddenException(`Circuit breaker active: ${this.riskManager.reason}`);
@@ -208,20 +287,55 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
       if (cost > this.cash) {
         throw new BadRequestException('Insufficient paper-trading cash for this order');
       }
-      return this.openPosition(
-        symbol,
-        input.quantity,
-        price,
-        price * 1.05,
-        price * 0.97,
-        input.userId,
-      );
+      if (this.positions.has(symbol)) {
+        return this.addToPosition(symbol, input.quantity, price, input.userId);
+      }
+      const target = input.target && input.target > 0 ? input.target : price * 1.05;
+      const stopLoss = input.stopLoss && input.stopLoss > 0 ? input.stopLoss : price * 0.97;
+      return this.openPosition(symbol, input.quantity, price, target, stopLoss, input.userId);
     }
     const position = this.positions.get(symbol);
     if (!position) {
       throw new BadRequestException(`No open position in ${symbol} to sell`);
     }
+    if (input.quantity < position.quantity) {
+      return this.reducePosition(position, input.quantity, price);
+    }
     return this.closePosition(position, price, TradeExitReason.MANUAL);
+  }
+
+  private async resolvePrice(symbol: string, quoted?: number): Promise<number> {
+    if (quoted && quoted > 0) {
+      this.lastPrices.set(symbol, quoted);
+      return quoted;
+    }
+    await this.quoteFromMarketData(symbol);
+    const cached = this.lastPrices.get(symbol);
+    if (cached && cached > 0) return cached;
+    throw new BadRequestException(`No market price available yet for ${symbol}`);
+  }
+
+  private async refreshHoldingQuotes(): Promise<void> {
+    const symbols = [...this.positions.keys()];
+    if (symbols.length === 0) return;
+    await Promise.all(symbols.map((symbol) => this.quoteFromMarketData(symbol)));
+  }
+
+  private async quoteFromMarketData(symbol: string): Promise<void> {
+    const base = getEnv('MARKET_DATA_SERVICE_URL', 'http://localhost:3002');
+    try {
+      const response = await fetch(`${base}/stocks/${encodeURIComponent(symbol)}`, {
+        signal: AbortSignal.timeout(2500),
+      });
+      if (response.ok) {
+        const body = (await response.json()) as { price?: number };
+        if (body.price && body.price > 0) {
+          this.lastPrices.set(symbol, body.price);
+        }
+      }
+    } catch (error) {
+      console.warn(`[auto-trader] quote fetch failed for ${symbol}: ${(error as Error).message}`);
+    }
   }
 
   resetCircuitBreaker(actor: string): void {
@@ -237,10 +351,21 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     if (!validBrokers.includes(brokerType)) {
       throw new BadRequestException(`Invalid broker type: ${brokerType}`);
     }
+    if (brokerType !== 'PAPER' && this.mode !== TradingMode.LIVE) {
+      return {
+        success: true,
+        message: `${brokerType} credentials were ignored. TRADING_MODE is PAPER — live brokers are not used.`,
+      };
+    }
+    this.selectedBroker = brokerType;
     await this.audit('BROKER_CONFIG_SAVED', 'auto-trader', { brokerType });
+    console.log(`[auto-trader] broker set to ${this.selectedBroker} (${this.mode})`);
     return {
       success: true,
-      message: `${brokerType} broker configuration saved`,
+      message:
+        brokerType === 'PAPER'
+          ? 'Paper trading is enabled. No broker login required.'
+          : `${brokerType} broker configuration saved`,
     };
   }
 
@@ -252,7 +377,10 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     await this.audit('BROKER_CONNECTION_TEST', 'auto-trader', { brokerType });
     return {
       success: true,
-      message: `Successfully connected to ${brokerType} broker`,
+      message:
+        brokerType === 'PAPER'
+          ? 'Paper book is reachable. No live broker connection is used.'
+          : `Successfully connected to ${brokerType} broker`,
     };
   }
 
@@ -269,7 +397,7 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
       }
     }
     // Re-evaluate the breaker on the equity mark.
-    const snapshot = this.getPortfolio();
+    const snapshot = this.snapshotPortfolio();
     const before = this.riskManager.isTripped;
     const check = this.riskManager.evaluate(snapshot.equity, new Date());
     if (check.tripped && !before) {
@@ -427,6 +555,7 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
       stopLoss: round2(stopLoss),
       executedAt: position.openedAt,
     };
+    this.tickets.unshift(executed);
 
     await this.audit('TRADE_OPENED', 'auto-trader', { ...executed }, userId);
     await this.producer
@@ -435,6 +564,155 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
 
     console.log(`[auto-trader] OPEN ${symbol} x${quantity} @ ${round2(price)}`);
     return executed;
+  }
+
+  private async addToPosition(
+    symbol: string,
+    quantity: number,
+    price: number,
+    userId?: string,
+  ): Promise<ExecutedTrade> {
+    const position = this.positions.get(symbol);
+    if (!position) {
+      throw new BadRequestException(`No open position in ${symbol} to add to`);
+    }
+    await this.placeBrokerBuy(symbol, quantity, price, userId);
+
+    const totalQty = position.quantity + quantity;
+    const avgEntry = (position.quantity * position.entryPrice + quantity * price) / totalQty;
+    this.cash -= quantity * price;
+    position.quantity = totalQty;
+    position.entryPrice = avgEntry;
+
+    try {
+      await this.prisma.trade.update({
+        where: { id: position.tradeId },
+        data: { quantity: totalQty, price: round2(avgEntry) },
+      });
+    } catch (error) {
+      console.warn(`[auto-trader] add-to-lot persist failed: ${(error as Error).message}`);
+    }
+
+    const executed: ExecutedTrade = {
+      id: `${position.tradeId}-add-${Date.now()}`,
+      symbol,
+      side: TradeSide.BUY,
+      quantity,
+      price: round2(price),
+      mode: this.mode,
+      status: TradeStatus.OPEN,
+      target: round2(position.target),
+      stopLoss: round2(position.stopLoss),
+      executedAt: Date.now(),
+    };
+    this.tickets.unshift(executed);
+    await this.audit(
+      'TRADE_ADDED',
+      'auto-trader',
+      { ...executed, avgEntry: round2(avgEntry) },
+      userId,
+    );
+    console.log(
+      `[auto-trader] ADD ${symbol} x${quantity} @ ${round2(price)} avg ${round2(avgEntry)} qty ${totalQty}`,
+    );
+    return executed;
+  }
+
+  private async reducePosition(
+    position: OpenPosition,
+    quantity: number,
+    exitPrice: number,
+  ): Promise<ExecutedTrade> {
+    const pnl = round2((exitPrice - position.entryPrice) * quantity);
+    this.cash += quantity * exitPrice;
+    this.realizedPnl += pnl;
+    position.quantity -= quantity;
+
+    try {
+      await this.prisma.trade.update({
+        where: { id: position.tradeId },
+        data: { quantity: position.quantity, price: round2(position.entryPrice) },
+      });
+      await this.prisma.stock.upsert({
+        where: { symbol: position.symbol },
+        update: {},
+        create: {
+          symbol: position.symbol,
+          name: position.symbol,
+          exchange: 'NSE',
+          sector: 'Unknown',
+          indices: [],
+        },
+      });
+      await this.prisma.trade.create({
+        data: {
+          symbol: position.symbol,
+          side: TradeSide.SELL,
+          quantity,
+          price: round2(position.entryPrice),
+          mode: this.mode,
+          status: TradeStatus.CLOSED,
+          exitPrice: round2(exitPrice),
+          exitReason: TradeExitReason.MANUAL,
+          pnl,
+          closedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      console.warn(`[auto-trader] partial sell persist failed: ${(error as Error).message}`);
+    }
+
+    const executed: ExecutedTrade = {
+      id: `${position.tradeId}-sell-${Date.now()}`,
+      symbol: position.symbol,
+      side: TradeSide.SELL,
+      quantity,
+      price: round2(position.entryPrice),
+      mode: this.mode,
+      status: TradeStatus.CLOSED,
+      exitPrice: round2(exitPrice),
+      exitReason: TradeExitReason.MANUAL,
+      pnl,
+      executedAt: position.openedAt,
+      closedAt: Date.now(),
+    };
+    this.tickets.unshift(executed);
+    await this.audit('TRADE_REDUCED', 'auto-trader', { ...executed });
+    console.log(
+      `[auto-trader] SELL ${position.symbol} x${quantity} @ ${round2(exitPrice)} pnl ${pnl} (partial)`,
+    );
+    return executed;
+  }
+
+  private async placeBrokerBuy(
+    symbol: string,
+    quantity: number,
+    price: number,
+    userId?: string,
+  ): Promise<void> {
+    const externalOrderId = `paper-${Date.now()}-${symbol}`;
+    const orderRequest: OrderRequest = {
+      symbol,
+      side: TradeSide.BUY,
+      quantity,
+      price,
+      orderType: 'MARKET',
+      validity: 'DAY',
+      product: 'CNC',
+      externalOrderId,
+    };
+    let orderResponse: OrderResponse;
+    try {
+      orderResponse = await this.broker.placeOrder(orderRequest);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'unknown error';
+      await this.audit('ORDER_FAILED', 'auto-trader', { reason: errorMsg }, userId);
+      throw new BadRequestException(`Order failed: ${errorMsg}`);
+    }
+    if (orderResponse.status === 'REJECTED') {
+      await this.audit('ORDER_REJECTED', 'auto-trader', { reason: orderResponse.error }, userId);
+      throw new ForbiddenException(`Order rejected: ${orderResponse.error}`);
+    }
   }
 
   private async closePosition(
@@ -448,8 +726,8 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     const pnl = round2((exitPrice - position.entryPrice) * position.quantity);
     this.realizedPnl += pnl;
     try {
-      await this.prisma.trade.update({
-        where: { id: position.tradeId },
+      await this.prisma.trade.updateMany({
+        where: { symbol: position.symbol, status: TradeStatus.OPEN, mode: this.mode },
         data: {
           status: TradeStatus.CLOSED,
           exitPrice: round2(exitPrice),
@@ -475,6 +753,16 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
       executedAt: position.openedAt,
       closedAt: Date.now(),
     };
+    const openTicket = this.tickets.find((ticket) => ticket.id === position.tradeId);
+    if (openTicket) {
+      openTicket.status = TradeStatus.CLOSED;
+      openTicket.exitPrice = executed.exitPrice;
+      openTicket.exitReason = executed.exitReason;
+      openTicket.pnl = executed.pnl;
+      openTicket.closedAt = executed.closedAt;
+    } else {
+      this.tickets.unshift(executed);
+    }
     await this.audit('TRADE_CLOSED', 'auto-trader', { ...executed });
     await this.producer
       .publish<TradeExecutedEvent>(KAFKA_TOPICS.TRADE_EXECUTED, executed, position.symbol)

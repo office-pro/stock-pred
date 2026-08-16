@@ -1,4 +1,5 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import type { BaseQueryFn, FetchArgs, FetchBaseQueryError } from '@reduxjs/toolkit/query';
 import type {
   ApiResponse,
   AuthTokens,
@@ -10,11 +11,12 @@ import type {
   PortfolioSnapshot,
   PredictionAccuracy,
   RelativeComparison,
-  PatternAnalog,
   StockQuote,
   SupportResistance,
+  SymbolPatternPayload,
 } from '@stockpred/shared-types';
 import { API_BASE_URL } from '../config';
+import { logout, setTokens } from './authSlice';
 import type { RootState } from './index';
 
 export interface SignalRow {
@@ -114,16 +116,46 @@ export interface BrokerPosition {
 
 const unwrap = <T>(response: ApiResponse<T>): T => response.data;
 
+const rawBaseQuery = fetchBaseQuery({
+  baseUrl: `${API_BASE_URL}/api`,
+  prepareHeaders: (headers, { getState }) => {
+    const token = (getState() as RootState).auth.accessToken;
+    if (token) headers.set('authorization', `Bearer ${token}`);
+    return headers;
+  },
+});
+
+const isAuthRoute = (args: string | FetchArgs): boolean => {
+  const url = typeof args === 'string' ? args : args.url;
+  return url.startsWith('/auth/');
+};
+
+const baseQueryWithReauth: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryError> = async (
+  args,
+  api,
+  extra,
+) => {
+  let result = await rawBaseQuery(args, api, extra);
+  if (result.error?.status !== 401 || isAuthRoute(args)) return result;
+  const refreshToken = (api.getState() as RootState).auth.refreshToken;
+  if (!refreshToken) return result;
+  const refreshed = await rawBaseQuery(
+    { url: '/auth/refresh', method: 'POST', body: { refreshToken } },
+    api,
+    extra,
+  );
+  if (refreshed.data) {
+    api.dispatch(setTokens(refreshed.data as AuthTokens));
+    result = await rawBaseQuery(args, api, extra);
+  } else {
+    api.dispatch(logout());
+  }
+  return result;
+};
+
 export const api = createApi({
   reducerPath: 'api',
-  baseQuery: fetchBaseQuery({
-    baseUrl: `${API_BASE_URL}/api`,
-    prepareHeaders: (headers, { getState }) => {
-      const token = (getState() as RootState).auth.accessToken;
-      if (token) headers.set('authorization', `Bearer ${token}`);
-      return headers;
-    },
-  }),
+  baseQuery: baseQueryWithReauth,
   tagTypes: ['Stocks', 'Signals', 'Predictions', 'Portfolio', 'Trades'],
   endpoints: (builder) => ({
     getStocks: builder.query<
@@ -143,9 +175,10 @@ export const api = createApi({
         exchange?: string;
         suggestion?: string;
         horizon?: string;
+        sort?: string;
       }
     >({
-      query: ({ page = 1, limit = 50, search, exchange, suggestion, horizon } = {}) => {
+      query: ({ page = 1, limit = 50, search, exchange, suggestion, horizon, sort } = {}) => {
         const params = new URLSearchParams();
         params.append('page', page.toString());
         params.append('limit', limit.toString());
@@ -153,6 +186,7 @@ export const api = createApi({
         if (exchange) params.append('exchange', exchange);
         if (suggestion) params.append('suggestion', suggestion);
         if (horizon) params.append('horizon', horizon);
+        if (sort) params.append('sort', sort);
         return `/stocks?${params.toString()}`;
       },
       providesTags: ['Stocks'],
@@ -223,44 +257,9 @@ export const api = createApi({
       query: (symbol) => `/support-resistance/${symbol}`,
       transformResponse: unwrap<SupportResistance>,
     }),
-    getSymbolPatterns: builder.query<
-      {
-        history: PatternRow[];
-        current: unknown[];
-        analog?: PatternAnalog | { available: string[] } | null;
-        occurrences?: Array<{
-          id: string;
-          symbol: string;
-          pattern: string;
-          direction: string;
-          confidence: number;
-          price: number;
-          confirmedAt: string | number;
-          return5?: number | null;
-          return10?: number | null;
-          return20?: number | null;
-        }>;
-      },
-      string
-    >({
+    getSymbolPatterns: builder.query<SymbolPatternPayload, string>({
       query: (symbol) => `/patterns/${symbol}`,
-      transformResponse: unwrap<{
-        history: PatternRow[];
-        current: unknown[];
-        analog?: PatternAnalog | { available: string[] } | null;
-        occurrences?: Array<{
-          id: string;
-          symbol: string;
-          pattern: string;
-          direction: string;
-          confidence: number;
-          price: number;
-          confirmedAt: string | number;
-          return5?: number | null;
-          return10?: number | null;
-          return20?: number | null;
-        }>;
-      }>,
+      transformResponse: unwrap<SymbolPatternPayload>,
     }),
     getAllPredictions: builder.query<
       {
@@ -320,7 +319,14 @@ export const api = createApi({
     }),
     executeTrade: builder.mutation<
       unknown,
-      { symbol: string; side: 'BUY' | 'SELL'; quantity: number }
+      {
+        symbol: string;
+        side: 'BUY' | 'SELL';
+        quantity: number;
+        price?: number;
+        target?: number;
+        stopLoss?: number;
+      }
     >({
       query: (body) => ({ url: '/trade/execute', method: 'POST', body }),
       invalidatesTags: ['Portfolio', 'Trades'],
@@ -357,7 +363,7 @@ export const api = createApi({
       invalidatesTags: ['Portfolio'],
     }),
     testBrokerConnection: builder.mutation<
-      { connected: boolean; message: string },
+      { success?: boolean; connected?: boolean; message: string },
       { brokerType: string }
     >({
       query: (body) => ({ url: '/brokers/test', method: 'POST', body }),

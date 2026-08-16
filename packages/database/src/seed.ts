@@ -1,8 +1,7 @@
-import { hashSync } from 'bcryptjs';
-import { UserRole } from '@stockpred/shared-types';
 import { getPrismaClient, disconnectPrisma } from './index';
 import { getStockUniverse, getUniverseStats } from './universe-config';
 import { deletePlaceholderStocks } from './listings';
+import { ensureDemoUsers } from './demo-users';
 
 /**
  * Seed: stock universe + demo users (one per role).
@@ -15,6 +14,13 @@ import { deletePlaceholderStocks } from './listings';
  */
 async function main(): Promise<void> {
   const prisma = getPrismaClient();
+  const usersOnly = process.argv.includes('--users-only');
+  if (usersOnly) {
+    const count = await ensureDemoUsers(prisma);
+    console.log(`Seeded ${count} demo users.`);
+    return;
+  }
+
   const STOCK_UNIVERSE = getStockUniverse();
   const stats = getUniverseStats();
 
@@ -49,46 +55,14 @@ async function main(): Promise<void> {
   }
   console.log(`Seeded ${STOCK_UNIVERSE.length} stocks.`);
 
-  const demoUsers = [
-    {
-      email: 'admin@stockpred.local',
-      name: 'Demo Admin',
-      role: UserRole.ADMIN,
-      password: 'Admin@12345',
-    },
-    {
-      email: 'trader@stockpred.local',
-      name: 'Demo Trader',
-      role: UserRole.TRADER,
-      password: 'Trader@12345',
-    },
-    {
-      email: 'viewer@stockpred.local',
-      name: 'Demo Viewer',
-      role: UserRole.VIEWER,
-      password: 'Viewer@12345',
-    },
-  ];
-
-  for (const user of demoUsers) {
-    await prisma.user.upsert({
-      where: { email: user.email },
-      update: { role: user.role },
-      create: {
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        passwordHash: hashSync(user.password, 10),
-      },
-    });
-  }
-  console.log(`Seeded ${demoUsers.length} demo users.`);
+  const demoCount = await ensureDemoUsers(prisma);
+  console.log(`Seeded ${demoCount} demo users.`);
 
   await prisma.auditLog.create({
     data: {
       actor: 'seed-script',
       action: 'DATABASE_SEEDED',
-      details: { stocks: STOCK_UNIVERSE.length, users: demoUsers.length, mode: stats.mode },
+      details: { stocks: STOCK_UNIVERSE.length, users: demoCount, mode: stats.mode },
     },
   });
 }

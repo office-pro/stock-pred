@@ -23,6 +23,7 @@ export interface SymbolState {
   dataSource: MarketDataSource;
   isin?: string | null;
   bseCode?: string | null;
+  yahooSymbol?: string | null;
 }
 
 export const INTRADAY_BUFFER = 500;

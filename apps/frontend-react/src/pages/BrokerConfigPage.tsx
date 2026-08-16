@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import {
+  Alert,
   Box,
   Button,
   Card,
   CardContent,
   CardHeader,
+  CircularProgress,
   Container,
   FormControl,
   Grid,
@@ -14,9 +16,9 @@ import {
   Stack,
   TextField,
   Typography,
-  Alert,
-  CircularProgress,
 } from '@mui/material';
+import { authErrorMessage } from '../lib/auth-errors';
+import { useConfigureBrokerMutation, useTestBrokerConnectionMutation } from '../store/api';
 
 interface BrokerConfig {
   brokerType: 'PAPER' | 'ZERODHA' | 'ANGELONE' | 'UPSTOX' | 'SHOONYA' | 'FYERS';
@@ -26,38 +28,40 @@ interface BrokerConfig {
 const BROKER_CONFIGS: Record<string, { fields: string[]; description: string }> = {
   PAPER: {
     fields: [],
-    description: 'Paper trading - no credentials needed',
+    description: 'Paper trading — no credentials needed. This is the default.',
   },
   ZERODHA: {
     fields: ['clientId', 'clientSecret'],
-    description: 'Zerodha Kite - OAuth authentication',
+    description: 'Zerodha Kite - OAuth authentication (live trading only)',
   },
   ANGELONE: {
     fields: ['apiKey'],
-    description: 'AngelOne - API key authentication',
+    description: 'AngelOne - API key authentication (live trading only)',
   },
   UPSTOX: {
     fields: ['apiKey'],
-    description: 'Upstox - OAuth authentication',
+    description: 'Upstox - OAuth authentication (live trading only)',
   },
   SHOONYA: {
     fields: ['apiKey', 'userId'],
-    description: 'Shoonya - API key authentication',
+    description: 'Shoonya - API key authentication (live trading only)',
   },
   FYERS: {
     fields: ['apiKey'],
-    description: 'Fyers - API key authentication',
+    description: 'Fyers - API key authentication (live trading only)',
   },
 };
 
 export const BrokerConfigPage: React.FC = () => {
   const [brokerType, setBrokerType] = useState<BrokerConfig['brokerType']>('PAPER');
   const [credentials, setCredentials] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{
     type: 'success' | 'error';
     text: string;
   } | null>(null);
+  const [configureBroker, { isLoading: saving }] = useConfigureBrokerMutation();
+  const [testBroker, { isLoading: testing }] = useTestBrokerConnectionMutation();
+  const loading = saving || testing;
 
   const selectedBrokerConfig = BROKER_CONFIGS[brokerType];
   const fieldLabels: Record<string, string> = {
@@ -79,55 +83,39 @@ export const BrokerConfigPage: React.FC = () => {
   };
 
   const handleSave = async () => {
-    setLoading(true);
     try {
-      const response = await fetch('/api/brokers/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          brokerType,
-          credentials: selectedBrokerConfig.fields.length > 0 ? credentials : undefined,
-        }),
-      });
-
-      if (!response.ok) throw new Error('Failed to save broker config');
-
+      const result = await configureBroker({
+        brokerType,
+        credentials: selectedBrokerConfig.fields.length > 0 ? credentials : undefined,
+      }).unwrap();
       setMessage({
         type: 'success',
-        text: `${brokerType} broker configured successfully`,
+        text:
+          result.message ||
+          (brokerType === 'PAPER'
+            ? 'Paper trading is enabled. No broker login required.'
+            : `${brokerType} broker configured successfully`),
       });
     } catch (error) {
       setMessage({
         type: 'error',
-        text: error instanceof Error ? error.message : 'Configuration failed',
+        text: authErrorMessage(error, 'Failed to save broker config'),
       });
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleTest = async () => {
-    setLoading(true);
     try {
-      const response = await fetch('/api/brokers/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brokerType }),
-      });
-
-      if (!response.ok) throw new Error('Connection test failed');
-
+      const result = await testBroker({ brokerType }).unwrap();
       setMessage({
         type: 'success',
-        text: `Successfully connected to ${brokerType}`,
+        text: result.message || `Successfully connected to ${brokerType}`,
       });
     } catch (error) {
       setMessage({
         type: 'error',
-        text: error instanceof Error ? error.message : 'Connection test failed',
+        text: authErrorMessage(error, 'Connection test failed'),
       });
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -181,13 +169,13 @@ export const BrokerConfigPage: React.FC = () => {
             <Stack direction="row" spacing={2}>
               <Button
                 variant="contained"
-                onClick={handleSave}
+                onClick={() => void handleSave()}
                 disabled={loading}
                 startIcon={loading ? <CircularProgress size={20} /> : undefined}
               >
                 Save Configuration
               </Button>
-              <Button variant="outlined" onClick={handleTest} disabled={loading}>
+              <Button variant="outlined" onClick={() => void handleTest()} disabled={loading}>
                 Test Connection
               </Button>
             </Stack>
@@ -207,7 +195,7 @@ export const BrokerConfigPage: React.FC = () => {
                 ✓ Default broker
                 <br />✓ No setup required
                 <br />✓ 1M INR capital
-                <br />✓ Perfect for testing
+                <br />✓ Perfect for testing alerts
               </Typography>
             </Grid>
             <Grid item xs={12} sm={6}>

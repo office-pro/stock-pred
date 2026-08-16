@@ -12,7 +12,7 @@
  * - Exact position sizing and PnL math from auto-trader
  */
 
-import { v4 as uuid } from 'uuid';
+import { uuid } from '../common/id';
 import type { BrokerAdapter, BrokerAdapterEvent } from '../common/interfaces/broker-adapter';
 import type {
   OrderRequest,
@@ -90,7 +90,7 @@ export class PaperTradingAdapter implements BrokerAdapter {
   private positions = new Map<string, VirtualPosition>();
   private orders = new Map<string, VirtualOrder>();
   private trades: VirtualTrade[] = [];
-  private listeners = new Map<string, Function[]>();
+  private listeners = new Map<string, Array<(data: unknown) => void>>();
 
   constructor() {
     this.resetDaily();
@@ -101,7 +101,10 @@ export class PaperTradingAdapter implements BrokerAdapter {
 
   async login(): Promise<void> {
     this.authenticated = true;
-    this.emit('authenticated', { brokerAccountId: this.brokerAccountId, accountId: this.brokerAccountId });
+    this.emit('authenticated', {
+      brokerAccountId: this.brokerAccountId,
+      accountId: this.brokerAccountId,
+    });
   }
 
   async logout(): Promise<void> {
@@ -200,7 +203,11 @@ export class PaperTradingAdapter implements BrokerAdapter {
       }));
   }
 
-  async getTrades(filters?: { symbol?: string; from?: number; to?: number }): Promise<BrokerTrade[]> {
+  async getTrades(filters?: {
+    symbol?: string;
+    from?: number;
+    to?: number;
+  }): Promise<BrokerTrade[]> {
     if (!this.authenticated) throw new Error('Not authenticated');
 
     return this.trades
@@ -346,14 +353,14 @@ export class PaperTradingAdapter implements BrokerAdapter {
 
   // ===== EVENT MANAGEMENT =====
 
-  on(event: BrokerAdapterEvent, handler: Function): void {
+  on(event: BrokerAdapterEvent, handler: (data: unknown) => void): void {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, []);
     }
     this.listeners.get(event)!.push(handler);
   }
 
-  off(event: BrokerAdapterEvent, handler: Function): void {
+  off(event: BrokerAdapterEvent, handler: (data: unknown) => void): void {
     const handlers = this.listeners.get(event);
     if (handlers) {
       const idx = handlers.indexOf(handler);
@@ -372,8 +379,9 @@ export class PaperTradingAdapter implements BrokerAdapter {
 
       // LIMIT order: fill if price crosses limit
       if (order.type === 'LIMIT' && order.price) {
-        shouldFill = (order.side === 'BUY' && price <= order.price) ||
-                     (order.side === 'SELL' && price >= order.price);
+        shouldFill =
+          (order.side === 'BUY' && price <= order.price) ||
+          (order.side === 'SELL' && price >= order.price);
       }
 
       // SL order: fill if price breaches trigger
@@ -414,7 +422,7 @@ export class PaperTradingAdapter implements BrokerAdapter {
       const existing = this.positions.get(order.symbol);
       if (existing && existing.side === 'BUY') {
         // Average up
-        const totalCost = (existing.quantity * existing.entryPrice) + cost;
+        const totalCost = existing.quantity * existing.entryPrice + cost;
         existing.quantity += order.quantity;
         existing.entryPrice = totalCost / existing.quantity;
       } else {
@@ -498,7 +506,7 @@ export class PaperTradingAdapter implements BrokerAdapter {
     return equity;
   }
 
-  private emit(event: string, data: any): void {
+  private emit(event: string, data: unknown): void {
     const handlers = this.listeners.get(event as BrokerAdapterEvent) || [];
     for (const handler of handlers) {
       try {

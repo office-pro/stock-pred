@@ -42,6 +42,24 @@ export interface ExecutedTrade extends TradeOrder {
   closedAt?: number;
 }
 
+/** One open paper lot. */
+export interface PaperHolding {
+  symbol: string;
+  quantity: number;
+  entryPrice: number;
+  currentPrice: number;
+  target: number;
+  stopLoss: number;
+  unrealizedPnl: number;
+  /** Qty × average entry. */
+  invested?: number;
+  /** Qty × last price. */
+  marketValue?: number;
+  /** Unrealized P&L as a percent of invested. */
+  unrealizedPnlPercent?: number;
+  openedAt?: number;
+}
+
 /** Portfolio snapshot for the paper trading account. */
 export interface PortfolioSnapshot {
   mode: TradingMode;
@@ -52,6 +70,7 @@ export interface PortfolioSnapshot {
   realizedPnl: number;
   unrealizedPnl: number;
   circuitBreakerTripped: boolean;
+  holdings: PaperHolding[];
 }
 
 /** Risk limits enforced by the auto trader (spec: 1% / 3% / 8%). */
