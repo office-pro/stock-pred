@@ -19,7 +19,7 @@ import {
 import { ColorType, createChart } from 'lightweight-charts';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useAppSelector } from '../store';
-import { useRunBacktestMutation } from '../store/api';
+import { useRunBacktestMutation, useRunScannerBacktestMutation } from '../store/api';
 
 function MetricCard({
   label,
@@ -51,6 +51,8 @@ export default function BacktestPage(): JSX.Element {
   const [symbol, setSymbol] = useState('RELIANCE');
   const [years, setYears] = useState(3);
   const [runBacktest, { data: result, isLoading, error }] = useRunBacktestMutation();
+  const [runScanner, { data: scannerResult, isLoading: scannerLoading, error: scannerError }] =
+    useRunScannerBacktestMutation();
   const loggedIn = useAppSelector((state) => Boolean(state.auth.accessToken));
   const equityRef = useRef<HTMLDivElement | null>(null);
 
@@ -126,11 +128,37 @@ export default function BacktestPage(): JSX.Element {
         <Button type="submit" variant="contained" disabled={isLoading || !loggedIn}>
           {isLoading ? 'Running...' : 'Run Backtest'}
         </Button>
+        <Button
+          type="button"
+          variant="outlined"
+          disabled={scannerLoading || !loggedIn}
+          onClick={() => void runScanner({ symbol: symbol.toUpperCase(), minBullScore: 70 })}
+        >
+          {scannerLoading ? 'Scoring…' : 'Scanner 20D test'}
+        </Button>
       </Box>
 
       {Boolean(error) && (
         <Alert severity="error" sx={{ mb: 2 }}>
           Backtest failed - confirm you are logged in and services are up.
+        </Alert>
+      )}
+      {Boolean(scannerError) && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          Scanner backtest failed — confirm login and that the symbol has enough daily history.
+        </Alert>
+      )}
+      {scannerResult && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Scanner replay for {scannerResult.symbol} (score ≥ {scannerResult.minBullScore}):{' '}
+          {scannerResult.signals} signals, win rate {scannerResult.winRate}%, avg 20D{' '}
+          {scannerResult.averageReturn}%, median {scannerResult.medianReturn}%, max{' '}
+          {scannerResult.maxReturn}%, max loss {scannerResult.maxLoss}%, profit factor{' '}
+          {scannerResult.profitFactor}
+          {scannerResult.calibrationError != null
+            ? `, |expected−realized| ${scannerResult.calibrationError}`
+            : ''}
+          . Same definition as the live Bull Run Scanner. Probabilities only.
         </Alert>
       )}
 

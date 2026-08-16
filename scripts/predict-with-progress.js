@@ -8,6 +8,10 @@ const path = require('path');
 
 const args = process.argv.slice(2);
 const cwd = path.resolve(__dirname, '..');
+const allStocks = args.includes('--all');
+const pythonArgs = allStocks
+  ? ['ml/predict-all.py', ...args.filter((arg) => arg !== '--all')]
+  : ['ml/predict.py', ...args];
 let progress = 0;
 let isComplete = false;
 let stockCount = 0;
@@ -46,12 +50,16 @@ let lastOutput = Date.now();
 let autoProgressRate = 0.1;
 
 // Main process
-const proc = spawn('python', ['ml/predict.py', ...args], {
+const proc = spawn('python', pythonArgs, {
   cwd,
   stdio: ['inherit', 'pipe', 'pipe'],
 });
 
-console.log(`\n🚀 Generating Predictions\n`);
+console.log(
+  allStocks
+    ? `\n🚀 Generating predictions for every listed stock\n`
+    : `\n🚀 Generating Predictions\n`,
+);
 drawProgressBar(0, 'Initializing...');
 
 // Auto-increment progress

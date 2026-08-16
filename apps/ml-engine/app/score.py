@@ -15,7 +15,7 @@ import numpy as np
 from .config import HORIZONS, SEQUENCE_LENGTH, settings
 from .data import load_candles, load_market_context, load_universe
 from .features import FEATURE_COLUMNS, build_features
-from .models.ensemble import blend_probabilities, decide
+from .models.ensemble import blend_probabilities, decide, expected_move
 from .persistence import persist_outcomes_sync
 from .predict import get_models, models_available
 
@@ -97,7 +97,10 @@ def score_horizon(horizon: str, symbols: List[str], lookback: int = 20) -> List[
     config = HORIZONS[horizon]
     bars = int(config["bars"])
     threshold = float(config["threshold"])
-    models = get_models(horizon)
+    try:
+        models = get_models(horizon)
+    except FileNotFoundError:
+        return []
     market = load_market_context(120)
     outcomes: List[dict] = []
 
@@ -148,6 +151,27 @@ def score_horizon(horizon: str, symbols: List[str], lookback: int = 20) -> List[
                     "scoredAt": int(times[index + bars]),
                 }
             )
+            if horizon == "NEXT_WEEK":
+                expected5 = expected_move(str(decision["direction"]), models.metadata.get("class_moves", {}))
+                for label, fwd in (("RETURN_5D", 5), ("RETURN_10D", 10), ("RETURN_20D", 20)):
+                    if index + fwd >= len(closes):
+                        continue
+                    realized = float(closes[index + fwd] / closes[index] - 1.0)
+                    expected = expected5 * (fwd / 5.0)
+                    outcomes.append(
+                        {
+                            "symbol": symbol,
+                            "horizon": label,
+                            "predicted": predicted,
+                            "confidence": float(decision["confidence"]),
+                            "entry": float(closes[index]),
+                            "actualReturn": realized,
+                            "expectedMove": expected,
+                            "correct": (expected >= 0 and realized >= 0) or (expected < 0 and realized < 0),
+                            "predictedAt": int(times[index]),
+                            "scoredAt": int(times[index + fwd]),
+                        }
+                    )
     return outcomes
 
 
@@ -160,9 +184,18 @@ def score_all(limit_symbols: int = 80, lookback: int = 20, symbols: List[str] | 
     for horizon in HORIZONS:
         print(f"[score] walk-forward {horizon} on {len(names)} symbols")
         rows = score_horizon(horizon, names, lookback)
+        if not rows:
+            print(f"[score] {horizon} skipped (no model or no rows)")
+            continue
         outcomes.extend(rows)
         accuracy[horizon] = summarize(rows, horizon)
         print(f"[score] {horizon} hitRate={accuracy[horizon]['overallHitRate']} n={len(rows)}")
+        if horizon == "NEXT_WEEK":
+            for label in ("RETURN_5D", "RETURN_10D", "RETURN_20D"):
+                extra = summarize(rows, label)
+                if extra.get("scoredCalls"):
+                    accuracy[label] = extra
+                    print(f"[score] {label} hitRate={extra['overallHitRate']} n={extra['scoredCalls']}")
 
     os.makedirs(settings.models_dir, exist_ok=True)
     outcomes_path = os.path.join(settings.models_dir, "outcomes.json")

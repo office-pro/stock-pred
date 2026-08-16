@@ -8,7 +8,12 @@ DISCLAIMER = "This is not investment advice."
 HORIZONS = {
     "NEXT_DAY": {"bars": 1, "threshold": 0.01},
     "NEXT_WEEK": {"bars": 5, "threshold": 0.02},
+    "NEXT_10D": {"bars": 10, "threshold": 0.03},
+    "NEXT_20D": {"bars": 20, "threshold": 0.04},
 }
+
+# Direction models that must exist for the engine to boot.
+CORE_HORIZONS = ("NEXT_DAY", "NEXT_WEEK")
 
 ENSEMBLE_WEIGHTS = {
     "xgboost": 0.40,
@@ -59,6 +64,8 @@ class Settings:
         "DATABASE_URL", "postgresql://stockpred:stockpred@localhost:5432/stockpred"
     )
     prediction_interval_seconds: int = int(os.getenv("ML_PREDICTION_INTERVAL_SECONDS", "300"))
+    # 0 = every listed symbol. Set a positive cap to bound the periodic loop.
+    predict_universe_limit: int = int(os.getenv("ML_PREDICT_UNIVERSE_LIMIT", "0"))
     model_version: str = os.getenv("ML_MODEL_VERSION", "ensemble-v1")
     symbols: List[str] = field(default_factory=list)
 

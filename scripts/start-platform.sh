@@ -165,13 +165,18 @@ if [ "$failures" -gt 0 ]; then
   echo "Run 'docker compose logs <service>' to debug"
 fi
 
+# Train + predict the configured universe once services can serve history.
+# SKIP_ML_BOOTSTRAP=1 skips this (start stays fast; run npm run train:ml:all later).
+bash scripts/ml-bootstrap.sh
+
 echo ""
 echo "==> StockPred is up:"
 echo "    Frontend:     http://localhost:8080"
 echo "    API Gateway:  http://localhost:3000"
 echo "    ML Engine:    http://localhost:8000/health"
 echo ""
-echo "    Train ML models:   npm run train:ml   (or: docker compose exec ml-engine python -m app.train --synthetic)"
+echo "    Train ML models:   npm run train:ml:all"
+echo "    Predict all names: npm run predict:ml:all"
 echo "    Run a backtest:    npm run backtest -- --symbol RELIANCE --years 3"
 echo ""
 echo "==> Useful commands:"

@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 import { useMemo, useState } from 'react';
 import IndexCards from '../components/IndexCards';
+import MarketContextBar from '../components/MarketContextBar';
 import StockTable from '../components/StockTable';
 import { useGetPredictionAccuracyQuery, useGetStocksQuery } from '../store/api';
 
@@ -112,6 +113,7 @@ export default function DashboardPage(): JSX.Element {
         Market Dashboard
       </Typography>
       <IndexCards />
+      <MarketContextBar />
 
       {typeof buyHit === 'number' && (
         <Alert severity="info" sx={{ mb: 2 }} data-testid="accuracy-banner">
@@ -123,8 +125,9 @@ export default function DashboardPage(): JSX.Element {
       )}
       {accuracy == null && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          AI Buy/Sell stays Hold until models are trained (`npm run train:ml`) and scored. Chips
-          will not use today&apos;s already-printed move.
+          ML models are not scored yet, so the Alerts Buy/Sell list uses EMA/MACD trend (and the
+          70-point rule signal when it fires). Train models (`npm run train:ml`) to blend in the
+          forecast. Chips will not use today&apos;s already-printed move.
         </Alert>
       )}
 
@@ -186,9 +189,10 @@ export default function DashboardPage(): JSX.Element {
 
       {alertsMode && (
         <Alert severity="info" sx={{ mb: 2 }} data-testid="alerts-banner">
-          Focus list: paper Buy chips ranked by blended ML + trend confidence. Click{' '}
-          <b>Paper Buy</b> to open a lot in the paper book (₹10 L cash). Open lots and cash live
-          under Paper book. Click the row for chart history. This is not investment advice.
+          Focus list: Buy and Sell chips ranked by confidence. ML is used when models are trained;
+          otherwise EMA/MACD trend fills the list. Click <b>Paper Buy</b> to open a lot in the paper
+          book (₹10 L cash). Open lots and cash live under Paper book. Click the row for chart
+          history. This is not investment advice.
         </Alert>
       )}
       {provenance && provenance.simulated > 0 && (

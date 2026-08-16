@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from .config import HORIZONS, SEQUENCE_LENGTH, settings
+from .config import CORE_HORIZONS, HORIZONS, SEQUENCE_LENGTH, settings
 from .data import load_candles, load_market_context
 from .features import FEATURE_COLUMNS, build_features
 from .models.boosted import LgbmModel, XgbModel
@@ -48,7 +48,7 @@ def get_models(horizon: str) -> HorizonModels:
 def models_available() -> bool:
     return all(
         os.path.exists(os.path.join(settings.models_dir, horizon, "metadata.json"))
-        for horizon in HORIZONS
+        for horizon in CORE_HORIZONS
     )
 
 
@@ -64,7 +64,10 @@ def predict_symbol(symbol: str, history_days: int = 120) -> List[Dict[str, objec
 
     results: List[Dict[str, object]] = []
     for horizon in HORIZONS:
-        models = get_models(horizon)
+        try:
+            models = get_models(horizon)
+        except FileNotFoundError:
+            continue
         x_scaled = models.scaler.transform(matrix)
         latest = x_scaled[-1:]
 

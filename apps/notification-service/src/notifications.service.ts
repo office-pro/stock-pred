@@ -10,6 +10,7 @@ import {
   NotificationSentEvent,
   PatternDetectedEvent,
   PredictionGeneratedEvent,
+  ScannerAlertEvent,
   SignalGeneratedEvent,
   TradeExecutedEvent,
 } from '@stockpred/shared-events';
@@ -61,6 +62,7 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
       KAFKA_TOPICS.PATTERNS_DETECTED,
       KAFKA_TOPICS.PREDICTIONS_GENERATED,
       KAFKA_TOPICS.TRADE_EXECUTED,
+      KAFKA_TOPICS.SCANNER_ALERTS,
     ]);
     await this.consumer.run(async (topic, envelope) => {
       switch (topic) {
@@ -104,6 +106,21 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
               : `Opened @ ${trade.price} | target ${trade.target}, stop ${trade.stopLoss}`,
             trade.symbol,
           );
+          break;
+        }
+        case KAFKA_TOPICS.SCANNER_ALERTS: {
+          const alert = envelope.payload as ScannerAlertEvent;
+          const fc = alert.snapshot.forecast;
+          const reasons = alert.snapshot.reasons.slice(0, 6).join('; ');
+          const title =
+            alert.kind === 'REVERSAL'
+              ? `Bull-to-bear reversal: ${alert.symbol}`
+              : `Bull run candidate: ${alert.symbol}`;
+          const message =
+            alert.kind === 'REVERSAL'
+              ? `${alert.symbol} @ ₹${alert.price}. Bear score ${alert.bearScore}/100, bull score ${alert.bullScore}/100, regime ${alert.regime}. ${DISCLAIMER}`
+              : `${alert.symbol} @ ₹${alert.price}. Bull score ${alert.bullScore}/100. UP ${fc?.upProbability ?? 0}%. 20D expected ${fc?.expectedReturn20d ?? 0}% (bear ${fc?.bearCase20d ?? 0}% / base ${fc?.baseCase20d ?? 0}% / bull ${fc?.bullCase20d ?? 0}%). Confidence ${fc?.confidence ?? 0}%. Risk ${alert.snapshot.risk}. Regime ${alert.regime}. Reasons: ${reasons}. Probabilities only; not a guarantee. ${DISCLAIMER}`;
+          await this.notify('BULL_RUN', title, message, alert.symbol);
           break;
         }
         default:

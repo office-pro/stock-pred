@@ -1,4 +1,5 @@
 import { PredictionHorizon } from './ml';
+import type { BullRunSnapshot } from './scanner';
 
 /** Exchanges supported by the platform. */
 export enum Exchange {
@@ -131,6 +132,9 @@ export interface StockQuote extends StockInfo {
   confidence: number;
   expectedMove: number;
   modelVersion: string | null;
+  /** NIFTY 50 relative strength over ~60 sessions; > 1 outperforms. */
+  relativeStrengthNifty50?: number | null;
+  scanner?: BullRunSnapshot | null;
   updatedAt: number;
 }
 

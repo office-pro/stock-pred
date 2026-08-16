@@ -33,7 +33,9 @@ async def prediction_loop() -> None:
     await asyncio.sleep(15)  # let the platform settle on boot
     while True:
         if models_available():
-            symbols = load_universe()[:200]
+            symbols = load_universe()
+            if settings.predict_universe_limit > 0:
+                symbols = symbols[: settings.predict_universe_limit]
             print(f"[ml-engine] scoring {len(symbols)} symbols")
             scored = 0
             for symbol in symbols:

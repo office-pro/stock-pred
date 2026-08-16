@@ -7,10 +7,12 @@ import type {
   BacktestResult,
   Candle,
   IndexQuote,
+  MarketContext,
   MarketDepth,
   PortfolioSnapshot,
   PredictionAccuracy,
   RelativeComparison,
+  ScannerBacktestSummary,
   StockQuote,
   SupportResistance,
   SymbolPatternPayload,
@@ -197,6 +199,30 @@ export const api = createApi({
     getIndices: builder.query<IndexQuote[], void>({
       query: () => '/indices',
     }),
+    getMarketContext: builder.query<MarketContext, void>({
+      query: () => '/market/context',
+    }),
+    getScanner: builder.query<
+      {
+        data: StockQuote[];
+        total: number;
+        page: number;
+        limit: number;
+        hasMore: boolean;
+        context: MarketContext;
+      },
+      { page?: number; limit?: number; minScore?: number; sort?: string }
+    >({
+      query: ({ page = 1, limit = 40, minScore = 55, sort = 'score' } = {}) => {
+        const params = new URLSearchParams();
+        params.append('page', page.toString());
+        params.append('limit', limit.toString());
+        params.append('minScore', minScore.toString());
+        params.append('sort', sort);
+        return `/scanner?${params.toString()}`;
+      },
+      providesTags: ['Stocks'],
+    }),
     getCandles: builder.query<Candle[], { symbol: string; timeframe?: string; limit?: number }>({
       query: ({ symbol, timeframe = '1d', limit = 300 }) =>
         `/stocks/${symbol}/candles?timeframe=${timeframe}&limit=${limit}`,
@@ -211,7 +237,7 @@ export const api = createApi({
       RelativeComparison,
       { symbol: string; benchmark?: string; window?: number }
     >({
-      query: ({ symbol, benchmark = 'NIFTY_MIDCAP_100', window = 60 }) =>
+      query: ({ symbol, benchmark = 'NIFTY_50', window = 60 }) =>
         `/stocks/${symbol}/compare?benchmark=${benchmark}&window=${window}`,
     }),
     getSignals: builder.query<SignalRow[], void>({
@@ -309,6 +335,13 @@ export const api = createApi({
       query: (body) => ({ url: '/backtest', method: 'POST', body }),
       transformResponse: unwrap<BacktestResult>,
     }),
+    runScannerBacktest: builder.mutation<
+      ScannerBacktestSummary,
+      { symbol: string; minBullScore?: number }
+    >({
+      query: (body) => ({ url: '/backtest/scanner', method: 'POST', body }),
+      transformResponse: unwrap<ScannerBacktestSummary>,
+    }),
     getPortfolio: builder.query<PortfolioSnapshot, void>({
       query: () => '/portfolio',
       providesTags: ['Portfolio'],
@@ -389,6 +422,8 @@ export const {
   useGetStocksQuery,
   useGetStockQuery,
   useGetIndicesQuery,
+  useGetMarketContextQuery,
+  useGetScannerQuery,
   useGetCandlesQuery,
   useGetIndexCandlesQuery,
   useGetDepthQuery,
@@ -402,6 +437,7 @@ export const {
   useGetPredictionAccuracyQuery,
   useGetPredictionsQuery,
   useRunBacktestMutation,
+  useRunScannerBacktestMutation,
   useGetPortfolioQuery,
   useGetTradesQuery,
   useExecuteTradeMutation,

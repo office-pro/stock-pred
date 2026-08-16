@@ -1,6 +1,6 @@
 import { Body, Controller, DefaultValuePipe, Get, ParseIntPipe, Post, Query } from '@nestjs/common';
 import { IsIn, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
-import { BacktestResult, BacktestYears } from '@stockpred/shared-types';
+import { BacktestResult, BacktestYears, ScannerBacktestSummary } from '@stockpred/shared-types';
 import { BacktestService } from './backtest.service';
 
 export class BacktestDto {
@@ -24,6 +24,18 @@ export class BacktestDto {
   riskPerTradePercent?: number;
 }
 
+export class ScannerBacktestDto {
+  @IsString()
+  @MaxLength(20)
+  symbol!: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(30)
+  @Max(95)
+  minBullScore?: number;
+}
+
 @Controller()
 export class BacktestController {
   constructor(private readonly backtest: BacktestService) {}
@@ -31,6 +43,11 @@ export class BacktestController {
   @Post('backtest')
   run(@Body() dto: BacktestDto): Promise<BacktestResult> {
     return this.backtest.run(dto);
+  }
+
+  @Post('backtest/scanner')
+  runScanner(@Body() dto: ScannerBacktestDto): Promise<ScannerBacktestSummary> {
+    return this.backtest.runScanner(dto.symbol, dto.minBullScore ?? 70);
   }
 
   @Get('backtest/history')

@@ -41,7 +41,7 @@ import {
   useGetSymbolSignalsQuery,
 } from '../store/api';
 
-const BENCHMARK = 'NIFTY_MIDCAP_100';
+const BENCHMARK = 'NIFTY_50';
 const FULL_HISTORY_LIMIT = 5000;
 const RANGE_BARS = { '1Y': 252, '3Y': 756, MAX: 5000 } as const;
 const MAX_CHART_MARKERS = 16;
@@ -334,6 +334,7 @@ export default function StockDetailPage(): JSX.Element {
                 <ToggleButton value="BOTH">Both</ToggleButton>
               </ToggleButtonGroup>
               <ToggleButton
+                value="PATTERNS"
                 size="small"
                 selected={showPatterns}
                 onChange={() => setShowPatterns((on) => !on)}
@@ -429,6 +430,58 @@ export default function StockDetailPage(): JSX.Element {
       )}
 
       <Grid container spacing={2}>
+        {stock?.scanner && (
+          <Grid item xs={12}>
+            <Card variant="outlined">
+              <CardContent>
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                  Bull / bear snapshot
+                </Typography>
+                <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 1 }}>
+                  <Chip
+                    label={`Bull ${stock.scanner.bullScore}/100`}
+                    color="success"
+                    size="small"
+                  />
+                  <Chip label={`Bear ${stock.scanner.bearScore}/100`} color="error" size="small" />
+                  <Chip label={stock.scanner.band.replace(/_/g, ' ')} size="small" />
+                  <Chip label={stock.scanner.risk.replace(/_/g, ' ')} size="small" />
+                  {stock.scanner.forecast && (
+                    <Chip
+                      size="small"
+                      label={`UP ${stock.scanner.forecast.upProbability}% · 20D ${stock.scanner.forecast.expectedReturn20d >= 0 ? '+' : ''}${stock.scanner.forecast.expectedReturn20d}%`}
+                    />
+                  )}
+                </Stack>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Structure {stock.scanner.structure.trend.replace(/_/g, '/')} (HH{' '}
+                  {stock.scanner.structure.higherHighs} / HL {stock.scanner.structure.higherLows}).
+                  RS vs NIFTY 50:{' '}
+                  {stock.scanner.relativeStrengthNifty50 ?? stock.relativeStrengthNifty50 ?? '—'}
+                  {stock.scanner.niftyOutperformancePercent != null
+                    ? ` (${stock.scanner.niftyOutperformancePercent >= 0 ? '+' : ''}${stock.scanner.niftyOutperformancePercent}%)`
+                    : ''}
+                  . Forecast 5D {stock.scanner.forecast?.expectedReturn5d ?? '—'}% / 10D{' '}
+                  {stock.scanner.forecast?.expectedReturn10d ?? '—'}% / 20D{' '}
+                  {stock.scanner.forecast?.expectedReturn20d ?? '—'}%. Contributors: trend{' '}
+                  {stock.scanner.contributors.trend}, momentum {stock.scanner.contributors.momentum}
+                  , volume {stock.scanner.contributors.volume}, breakout{' '}
+                  {stock.scanner.contributors.breakout}, RS{' '}
+                  {stock.scanner.contributors.relativeStrength}, structure{' '}
+                  {stock.scanner.contributors.structure}, breadth{' '}
+                  {stock.scanner.contributors.breadth}, regime {stock.scanner.contributors.regime}.
+                  Range 20D bear {stock.scanner.forecast?.bearCase20d ?? '—'}% / base{' '}
+                  {stock.scanner.forecast?.baseCase20d ?? '—'}% / bull{' '}
+                  {stock.scanner.forecast?.bullCase20d ?? '—'}%.
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {(stock.scanner.reasons ?? []).join(' · ') || 'No rule reasons yet.'}{' '}
+                  Probabilities only; not a guaranteed move.
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
         <Grid item xs={12} md={4}>
           <Card variant="outlined">
             <CardContent>

@@ -10,7 +10,7 @@ from typing import Dict, List
 
 import numpy as np
 
-from .config import CLASSES, HORIZONS, settings
+from .config import CLASSES, CORE_HORIZONS, HORIZONS, settings
 from .data import load_candles, load_market_context, load_universe, synthetic_candles
 from .features import FEATURE_COLUMNS, build_features, make_dataset
 from .models.boosted import LgbmModel, XgbModel
@@ -122,6 +122,7 @@ def main() -> None:
     parser.add_argument("--days", type=int, default=1500, help="history depth in days")
     parser.add_argument("--synthetic", action="store_true", help="force synthetic data (offline)")
     parser.add_argument("--symbols", type=str, default="", help="comma-separated symbol override")
+    parser.add_argument("--all-horizons", action="store_true", help="also train 10D and 20D models")
     args = parser.parse_args()
 
     symbols = (
@@ -130,7 +131,8 @@ def main() -> None:
         else load_universe()
     )
     print(f"[train] universe: {len(symbols)} symbols, {args.days} days, synthetic={args.synthetic}")
-    for horizon in HORIZONS:
+    horizons = list(HORIZONS) if args.all_horizons else list(CORE_HORIZONS)
+    for horizon in horizons:
         train_horizon(horizon, symbols, args.days, args.synthetic)
     print("[train] done. Predictions are probabilistic - this is not investment advice.")
 

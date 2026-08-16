@@ -5,7 +5,12 @@ import {
   getStockUniverse,
   getUniverseMode,
 } from '@stockpred/database';
-import { KAFKA_TOPICS, MarketCandleEvent, MarketTickEvent } from '@stockpred/shared-events';
+import {
+  KAFKA_TOPICS,
+  MarketCandleEvent,
+  MarketTickEvent,
+  ScannerAlertEvent,
+} from '@stockpred/shared-events';
 import {
   Candle,
   DepthLevel,
@@ -14,6 +19,7 @@ import {
   MarketDataSource,
   MarketDepth,
   MarketIndex,
+  MarketContext,
   RelativeComparison,
   StockQuote,
   Tick,
@@ -25,6 +31,13 @@ import {
   compareToBenchmark,
   composeTradeAdvisory,
   computeIndicatorSnapshot,
+  computeMarketBreadth,
+  sampleFromCandles,
+  classifyMarketRegime,
+  buildBullRunSnapshot,
+  isBullRunAlert,
+  isBearReversalAlert,
+  scannerAlertCooldownMs,
   getEnv,
   getEnvNumber,
   round2,
@@ -87,6 +100,11 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private readonly predictions = new PredictionCache();
   private readonly paperCapital = getEnvNumber('PAPER_TRADING_CAPITAL', DEFAULT_PAPER_CAPITAL);
   private readonly advisoryMemo = new Map<string, ReturnType<typeof composeTradeAdvisory>>();
+  private readonly scannerMemo = new Map<string, ReturnType<typeof buildBullRunSnapshot>>();
+  private contextCache: { key: string; value: MarketContext } | null = null;
+  private readonly alertSentAt = new Map<string, { kind: string; at: number; bullScore: number }>();
+  private scannerAlertTimer: NodeJS.Timeout | null = null;
+  private scannerAlertsRunning = false;
   private readonly hydrateJobs = new Map<string, Promise<void>>();
   private readonly hydrateTried = new Set<string>();
 
@@ -146,6 +164,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
         if (count > 0) this.advisoryMemo.clear();
       });
     }, 60_000);
+    this.scannerAlertTimer = setInterval(() => void this.emitScannerAlerts(), 60_000);
   }
 
   private registerListed(stock: UniverseStock): void {
@@ -265,6 +284,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     if (this.tickTimer) clearInterval(this.tickTimer);
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     if (this.predictionTimer) clearInterval(this.predictionTimer);
+    if (this.scannerAlertTimer) clearInterval(this.scannerAlertTimer);
     if (this.orchestrator) {
       await this.orchestrator.shutdown();
     }
@@ -346,7 +366,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
 
   getQuote(symbol: string): StockQuote {
     const state = this.requireSymbol(symbol);
-    return this.toQuote(state);
+    return this.toQuote(state, PredictionHorizon.NEXT_WEEK, true);
   }
 
   async getCandles(symbol: string, timeframe: Timeframe, limit: number): Promise<Candle[]> {
@@ -387,6 +407,50 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       changePercent: round2(((state.value - state.previousClose) / state.previousClose) * 100),
       updatedAt: Date.now(),
     }));
+  }
+
+  getMarketContext(): MarketContext {
+    return this.marketContext();
+  }
+
+  getScanner(
+    page: number,
+    limit: number,
+    minScore: number,
+    sort: string,
+  ): {
+    data: StockQuote[];
+    total: number;
+    page: number;
+    limit: number;
+    hasMore: boolean;
+    context: MarketContext;
+  } {
+    const context = this.marketContext();
+    const rows = [...this.stocks.values()]
+      .filter((state) => state.daily.length >= 40)
+      .map((state) => this.toQuote(state, PredictionHorizon.NEXT_WEEK, true))
+      .filter((q) => q.scanner && q.scanner.bullScore >= minScore);
+    const sortKey = sort.trim().toLowerCase();
+    rows.sort((a, b) => {
+      const sa = a.scanner;
+      const sb = b.scanner;
+      if (!sa || !sb) return 0;
+      if (sortKey === 'up')
+        return (sb.forecast?.upProbability ?? 0) - (sa.forecast?.upProbability ?? 0);
+      if (sortKey === 'expected20d') {
+        return (sb.forecast?.expectedReturn20d ?? 0) - (sa.forecast?.expectedReturn20d ?? 0);
+      }
+      if (sortKey === 'rs') {
+        return (sb.relativeStrengthNifty50 ?? 0) - (sa.relativeStrengthNifty50 ?? 0);
+      }
+      if (sortKey === 'volume') return (sb.volume.volumeRatio ?? 0) - (sa.volume.volumeRatio ?? 0);
+      return sb.bullScore - sa.bullScore;
+    });
+    const total = rows.length;
+    const start = (page - 1) * limit;
+    const data = rows.slice(start, start + limit);
+    return { data, total, page, limit, hasMore: start + limit < total, context };
   }
 
   compare(symbol: string, benchmark: MarketIndex, windowDays: number): RelativeComparison {
@@ -751,6 +815,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private toQuote(
     state: SymbolState,
     horizon: PredictionHorizon = PredictionHorizon.NEXT_DAY,
+    includeScanner = false,
   ): StockQuote {
     const advisoryDefaults = {
       suggestion: 'HOLD' as TradeSuggestion,
@@ -777,6 +842,8 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
         indicators: null,
         dataSource: 'listed',
         ...advisoryDefaults,
+        relativeStrengthNifty50: null,
+        scanner: null,
         updatedAt: Date.now(),
       };
     }
@@ -820,8 +887,132 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       confidence: advisory.confidence,
       expectedMove: advisory.expectedMove,
       modelVersion: advisory.modelVersion,
+      relativeStrengthNifty50: includeScanner
+        ? (this.scannerFor(state)?.relativeStrengthNifty50 ?? null)
+        : (this.niftyRs(state)?.relativeStrength ?? null),
+      scanner: includeScanner ? this.scannerFor(state) : null,
       updatedAt: state.lastTick?.time ?? today.time,
     };
+  }
+
+  private marketContext(): MarketContext {
+    const nifty = this.indices.get(MarketIndex.NIFTY_50);
+    const vix = this.indices.get(MarketIndex.INDIA_VIX);
+    const stamp = `${nifty?.daily[nifty.daily.length - 1]?.time ?? 0}|${this.stocks.size}`;
+    if (this.contextCache?.key === stamp) return this.contextCache.value;
+    const samples = [];
+    for (const state of this.stocks.values()) {
+      const sample = sampleFromCandles(state.daily, state.indicators);
+      if (sample) samples.push(sample);
+    }
+    const breadth = computeMarketBreadth(samples);
+    const regime = classifyMarketRegime(nifty?.daily ?? [], breadth, vix?.value ?? null);
+    const prev =
+      nifty && nifty.previousClose > 0
+        ? nifty.previousClose
+        : nifty?.daily[nifty.daily.length - 2]?.close;
+    const niftyChangePercent =
+      nifty && prev && prev > 0 ? round2(((nifty.value - prev) / prev) * 100) : 0;
+    const value: MarketContext = {
+      regime,
+      breadth,
+      niftyChangePercent,
+      vixLevel: vix ? round2(vix.value) : null,
+    };
+    this.contextCache = { key: stamp, value };
+    return value;
+  }
+
+  private niftyRs(state: SymbolState) {
+    const nifty = this.indices.get(MarketIndex.NIFTY_50);
+    if (!nifty || state.daily.length < 5) return null;
+    return compareToBenchmark(
+      state.info.symbol,
+      MarketIndex.NIFTY_50,
+      state.daily,
+      nifty.daily,
+      60,
+    );
+  }
+
+  private scannerFor(state: SymbolState) {
+    if (state.daily.length < 40) return null;
+    const context = this.marketContext();
+    const last = state.daily[state.daily.length - 1];
+    const memoKey = `${state.info.symbol}|${last.time}|${context.regime}|${context.breadth.asOf}`;
+    const cached = this.scannerMemo.get(memoKey);
+    if (cached !== undefined) return cached;
+    const week = this.predictions.get(state.info.symbol, PredictionHorizon.NEXT_WEEK);
+    const day = this.predictions.get(state.info.symbol, PredictionHorizon.NEXT_DAY);
+    const ml = week ?? day;
+    const snapshot = buildBullRunSnapshot({
+      symbol: state.info.symbol,
+      candles: state.daily,
+      indicators: state.indicators,
+      niftyCandles: this.indices.get(MarketIndex.NIFTY_50)?.daily ?? [],
+      breadth: context.breadth,
+      regime: context.regime,
+      upProbability:
+        ml?.probabilities?.UP !== undefined
+          ? ml.probabilities.UP * (ml.probabilities.UP <= 1 ? 100 : 1)
+          : undefined,
+      downProbability:
+        ml?.probabilities?.DOWN !== undefined
+          ? ml.probabilities.DOWN * (ml.probabilities.DOWN <= 1 ? 100 : 1)
+          : undefined,
+      sidewaysProbability:
+        ml?.probabilities?.SIDEWAYS !== undefined
+          ? ml.probabilities.SIDEWAYS * (ml.probabilities.SIDEWAYS <= 1 ? 100 : 1)
+          : undefined,
+      mlConfidence: ml?.confidence,
+      mlExpectedMove: ml?.expectedMove,
+    });
+    this.scannerMemo.set(memoKey, snapshot);
+    if (this.scannerMemo.size > 8000) {
+      const first = this.scannerMemo.keys().next().value;
+      if (first) this.scannerMemo.delete(first);
+    }
+    return snapshot;
+  }
+
+  private async emitScannerAlerts(): Promise<void> {
+    if (this.scannerAlertsRunning) return;
+    this.scannerAlertsRunning = true;
+    try {
+      await this.emitScannerAlertsInner();
+    } finally {
+      this.scannerAlertsRunning = false;
+    }
+  }
+
+  private async emitScannerAlertsInner(): Promise<void> {
+    const cooldown = scannerAlertCooldownMs();
+    const now = Date.now();
+    for (const state of this.stocks.values()) {
+      if (state.daily.length < 40) continue;
+      const snapshot = this.scannerFor(state);
+      if (!snapshot) continue;
+      const bull = isBullRunAlert(snapshot);
+      const reversal = isBearReversalAlert(snapshot);
+      if (!bull && !reversal) continue;
+      const kind = reversal && !bull ? 'REVERSAL' : 'BULL_RUN';
+      const prev = this.alertSentAt.get(state.info.symbol);
+      const scoreDelta = Math.abs((prev?.bullScore ?? 0) - snapshot.bullScore);
+      if (prev && now - prev.at < cooldown && prev.kind === kind && scoreDelta < 8) continue;
+      this.alertSentAt.set(state.info.symbol, { kind, at: now, bullScore: snapshot.bullScore });
+      const price = state.lastTick?.price ?? state.daily[state.daily.length - 1]?.close ?? 0;
+      const payload: ScannerAlertEvent = {
+        symbol: state.info.symbol,
+        kind,
+        price: round2(price),
+        bullScore: snapshot.bullScore,
+        bearScore: snapshot.bearScore,
+        regime: this.marketContext().regime,
+        snapshot,
+        createdAt: now,
+      };
+      await this.kafka.publish(KAFKA_TOPICS.SCANNER_ALERTS, payload, state.info.symbol);
+    }
   }
 
   private findStateForBhav(row: BhavQuote): SymbolState | undefined {

@@ -6,10 +6,12 @@ from .persistence import cache_prediction, persist_latest_file
 from .predict import models_available, predict_symbol
 
 
-def run(limit: int = 150, symbols: Optional[List[str]] = None) -> int:
+def run(limit: Optional[int] = 150, symbols: Optional[List[str]] = None) -> int:
     if not models_available():
         raise RuntimeError("No trained models - run python -m app.train first")
-    names = symbols if symbols else load_universe()[:limit]
+    names = symbols if symbols else load_universe()
+    if limit is not None:
+        names = names[:limit]
     written = 0
     for symbol in names:
         try:
@@ -28,10 +30,15 @@ def main() -> None:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=150)
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="score the full listed universe (ignores --limit)",
+    )
     parser.add_argument("--symbols", type=str, default="", help="comma-separated symbol override")
     args = parser.parse_args()
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()] if args.symbols else None
-    run(args.limit, symbols)
+    run(None if args.all else args.limit, symbols)
 
 
 if __name__ == "__main__":

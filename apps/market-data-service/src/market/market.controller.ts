@@ -68,7 +68,7 @@ export class MarketController {
   @Get('stocks/:symbol/compare')
   compare(
     @Param('symbol') symbol: string,
-    @Query('benchmark') benchmark = MarketIndex.NIFTY_MIDCAP_100,
+    @Query('benchmark') benchmark = MarketIndex.NIFTY_50,
     @Query('window', new DefaultValuePipe(60), ParseIntPipe) window = 60,
   ): RelativeComparison {
     if (!Object.values(MarketIndex).includes(benchmark)) {
@@ -80,6 +80,21 @@ export class MarketController {
   @Get('indices')
   getIndices(): IndexQuote[] {
     return this.market.getIndices();
+  }
+
+  @Get('market/context')
+  getMarketContext(): ReturnType<MarketService['getMarketContext']> {
+    return this.market.getMarketContext();
+  }
+
+  @Get('scanner')
+  getScanner(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
+    @Query('limit', new DefaultValuePipe(40), ParseIntPipe) limit = 40,
+    @Query('minScore', new DefaultValuePipe(55), ParseIntPipe) minScore = 55,
+    @Query('sort') sort = 'score',
+  ): ReturnType<MarketService['getScanner']> {
+    return this.market.getScanner(page, Math.min(limit, 100), minScore, sort);
   }
 
   @Get('indices/:index/candles')

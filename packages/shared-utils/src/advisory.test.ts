@@ -36,11 +36,18 @@ describe('composeTradeAdvisory', () => {
     expect(result.target).toBeNull();
   });
 
-  it('holds when there is no ML direction', () => {
-    const candles = candlesFromCloses(uptrendCloses(50));
-    const result = composeTradeAdvisory({ candles, direction: null, confidence: 80 });
+  it('uses the technical trend as a Buy/Sell focus when ML is not trained', () => {
+    const candles = candlesFromCloses(uptrendCloses(80));
+    const result = composeTradeAdvisory({ candles, direction: null, confidence: 0 });
+    expect(result.action).toBe('BUY');
+    expect(result.quantity).toBeGreaterThan(0);
+    expect(result.modelVersion).toBe('trend-v1');
+  });
+
+  it('holds a flat tape when ML is not trained', () => {
+    const candles = candlesFromCloses(Array.from({ length: 80 }, () => 100));
+    const result = composeTradeAdvisory({ candles, direction: null, confidence: 0 });
     expect(result.action).toBe('HOLD');
-    expect(result.target).toBeNull();
     expect(result.quantity).toBe(0);
   });
 

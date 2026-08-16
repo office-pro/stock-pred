@@ -18,8 +18,8 @@ describe('event envelope', () => {
     expect(parseEnvelope(null)).toBeNull();
   });
 
-  it('declares all seven spec topics', () => {
-    expect(ALL_TOPICS).toHaveLength(7);
+  it('declares spec Kafka topics including scanner alerts', () => {
+    expect(ALL_TOPICS).toHaveLength(8);
     expect(ALL_TOPICS).toEqual(
       expect.arrayContaining([
         'market.ticks',
@@ -29,6 +29,7 @@ describe('event envelope', () => {
         'predictions.generated',
         'trade.executed',
         'notifications.sent',
+        'scanner.alerts',
       ]),
     );
   });
