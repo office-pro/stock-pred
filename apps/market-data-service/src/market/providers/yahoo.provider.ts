@@ -6,6 +6,12 @@ import type { MarketDataProvider } from './provider.interface';
 interface YahooChartResponse {
   chart: {
     result?: {
+      meta?: {
+        regularMarketPrice?: number;
+        regularMarketTime?: number;
+        previousClose?: number;
+        chartPreviousClose?: number;
+      };
       timestamp?: number[];
       indicators: {
         quote: {
@@ -38,6 +44,13 @@ export interface YahooSymbolHint {
   exchange?: string;
   bseCode?: string | null;
   yahooSymbol?: string | null;
+}
+
+/** Last trade: price plus the exchange timestamp of that print. */
+export interface TodayPrint {
+  candle: Candle;
+  listedAt: number;
+  previousClose?: number;
 }
 
 /** NSE, BSE, and scrip-code tickers so newly listed / BSE-primary names still resolve. */
@@ -108,26 +121,53 @@ export class YahooProvider implements MarketDataProvider {
    * rows. Returns null outside trading hours / when no intraday data exists.
    */
   async getTodayCandle(symbol: string, hint?: YahooSymbolHint): Promise<Candle | null> {
-    const yahooSymbol = yahooTickerCandidates(symbol, hint)[0];
-    return this.scheduled(async () => {
-      const response = await axios.get<YahooChartResponse>(
-        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}`,
-        {
-          params: { range: '1d', interval: '5m' },
-          timeout: 15_000,
-          headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
-        },
-      );
-      const result = response.data.chart.result?.[0];
-      const quote = result?.indicators.quote[0];
-      if (!result?.timestamp || !quote || result.timestamp.length === 0) return null;
+    const print = await this.getTodayPrint(symbol, hint);
+    return print?.candle ?? null;
+  }
 
-      let open: number | null = null;
-      let high = -Infinity;
-      let low = Infinity;
-      let close: number | null = null;
-      let volume = 0;
-      let lastTime = 0;
+  /**
+   * Last listed print: last trade from chart meta (price + exchange time),
+   * with 1-minute bars filling today's OHLC. Not the server clock.
+   * Skips the daily-history queue so a viewed symbol is not stuck behind a sweep.
+   */
+  async getTodayPrint(symbol: string, hint?: YahooSymbolHint): Promise<TodayPrint | null> {
+    return this.getLastTrade(symbol, hint);
+  }
+
+  async getLastTrade(symbol: string, hint?: YahooSymbolHint): Promise<TodayPrint | null> {
+    const tickers = yahooTickerCandidates(symbol, hint);
+    for (const yahooSymbol of tickers) {
+      try {
+        const print = await this.fetchLastTrade(symbol, yahooSymbol);
+        if (print) return print;
+      } catch (error) {
+        console.warn(
+          `[market-data] last-trade ${symbol} via ${yahooSymbol}: ${(error as Error).message}`,
+        );
+      }
+    }
+    return null;
+  }
+
+  private async fetchLastTrade(symbol: string, yahooSymbol: string): Promise<TodayPrint | null> {
+    const response = await axios.get<YahooChartResponse>(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}`,
+      {
+        params: { range: '1d', interval: '1m' },
+        timeout: 12_000,
+        headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+      },
+    );
+    const result = response.data.chart.result?.[0];
+    const quote = result?.indicators.quote[0];
+    const meta = result?.meta;
+    let open: number | null = null;
+    let high = -Infinity;
+    let low = Infinity;
+    let close: number | null = null;
+    let volume = 0;
+    let lastBarTime = 0;
+    if (result?.timestamp && quote) {
       for (let i = 0; i < result.timestamp.length; i += 1) {
         const o = quote.open[i];
         const h = quote.high[i];
@@ -139,22 +179,38 @@ export class YahooProvider implements MarketDataProvider {
         if (l < low) low = l;
         close = c;
         volume += quote.volume[i] ?? 0;
-        lastTime = result.timestamp[i] * 1000;
+        lastBarTime = result.timestamp[i] * 1000;
       }
-      if (open === null || close === null) return null;
-      const dayStart = new Date(lastTime);
-      dayStart.setUTCHours(0, 0, 0, 0);
-      return {
+    }
+    const listedAt = (meta?.regularMarketTime ?? 0) * 1000 || lastBarTime;
+    const lastPrice = meta?.regularMarketPrice ?? close;
+    if (lastPrice == null || !Number.isFinite(lastPrice) || listedAt <= 0) return null;
+    if (open === null) open = lastPrice;
+    if (!Number.isFinite(high) || high === -Infinity) high = lastPrice;
+    if (!Number.isFinite(low) || low === Infinity) low = lastPrice;
+    if (lastPrice > high) high = lastPrice;
+    if (lastPrice < low) low = lastPrice;
+    const dayStart = new Date(listedAt);
+    dayStart.setUTCHours(0, 0, 0, 0);
+    return {
+      listedAt,
+      previousClose:
+        meta?.previousClose && meta.previousClose > 0
+          ? round2(meta.previousClose)
+          : meta?.chartPreviousClose && meta.chartPreviousClose > 0
+            ? round2(meta.chartPreviousClose)
+            : undefined,
+      candle: {
         symbol,
         timeframe: Timeframe.ONE_DAY,
         time: dayStart.getTime(),
         open: round2(open),
         high: round2(high),
         low: round2(low),
-        close: round2(close),
+        close: round2(lastPrice),
         volume,
-      };
-    });
+      },
+    };
   }
 
   /** Queue a task behind all previous ones, with a politeness gap. */

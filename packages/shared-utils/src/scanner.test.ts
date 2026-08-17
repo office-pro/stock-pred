@@ -1,4 +1,5 @@
 import { DEFAULT_SCANNER_ALERT_GATES, MarketIndex, MarketRegime } from '@stockpred/shared-types';
+import type { BullRunSnapshot } from '@stockpred/shared-types';
 import { analyzeVolume } from './volume';
 import { detectBreakouts } from './breakouts';
 import { detectMarketStructure } from './structure';
@@ -7,7 +8,7 @@ import { classifyMarketRegime } from './regime';
 import { bullBand, scoreBullBear } from './bull-score';
 import { estimateHorizonForecast } from './forecast';
 import { isBearReversalAlert, isBullRunAlert } from './scanner-alerts';
-import { buildBullRunSnapshot } from './scanner';
+import { buildBullRunSnapshot, isBullRunCandidate } from './scanner';
 import { runScannerBacktest } from './scanner-backtest';
 import { computeIndicatorSnapshot } from './indicators';
 import { candlesFromCloses, uptrendCloses, downtrendCloses } from './test-helpers';
@@ -247,5 +248,13 @@ describe('bull-run scanners', () => {
     expect(result.signals).toBeGreaterThan(0);
     expect(result.metrics.totalTrades).toBe(result.signals);
     expect(result.calibrationError).not.toBeNull();
+  });
+
+  it('treats strong bullish and bull-run bands as candidates', () => {
+    expect(
+      isBullRunCandidate({ bullScore: 88, band: 'BULL_RUN_CANDIDATE' } as BullRunSnapshot),
+    ).toBe(true);
+    expect(isBullRunCandidate({ bullScore: 32, band: 'WEAK' } as BullRunSnapshot)).toBe(false);
+    expect(isBullRunCandidate(null)).toBe(false);
   });
 });

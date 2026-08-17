@@ -26,14 +26,16 @@ import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import { useParams } from 'react-router-dom';
 import type { PatternEventView } from '@stockpred/shared-types';
 import CandleChart, { ChartSignalMarker } from '../components/CandleChart';
-import ChangeCell from '../components/ChangeCell';
+import LivePriceStrip from '../components/LivePriceStrip';
 import PaperBuyButton from '../components/PaperBuyButton';
 import SignalBadge from '../components/SignalBadge';
+import { holdingForSymbol } from '../lib/paper-pnl';
 import {
   useGetCandlesQuery,
   useGetCompareQuery,
   useGetDepthQuery,
   useGetIndexCandlesQuery,
+  useGetPortfolioQuery,
   useGetPredictionsQuery,
   useGetStockQuery,
   useGetSupportResistanceQuery,
@@ -86,7 +88,9 @@ export default function StockDetailPage(): JSX.Element {
     severity: 'success' | 'error' | 'info';
   } | null>(null);
 
-  const { data: stock } = useGetStockQuery(upper, { pollingInterval: 10_000 });
+  const { data: stock } = useGetStockQuery(upper, { pollingInterval: 3_000 });
+  const { data: portfolio } = useGetPortfolioQuery(undefined, { pollingInterval: 10_000 });
+  const paperLot = holdingForSymbol(portfolio?.holdings, upper);
   const { data: candles, isLoading } = useGetCandlesQuery({
     symbol: upper,
     limit: FULL_HISTORY_LIMIT,
@@ -215,8 +219,6 @@ export default function StockDetailPage(): JSX.Element {
         </Typography>
         {stock && (
           <>
-            <Typography variant="h6">{stock.price.toLocaleString('en-IN')}</Typography>
-            <ChangeCell value={stock.changePercent} />
             <Chip size="small" label={stock.exchange} />
             <Chip size="small" label={stock.sector} variant="outlined" />
             <SignalBadge signal={paperAction} />
@@ -237,6 +239,15 @@ export default function StockDetailPage(): JSX.Element {
           label="Compare vs Nifty Midcap"
         />
       </Stack>
+
+      <LivePriceStrip
+        symbol={upper}
+        quotePrice={stock?.price}
+        changePercent={stock?.changePercent}
+        listedAt={stock?.updatedAt}
+        previousClose={stock?.previousClose}
+        holding={paperLot}
+      />
 
       <Alert severity={alertSeverity} sx={{ mb: 2 }} data-testid="detail-alert">
         {paperAction === 'BUY' || paperAction === 'SELL' ? (

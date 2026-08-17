@@ -39,12 +39,15 @@ export class MarketController {
     hasMore: boolean;
     counts: { NSE: number; BSE: number; all: number };
     suggestions: { BUY: number; SELL: number; HOLD: number };
+    maxProfitPct: number;
+    maxProfitSymbol: string | null;
+    bullRunCount: number;
   } {
     return this.market.getQuotesPaginated(page, limit, search, exchange, suggestion, horizon, sort);
   }
 
   @Get('stocks/:symbol')
-  getStock(@Param('symbol') symbol: string): StockQuote {
+  getStock(@Param('symbol') symbol: string): Promise<StockQuote> {
     return this.market.getQuote(symbol.toUpperCase());
   }
 

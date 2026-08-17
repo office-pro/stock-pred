@@ -30,6 +30,11 @@ import {
 import {
   compareToBenchmark,
   composeTradeAdvisory,
+  selectBestPicks,
+  sortQuotesBy,
+  maxProfitAmong,
+  isBullRunCandidate,
+  expectedProfitPct,
   computeIndicatorSnapshot,
   computeMarketBreadth,
   sampleFromCandles,
@@ -84,6 +89,8 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private readonly provider: MarketDataProvider;
   /** Set in yahoo mode: enables the real intraday refresh sweep. */
   private readonly yahooProvider: YahooProvider | null;
+  /** Separate queue so a viewed symbol is not stuck behind a universe sweep. */
+  private readonly onDemandYahoo = new YahooProvider();
   private readonly simulated = new SimulatedProvider();
   private readonly stocks = new Map<string, SymbolState>();
   private readonly byIsin = new Map<string, string>();
@@ -92,10 +99,15 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private readonly rngs = new Map<string, () => number>();
   private tickTimer: NodeJS.Timeout | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
+  private liveWatchTimer: NodeJS.Timeout | null = null;
   private predictionTimer: NodeJS.Timeout | null = null;
   private refreshing = false;
   private readonly tickIntervalMs = getEnvNumber('TICK_INTERVAL_MS', 1000);
   private readonly refreshIntervalMs = getEnvNumber('QUOTE_REFRESH_INTERVAL_MS', 60_000);
+  private readonly liveQuoteMinMs = getEnvNumber('LIVE_QUOTE_MIN_MS', 5_000);
+  private readonly liveQuoteWaitMs = getEnvNumber('LIVE_QUOTE_WAIT_MS', 5_000);
+  private readonly watched = new Map<string, number>();
+  private readonly liveRefreshInflight = new Map<string, Promise<void>>();
   private orchestrator: RealTimeOrchestrator | null = null;
   private readonly predictions = new PredictionCache();
   private readonly paperCapital = getEnvNumber('PAPER_TRADING_CAPITAL', DEFAULT_PAPER_CAPITAL);
@@ -165,6 +177,8 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       });
     }, 60_000);
     this.scannerAlertTimer = setInterval(() => void this.emitScannerAlerts(), 60_000);
+    this.liveWatchTimer = setInterval(() => void this.refreshWatchedLiveQuotes(), 15_000);
+    console.log('[market-data] on-demand live quotes: refresh viewed symbols during NSE hours');
   }
 
   private registerListed(stock: UniverseStock): void {
@@ -285,6 +299,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     if (this.predictionTimer) clearInterval(this.predictionTimer);
     if (this.scannerAlertTimer) clearInterval(this.scannerAlertTimer);
+    if (this.liveWatchTimer) clearInterval(this.liveWatchTimer);
     if (this.orchestrator) {
       await this.orchestrator.shutdown();
     }
@@ -312,12 +327,26 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     hasMore: boolean;
     counts: { NSE: number; BSE: number; all: number };
     suggestions: { BUY: number; SELL: number; HOLD: number };
+    maxProfitPct: number;
+    maxProfitSymbol: string | null;
+    bullRunCount: number;
   } {
     const horizonKey =
       horizon?.trim().toUpperCase() === PredictionHorizon.NEXT_WEEK
         ? PredictionHorizon.NEXT_WEEK
         : PredictionHorizon.NEXT_DAY;
-    let quotes = [...this.stocks.values()].map((state) => this.toQuote(state, horizonKey));
+    const suggestionUpper = suggestion?.trim().toUpperCase();
+    const sortKey = (sort?.trim().toLowerCase() || 'all') as
+      | 'all'
+      | 'profit'
+      | 'confidence'
+      | 'bull'
+      | 'best';
+    const bestPickMode = suggestionUpper === 'BEST';
+    const includeScanner = sortKey === 'bull' || bestPickMode || suggestionUpper === 'ACTIONABLE';
+    let quotes = [...this.stocks.values()].map((state) =>
+      this.toQuote(state, horizonKey, includeScanner),
+    );
     const counts = {
       NSE: quotes.filter((q) => q.exchange === Exchange.NSE).length,
       BSE: quotes.filter((q) => q.exchange === Exchange.BSE).length,
@@ -342,30 +371,67 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       HOLD: quotes.filter((q) => q.suggestion === 'HOLD').length,
     };
 
-    const suggestionUpper = suggestion?.trim().toUpperCase();
-    if (suggestionUpper === 'BUY' || suggestionUpper === 'SELL' || suggestionUpper === 'HOLD') {
+    if (bestPickMode) {
+      quotes = selectBestPicks(quotes);
+      suggestions.BUY = quotes.filter((q) => q.suggestion === 'BUY').length;
+      suggestions.SELL = quotes.filter((q) => q.suggestion === 'SELL').length;
+      suggestions.HOLD = 0;
+    } else if (
+      suggestionUpper === 'BUY' ||
+      suggestionUpper === 'SELL' ||
+      suggestionUpper === 'HOLD'
+    ) {
       quotes = quotes.filter((q) => q.suggestion === suggestionUpper);
     } else if (suggestionUpper === 'ACTIONABLE') {
       quotes = quotes.filter((q) => q.suggestion === 'BUY' || q.suggestion === 'SELL');
     }
 
-    const sortKey = sort?.trim().toLowerCase();
-    if (sortKey === 'confidence') {
-      quotes.sort((a, b) => b.confidence - a.confidence || a.symbol.localeCompare(b.symbol));
+    if (sortKey === 'bull') {
+      quotes = quotes.filter((q) => isBullRunCandidate(q.scanner));
+      quotes.sort(
+        (a, b) =>
+          (b.scanner?.bullScore ?? 0) - (a.scanner?.bullScore ?? 0) ||
+          expectedProfitPct(b) - expectedProfitPct(a) ||
+          a.symbol.localeCompare(b.symbol),
+      );
+    } else if (sortKey === 'profit' || sortKey === 'confidence' || sortKey === 'best') {
+      quotes = sortQuotesBy(quotes, sortKey);
+    } else if (bestPickMode) {
+      quotes = sortQuotesBy(quotes, 'best');
+    } else if (suggestionUpper === 'ACTIONABLE') {
+      quotes = sortQuotesBy(quotes, 'confidence');
     } else {
-      quotes.sort((a, b) => a.symbol.localeCompare(b.symbol));
+      quotes = sortQuotesBy(quotes, 'all');
     }
 
+    const maxProfit = maxProfitAmong(quotes);
+    const bullRunCount = quotes.filter((q) => isBullRunCandidate(q.scanner)).length;
     const total = quotes.length;
     const start = (page - 1) * limit;
     const data = quotes.slice(start, start + limit);
     const hasMore = start + limit < total;
 
-    return { data, total, page, limit, hasMore, counts, suggestions };
+    return {
+      data,
+      total,
+      page,
+      limit,
+      hasMore,
+      counts,
+      suggestions,
+      maxProfitPct: round2(maxProfit.pct),
+      maxProfitSymbol: maxProfit.symbol,
+      bullRunCount,
+    };
   }
 
-  getQuote(symbol: string): StockQuote {
+  async getQuote(symbol: string): Promise<StockQuote> {
     const state = this.requireSymbol(symbol);
+    this.watched.set(state.info.symbol, Date.now());
+    await Promise.race([
+      this.refreshSymbolLive(state),
+      new Promise<void>((resolve) => setTimeout(resolve, this.liveQuoteWaitMs)),
+    ]);
     return this.toQuote(state, PredictionHorizon.NEXT_WEEK, true);
   }
 
@@ -595,16 +661,21 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     try {
       for (const state of this.stocks.values()) {
         try {
-          const today = await this.yahooProvider.getTodayCandle(state.info.symbol);
-          if (today) this.applyRealToday(state, today);
+          const print = await this.yahooProvider.getTodayPrint(state.info.symbol, {
+            exchange: state.info.exchange,
+            bseCode: state.bseCode,
+            yahooSymbol: state.yahooSymbol,
+          });
+          if (print) this.applyRealToday(state, print.candle, print.listedAt, print.previousClose);
         } catch {
           /* per-symbol best effort; cache/last state continues to serve */
         }
       }
       for (const index of this.indices.values()) {
         try {
-          const today = await this.yahooProvider.getTodayCandle(index.name);
-          if (!today) continue;
+          const print = await this.yahooProvider.getTodayPrint(index.name);
+          if (!print) continue;
+          const today = print.candle;
           const last = index.daily[index.daily.length - 1];
           if (last && last.time === today.time) {
             index.daily[index.daily.length - 1] = today;
@@ -619,7 +690,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
             exchange: Exchange.NSE,
             price: today.close,
             volume: 0,
-            time: Date.now(),
+            time: print.listedAt,
           };
           void this.kafka.publish<MarketTickEvent>(KAFKA_TOPICS.MARKET_TICKS, tick, tick.symbol);
         } catch {
@@ -631,27 +702,90 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** Refresh symbols the UI recently opened (detail page / paper lot). */
+  private async refreshWatchedLiveQuotes(): Promise<void> {
+    const cutoff = Date.now() - 5 * 60_000;
+    for (const [symbol, viewedAt] of [...this.watched.entries()]) {
+      if (viewedAt < cutoff) {
+        this.watched.delete(symbol);
+        continue;
+      }
+      const state = this.stocks.get(symbol);
+      if (state) void this.refreshSymbolLive(state);
+    }
+  }
+
+  /**
+   * Pull the last listed trade for one symbol while it is on screen.
+   * Throttled; concurrent callers share one in-flight Yahoo request.
+   */
+  private async refreshSymbolLive(state: SymbolState): Promise<void> {
+    const now = Date.now();
+    const inflight = this.liveRefreshInflight.get(state.info.symbol);
+    if (inflight) return inflight;
+    if (state.lastLiveRefresh != null && now - state.lastLiveRefresh < this.liveQuoteMinMs) {
+      return;
+    }
+
+    const job = this.fetchAndApplyLivePrint(state).finally(() => {
+      this.liveRefreshInflight.delete(state.info.symbol);
+    });
+    this.liveRefreshInflight.set(state.info.symbol, job);
+    return job;
+  }
+
+  private async fetchAndApplyLivePrint(state: SymbolState): Promise<void> {
+    try {
+      const print = await this.onDemandYahoo.getLastTrade(state.info.symbol, {
+        exchange: state.info.exchange,
+        bseCode: state.bseCode,
+        yahooSymbol: state.yahooSymbol,
+      });
+      if (print) {
+        this.applyRealToday(state, print.candle, print.listedAt, print.previousClose);
+        state.lastLiveRefresh = Date.now();
+        return;
+      }
+      console.warn(`[market-data] live ${state.info.symbol}: no last trade from Yahoo`);
+      state.lastLiveRefresh = Date.now() - Math.floor(this.liveQuoteMinMs / 2);
+    } catch (error) {
+      console.warn(`[market-data] live ${state.info.symbol}: ${(error as Error).message}`);
+      state.lastLiveRefresh = Date.now() - Math.floor(this.liveQuoteMinMs / 2);
+    }
+  }
+
   /** Apply a real evolving daily candle: state, indicators, events, cache. */
-  private applyRealToday(state: SymbolState, today: Candle): void {
+  private applyRealToday(
+    state: SymbolState,
+    today: Candle,
+    listedAt?: number,
+    previousClose?: number,
+  ): void {
     const daily = state.daily;
     const last = daily[daily.length - 1];
-    if (last && last.time === today.time) {
-      daily[daily.length - 1] = today;
-    } else if (!last || today.time > last.time) {
+    const listed = listedAt && listedAt > 0 ? listedAt : (state.lastTick?.time ?? today.time);
+    const sameIstDay =
+      last != null &&
+      new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(last.time)) ===
+        new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(listed));
+    if (last && (last.time === today.time || sameIstDay)) {
+      daily[daily.length - 1] = { ...today, time: last.time };
+    } else if (!last || today.time > last.time || listed > last.time) {
       state.previousClose = last?.close ?? today.close;
       daily.push(today);
-    } else {
-      return; // stale row
     }
     state.dayVolume = today.volume;
     state.dataSource = 'live';
+    if (previousClose && previousClose > 0) {
+      state.previousClose = previousClose;
+    }
     state.indicators = computeIndicatorSnapshot(state.info.symbol, daily);
     const tick: Tick = {
       symbol: state.info.symbol,
       exchange: state.info.exchange,
       price: today.close,
       volume: today.volume,
-      time: Date.now(),
+      time: listed,
     };
     state.lastTick = tick;
     void this.kafka.publish<MarketTickEvent>(KAFKA_TOPICS.MARKET_TICKS, tick, tick.symbol);

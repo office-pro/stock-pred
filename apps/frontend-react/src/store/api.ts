@@ -169,6 +169,9 @@ export const api = createApi({
         hasMore: boolean;
         counts?: { NSE: number; BSE: number; all: number };
         suggestions?: { BUY: number; SELL: number; HOLD: number };
+        maxProfitPct?: number;
+        maxProfitSymbol?: string | null;
+        bullRunCount?: number;
       },
       {
         page?: number;
@@ -421,6 +424,7 @@ export const api = createApi({
 export const {
   useGetStocksQuery,
   useGetStockQuery,
+  useLazyGetStockQuery,
   useGetIndicesQuery,
   useGetMarketContextQuery,
   useGetScannerQuery,

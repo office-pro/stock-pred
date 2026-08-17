@@ -24,6 +24,8 @@ export interface SymbolState {
   isin?: string | null;
   bseCode?: string | null;
   yahooSymbol?: string | null;
+  /** Last on-demand Yahoo live print (ms). Used to throttle per-symbol refresh. */
+  lastLiveRefresh?: number;
 }
 
 export const INTRADAY_BUFFER = 500;

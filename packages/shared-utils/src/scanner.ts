@@ -91,3 +91,13 @@ export function buildBullRunSnapshot(input: BuildScannerInput): BullRunSnapshot 
     reasons,
   };
 }
+
+/** Strong bullish or bull-run-candidate names (bull score 70+). */
+export function isBullRunCandidate(snapshot: BullRunSnapshot | null | undefined): boolean {
+  if (!snapshot) return false;
+  return (
+    snapshot.band === 'BULL_RUN_CANDIDATE' ||
+    snapshot.band === 'STRONG_BULLISH' ||
+    snapshot.bullScore >= 70
+  );
+}
