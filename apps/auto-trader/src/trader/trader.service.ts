@@ -325,7 +325,7 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     const base = getEnv('MARKET_DATA_SERVICE_URL', 'http://localhost:3002');
     try {
       const response = await fetch(`${base}/stocks/${encodeURIComponent(symbol)}`, {
-        signal: AbortSignal.timeout(2500),
+        signal: AbortSignal.timeout(8_000),
       });
       if (response.ok) {
         const body = (await response.json()) as { price?: number };

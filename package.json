@@ -53,6 +53,8 @@
     "score:ml": "python ml/score.py",
     "predict": "node scripts/predict-with-progress.js",
     "predict:ml": "node scripts/predict-with-progress.js",
+    "predict:ml:all": "node scripts/predict-with-progress.js --all",
+    "predict:ml:docker-all": "docker compose exec ml-engine python -m app.batch --all",
     "predict:batch": "python ml/batch-predict.py",
     "predict:batch:limit": "python ml/batch-predict.py --limit 150",
     "predict:view": "python ml/view-predictions.py",

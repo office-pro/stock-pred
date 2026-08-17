@@ -44,3 +44,22 @@ export interface BacktestResult {
   startedAt: number;
   finishedAt: number;
 }
+
+export interface ScannerBacktestRequest {
+  symbol: string;
+  minBullScore?: number;
+}
+
+export interface ScannerBacktestSummary {
+  symbol: string;
+  minBullScore: number;
+  signals: number;
+  winRate: number;
+  averageReturn: number;
+  medianReturn: number;
+  maxReturn: number;
+  maxLoss: number;
+  profitFactor: number;
+  calibrationError: number | null;
+  byRegime: Record<string, { signals: number; hitRate: number }>;
+}

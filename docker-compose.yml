@@ -237,6 +237,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-stockpred}:${POSTGRES_PASSWORD:-stockpred}@postgres:5432/${POSTGRES_DB:-stockpred}
       ML_MODELS_DIR: /service/ml-models
       ML_PREDICTION_INTERVAL_SECONDS: ${ML_PREDICTION_INTERVAL_SECONDS:-300}
+      ML_PREDICT_UNIVERSE_LIMIT: ${ML_PREDICT_UNIVERSE_LIMIT:-0}
     ports: ['8000:8000']
     volumes:
       - ml-models:/service/ml-models

@@ -3,6 +3,7 @@ import {
   Chip,
   Paper,
   Snackbar,
+  Stack,
   Table,
   TableBody,
   TableCell,
@@ -32,8 +33,22 @@ function fmtVolume(value: number | null | undefined): string {
   return Math.round(value).toLocaleString('en-IN');
 }
 
+function profitPct(stock: StockQuote): number | null {
+  if (stock.entry != null && stock.target != null && stock.entry > 0) {
+    return (Math.abs(stock.target - stock.entry) / stock.entry) * 100;
+  }
+  if (stock.expectedMove) return Math.abs(stock.expectedMove);
+  return null;
+}
+
 /** Compact market table with AI advisory levels. */
-export default function StockTable({ stocks }: { stocks: StockQuote[] }): JSX.Element {
+export default function StockTable({
+  stocks,
+  maxProfitSymbol,
+}: {
+  stocks: StockQuote[];
+  maxProfitSymbol?: string | null;
+}): JSX.Element {
   const navigate = useNavigate();
   const ticks = useAppSelector((state) => state.live.ticks);
   const [toast, setToast] = useState<{
@@ -57,6 +72,7 @@ export default function StockTable({ stocks }: { stocks: StockQuote[] }): JSX.El
               <TableCell align="right">Target</TableCell>
               <TableCell align="right">Stop</TableCell>
               <TableCell align="right">Qty</TableCell>
+              <TableCell align="right">Profit %</TableCell>
               <TableCell align="right">Conf</TableCell>
               <TableCell align="center">Paper</TableCell>
             </TableRow>
@@ -70,17 +86,34 @@ export default function StockTable({ stocks }: { stocks: StockQuote[] }): JSX.El
                 stock.previousClose > 0
                   ? ((price - stock.previousClose) / stock.previousClose) * 100
                   : stock.changePercent;
+              const expectedProfit = profitPct(stock);
+              const isBull =
+                stock.scanner?.band === 'BULL_RUN_CANDIDATE' ||
+                stock.scanner?.band === 'STRONG_BULLISH' ||
+                (stock.scanner?.bullScore ?? 0) >= 70;
+              const isMaxProfit = Boolean(maxProfitSymbol) && stock.symbol === maxProfitSymbol;
               return (
                 <TableRow
                   key={`${stock.exchange}-${stock.symbol}`}
                   hover
+                  selected={isMaxProfit}
                   sx={{ cursor: 'pointer' }}
                   onClick={() => navigate(`/stocks/${stock.symbol}`)}
                 >
                   <TableCell>
-                    <Typography variant="body2" fontWeight={600}>
-                      {stock.symbol}
-                    </Typography>
+                    <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
+                      <Typography variant="body2" fontWeight={600}>
+                        {stock.symbol}
+                      </Typography>
+                      {isBull && (
+                        <Chip
+                          size="small"
+                          color="warning"
+                          label={`Bull ${stock.scanner?.bullScore ?? ''}`}
+                        />
+                      )}
+                      {isMaxProfit && <Chip size="small" color="success" label="Max profit" />}
+                    </Stack>
                     <Typography variant="caption" color="text.secondary">
                       {stock.name}
                     </Typography>
@@ -110,6 +143,15 @@ export default function StockTable({ stocks }: { stocks: StockQuote[] }): JSX.El
                   <TableCell align="right">{fmtPrice(stock.stopLoss)}</TableCell>
                   <TableCell align="right">
                     {stock.quantity ? stock.quantity.toLocaleString('en-IN') : '-'}
+                  </TableCell>
+                  <TableCell align="right">
+                    {expectedProfit == null ? (
+                      '-'
+                    ) : (
+                      <Typography variant="body2" fontWeight={600} color="success.main">
+                        {expectedProfit.toFixed(1)}%
+                      </Typography>
+                    )}
                   </TableCell>
                   <TableCell align="right">
                     {stock.confidence ? `${stock.confidence.toFixed(0)}%` : '-'}

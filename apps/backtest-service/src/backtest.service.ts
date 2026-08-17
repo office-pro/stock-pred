@@ -1,8 +1,14 @@
 import axios from 'axios';
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { getPrismaClient } from '@stockpred/database';
-import { BacktestRequest, BacktestResult, Candle, Timeframe } from '@stockpred/shared-types';
-import { getEnv, getEnvNumber } from '@stockpred/shared-utils';
+import {
+  BacktestRequest,
+  BacktestResult,
+  Candle,
+  ScannerBacktestSummary,
+  Timeframe,
+} from '@stockpred/shared-types';
+import { getEnv, getEnvNumber, runScannerBacktest } from '@stockpred/shared-utils';
 import { runBacktest } from './engine';
 
 const TRADING_DAYS_PER_YEAR = 252;
@@ -57,13 +63,10 @@ export class BacktestService {
   private async loadCandles(symbol: string, bars: number): Promise<Candle[]> {
     let data: Candle[];
     try {
-      const response = await axios.get<Candle[]>(
-        `${this.marketDataUrl}/stocks/${symbol}/candles`,
-        {
-          params: { timeframe: Timeframe.ONE_DAY, limit: bars },
-          timeout: 15_000,
-        },
-      );
+      const response = await axios.get<Candle[]>(`${this.marketDataUrl}/stocks/${symbol}/candles`, {
+        params: { timeframe: Timeframe.ONE_DAY, limit: bars },
+        timeout: 15_000,
+      });
       data = response.data;
     } catch (error) {
       throw new ServiceUnavailableException(
@@ -76,6 +79,31 @@ export class BacktestService {
       );
     }
     return data;
+  }
+
+  async runScanner(symbol: string, minBullScore: number): Promise<ScannerBacktestSummary> {
+    const candles = await this.loadCandles(
+      symbol.toUpperCase(),
+      10 * TRADING_DAYS_PER_YEAR + WARMUP_BARS,
+    );
+    const nifty = await this.loadCandles(
+      'NIFTY_50',
+      10 * TRADING_DAYS_PER_YEAR + WARMUP_BARS,
+    ).catch(() => candles);
+    const result = runScannerBacktest(candles, nifty, minBullScore);
+    return {
+      symbol: symbol.toUpperCase(),
+      minBullScore,
+      signals: result.signals,
+      winRate: result.winRate,
+      averageReturn: result.averageReturn,
+      medianReturn: result.medianReturn,
+      maxReturn: result.maxReturn,
+      maxLoss: result.maxLoss,
+      profitFactor: result.profitFactor,
+      calibrationError: result.calibrationError,
+      byRegime: result.byRegime,
+    };
   }
 
   private async persist(result: BacktestResult): Promise<void> {

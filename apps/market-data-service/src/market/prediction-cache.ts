@@ -11,6 +11,7 @@ export interface CachedMlPrediction {
   confidence: number;
   expectedMove: number;
   modelVersion?: string;
+  probabilities?: { UP?: number; DOWN?: number; SIDEWAYS?: number };
 }
 
 type HorizonMap = Map<string, CachedMlPrediction>;

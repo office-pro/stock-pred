@@ -126,9 +126,79 @@ export function blendMlWithTrend(options: {
   return clampConfidence(score);
 }
 
+function finalizeAdvisory(options: {
+  action: TradeSuggestion;
+  candles: Candle[];
+  horizon: PredictionHorizon;
+  baseConfidence: number;
+  expectedMove: number;
+  modelVersion: string | null;
+  capital?: number;
+  riskPercent?: number;
+  marketCandles?: Candle[];
+}): TradeAdvisory {
+  const entry = options.candles[options.candles.length - 1].close;
+  const stockTrend = classifyPriceTrend(options.candles);
+  const marketTrend = classifyMarketTrend(options.marketCandles);
+  if (stockFights(options.action, stockTrend) || marketFights(options.action, marketTrend)) {
+    return emptyAdvisory(options.horizon, {
+      entry: round2(entry),
+      confidence: options.baseConfidence,
+      expectedMove: options.expectedMove,
+      modelVersion: options.modelVersion,
+    });
+  }
+
+  const confidence = blendMlWithTrend({
+    mlConfidence: options.baseConfidence,
+    action: options.action,
+    stockTrend,
+    marketTrend,
+  });
+  if (confidence < ADVISORY_BLEND_THRESHOLD) {
+    return emptyAdvisory(options.horizon, {
+      entry: round2(entry),
+      confidence,
+      expectedMove: options.expectedMove,
+      modelVersion: options.modelVersion,
+    });
+  }
+
+  const evaluation = evaluateSignal(options.candles);
+  const atrValue = lastFinite(atr(options.candles)) ?? entry * 0.02;
+  let stopLoss = options.action === 'BUY' ? entry - 1.5 * atrValue : entry + 1.5 * atrValue;
+  const movePct = Math.max(Math.abs(options.expectedMove) / 100, 0.01);
+  let target = options.action === 'BUY' ? entry * (1 + movePct) : entry * (1 - movePct);
+
+  if (evaluation.type === options.action) {
+    if (evaluation.target != null) target = evaluation.target;
+    if (evaluation.stopLoss != null) stopLoss = evaluation.stopLoss;
+  }
+
+  const quantity = positionSize(
+    options.capital ?? DEFAULT_PAPER_CAPITAL,
+    options.riskPercent ?? 1,
+    entry,
+    stopLoss,
+  );
+
+  return {
+    action: options.action,
+    horizon: options.horizon,
+    entry: round2(entry),
+    target: round2(target),
+    stopLoss: round2(stopLoss),
+    quantity,
+    confidence,
+    expectedMove: options.expectedMove,
+    modelVersion: options.modelVersion,
+  };
+}
+
 /**
- * Compose a paper advisory. The ML forecast picks Buy/Sell; stock and Nifty
- * trend confirm or block. A strong model can still fire on a flat stock.
+ * Compose a paper advisory. ML Buy/Sell is preferred when the model is
+ * trained. If there is no forecast yet, the EMA/MACD trend (and the 70-point
+ * rule signal when it fires) still fills the Alerts focus list.
  * Opposite trend always Hold. ATR (or a fired signal) sets stop/target.
  */
 export function composeTradeAdvisory(options: {
@@ -155,19 +225,49 @@ export function composeTradeAdvisory(options: {
   }
 
   const entry = candles[candles.length - 1].close;
-  const action = directionToAction(options.direction);
-  if (action === 'HOLD' || mlConfidence < minConfidence) {
+  const mlAction = directionToAction(options.direction);
+  if (mlAction !== 'HOLD' && mlConfidence >= minConfidence) {
+    return finalizeAdvisory({
+      action: mlAction,
+      candles,
+      horizon,
+      baseConfidence: mlConfidence,
+      expectedMove,
+      modelVersion,
+      capital: options.capital,
+      riskPercent: options.riskPercent,
+      marketCandles: options.marketCandles,
+    });
+  }
+  if (mlAction !== 'HOLD') {
     return emptyAdvisory(horizon, {
       entry: round2(entry),
       confidence: mlConfidence,
       expectedMove,
       modelVersion,
+    });
+  }
+
+  const rules = evaluateSignal(candles);
+  if (rules.type === 'BUY' || rules.type === 'SELL') {
+    return finalizeAdvisory({
+      action: rules.type,
+      candles,
+      horizon,
+      baseConfidence: Math.max(rules.confidence, ADVISORY_BLEND_THRESHOLD),
+      expectedMove: expectedMove || (rules.type === 'BUY' ? 1.5 : -1.5),
+      modelVersion: modelVersion ?? 'rules-v1',
+      capital: options.capital,
+      riskPercent: options.riskPercent,
+      marketCandles: options.marketCandles,
     });
   }
 
   const stockTrend = classifyPriceTrend(candles);
   const marketTrend = classifyMarketTrend(options.marketCandles);
-  if (stockFights(action, stockTrend) || marketFights(action, marketTrend)) {
+  const trendAction: TradeSuggestion =
+    stockTrend === 'UP' ? 'BUY' : stockTrend === 'DOWN' ? 'SELL' : 'HOLD';
+  if (trendAction === 'HOLD' || marketFights(trendAction, marketTrend)) {
     return emptyAdvisory(horizon, {
       entry: round2(entry),
       confidence: mlConfidence,
@@ -176,48 +276,15 @@ export function composeTradeAdvisory(options: {
     });
   }
 
-  const confidence = blendMlWithTrend({
-    mlConfidence,
-    action,
-    stockTrend,
-    marketTrend,
-  });
-  if (confidence < ADVISORY_BLEND_THRESHOLD) {
-    return emptyAdvisory(horizon, {
-      entry: round2(entry),
-      confidence,
-      expectedMove,
-      modelVersion,
-    });
-  }
-
-  const evaluation = evaluateSignal(candles);
-  const atrValue = lastFinite(atr(candles)) ?? entry * 0.02;
-  let stopLoss = action === 'BUY' ? entry - 1.5 * atrValue : entry + 1.5 * atrValue;
-  const movePct = Math.max(Math.abs(expectedMove) / 100, 0.01);
-  let target = action === 'BUY' ? entry * (1 + movePct) : entry * (1 - movePct);
-
-  if (evaluation.type === action) {
-    if (evaluation.target != null) target = evaluation.target;
-    if (evaluation.stopLoss != null) stopLoss = evaluation.stopLoss;
-  }
-
-  const quantity = positionSize(
-    options.capital ?? DEFAULT_PAPER_CAPITAL,
-    options.riskPercent ?? 1,
-    entry,
-    stopLoss,
-  );
-
-  return {
-    action,
+  return finalizeAdvisory({
+    action: trendAction,
+    candles,
     horizon,
-    entry: round2(entry),
-    target: round2(target),
-    stopLoss: round2(stopLoss),
-    quantity,
-    confidence,
-    expectedMove,
-    modelVersion,
-  };
+    baseConfidence: ADVISORY_BLEND_THRESHOLD,
+    expectedMove: expectedMove || (trendAction === 'BUY' ? 1 : -1),
+    modelVersion: modelVersion ?? 'trend-v1',
+    capital: options.capital,
+    riskPercent: options.riskPercent,
+    marketCandles: options.marketCandles,
+  });
 }

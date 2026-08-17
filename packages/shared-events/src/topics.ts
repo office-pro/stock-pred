@@ -7,6 +7,7 @@ export const KAFKA_TOPICS = {
   PREDICTIONS_GENERATED: 'predictions.generated',
   TRADE_EXECUTED: 'trade.executed',
   NOTIFICATIONS_SENT: 'notifications.sent',
+  SCANNER_ALERTS: 'scanner.alerts',
 } as const;
 
 export type KafkaTopic = (typeof KAFKA_TOPICS)[keyof typeof KAFKA_TOPICS];

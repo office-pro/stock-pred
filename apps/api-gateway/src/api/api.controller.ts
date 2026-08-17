@@ -136,7 +136,7 @@ export class ApiController {
   @Get('stocks/:symbol/compare')
   compare(
     @Param('symbol') symbol: string,
-    @Query('benchmark') benchmark = 'NIFTY_MIDCAP_100',
+    @Query('benchmark') benchmark = 'NIFTY_50',
     @Query('window', new DefaultValuePipe(60), ParseIntPipe) window = 60,
   ): Promise<unknown> {
     return this.proxy.get('marketData', `/stocks/${encodeURIComponent(symbol)}/compare`, {
@@ -147,6 +147,23 @@ export class ApiController {
   @Get('indices')
   getIndices(): Promise<unknown> {
     return this.proxy.get('marketData', '/indices');
+  }
+
+  @Get('market/context')
+  getMarketContext(): Promise<unknown> {
+    return this.proxy.get('marketData', '/market/context');
+  }
+
+  @Get('scanner')
+  getScanner(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
+    @Query('limit', new DefaultValuePipe(40), ParseIntPipe) limit = 40,
+    @Query('minScore', new DefaultValuePipe(55), ParseIntPipe) minScore = 55,
+    @Query('sort') sort = 'score',
+  ): Promise<unknown> {
+    return this.proxy.get('marketData', '/scanner', {
+      params: { page, limit, minScore, sort },
+    });
   }
 
   @Get('indices/:index/candles')
@@ -259,6 +276,14 @@ export class ApiController {
   @UseGuards(JwtAuthGuard)
   async runBacktest(@Body() dto: BacktestRequestDto): Promise<ApiResponse<unknown>> {
     return withDisclaimer(await this.proxy.post('backtest', '/backtest', dto));
+  }
+
+  @Post('backtest/scanner')
+  @UseGuards(JwtAuthGuard)
+  async runScannerBacktest(
+    @Body() dto: { symbol: string; minBullScore?: number },
+  ): Promise<ApiResponse<unknown>> {
+    return withDisclaimer(await this.proxy.post('backtest', '/backtest/scanner', dto));
   }
 
   @Get('backtest/history')

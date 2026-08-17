@@ -26,6 +26,7 @@ export interface HorizonPrediction extends Prediction {
   horizon: PredictionHorizon;
   modelVersion: string;
   generatedAt: number;
+  probabilities?: { UP?: number; DOWN?: number; SIDEWAYS?: number };
 }
 
 /** Ensemble weights (spec: 40/25/20/15). */

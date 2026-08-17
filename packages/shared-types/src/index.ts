@@ -5,3 +5,4 @@ export * from './trading';
 export * from './backtest';
 export * from './auth';
 export * from './api';
+export * from './scanner';

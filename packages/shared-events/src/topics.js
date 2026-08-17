@@ -10,6 +10,7 @@ exports.KAFKA_TOPICS = {
   PREDICTIONS_GENERATED: 'predictions.generated',
   TRADE_EXECUTED: 'trade.executed',
   NOTIFICATIONS_SENT: 'notifications.sent',
+  SCANNER_ALERTS: 'scanner.alerts',
 };
 exports.ALL_TOPICS = Object.values(exports.KAFKA_TOPICS);
 //# sourceMappingURL=topics.js.map

@@ -14,7 +14,9 @@ import {
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import type { PaperHolding } from '@stockpred/shared-types';
+import LivePriceStrip from './LivePriceStrip';
 import { authErrorMessage } from '../lib/auth-errors';
+import { useLiveQuote } from '../hooks/useLiveQuote';
 import { useExecuteTradeMutation } from '../store/api';
 
 function inr(value: number, digits = 2): string {
@@ -38,7 +40,10 @@ function signedPct(value: number): string {
   return abs;
 }
 
-function lotStats(lot: PaperHolding): {
+function lotStats(
+  lot: PaperHolding,
+  live: number,
+): {
   invested: number;
   marketValue: number;
   pnl: number;
@@ -46,15 +51,16 @@ function lotStats(lot: PaperHolding): {
   perShare: number;
 } {
   const invested = lot.invested ?? lot.quantity * lot.entryPrice;
-  const marketValue = lot.marketValue ?? lot.quantity * lot.currentPrice;
-  const pnl = lot.unrealizedPnl;
-  const pct = lot.unrealizedPnlPercent ?? (invested > 0 ? (pnl / invested) * 100 : 0);
+  const last = live > 0 ? live : lot.currentPrice;
+  const marketValue = lot.quantity * last;
+  const pnl = marketValue - invested;
+  const pct = invested > 0 ? (pnl / invested) * 100 : 0;
   return {
     invested,
     marketValue,
     pnl,
     pct,
-    perShare: lot.currentPrice - lot.entryPrice,
+    perShare: last - lot.entryPrice,
   };
 }
 
@@ -68,21 +74,21 @@ export default function PaperLotCard({
   onResult: (message: string, severity: 'success' | 'error' | 'info') => void;
 }): JSX.Element {
   const [executeTrade, { isLoading }] = useExecuteTradeMutation();
+  const liveQuote = useLiveQuote(lot.symbol);
+  const last = liveQuote.price > 0 ? liveQuote.price : lot.currentPrice;
+  const liveLot = { ...lot, currentPrice: last };
   const [action, setAction] = useState<'buy' | 'sell' | null>(null);
   const [qty, setQty] = useState('1');
-  const stats = lotStats(lot);
-  const pnlColor = stats.pnl > 0 ? 'success.main' : stats.pnl < 0 ? 'error.main' : 'text.primary';
+  const stats = lotStats(lot, last);
   const grew = stats.pnl >= 0;
   const parsedQty = Math.max(1, Math.round(Number(qty) || 1));
-  const buyCost = parsedQty * lot.currentPrice;
+  const buyCost = parsedQty * last;
   const sellQty = Math.min(parsedQty, lot.quantity);
-  const sellProceeds = sellQty * lot.currentPrice;
-  const sellPnl = (lot.currentPrice - lot.entryPrice) * sellQty;
-  const maxBuy = lot.currentPrice > 0 ? Math.max(1, Math.floor(cash / lot.currentPrice)) : 1;
-  const targetGapPct =
-    lot.currentPrice > 0 ? ((lot.target - lot.currentPrice) / lot.currentPrice) * 100 : 0;
-  const stopGapPct =
-    lot.currentPrice > 0 ? ((lot.currentPrice - lot.stopLoss) / lot.currentPrice) * 100 : 0;
+  const sellProceeds = sellQty * last;
+  const sellPnl = (last - lot.entryPrice) * sellQty;
+  const maxBuy = last > 0 ? Math.max(1, Math.floor(cash / last)) : 1;
+  const targetGapPct = last > 0 ? ((lot.target - last) / last) * 100 : 0;
+  const stopGapPct = last > 0 ? ((last - lot.stopLoss) / last) * 100 : 0;
 
   const closeDialog = (): void => setAction(null);
 
@@ -103,10 +109,10 @@ export default function PaperLotCard({
           symbol: lot.symbol,
           side: 'BUY',
           quantity: parsedQty,
-          price: lot.currentPrice,
+          price: last,
         }).unwrap();
         onResult(
-          `Bought ${parsedQty} more ${lot.symbol} at ${inr(lot.currentPrice)}. Average entry updates on this lot.`,
+          `Bought ${parsedQty} more ${lot.symbol} at ${inr(last)}. Average entry updates on this lot.`,
           'success',
         );
       } else if (action === 'sell') {
@@ -114,12 +120,12 @@ export default function PaperLotCard({
           symbol: lot.symbol,
           side: 'SELL',
           quantity: sellQty,
-          price: lot.currentPrice,
+          price: last,
         }).unwrap();
         onResult(
           sellQty >= lot.quantity
-            ? `Sold all ${lot.quantity} ${lot.symbol} at ${inr(lot.currentPrice)}. ${grew ? 'Gain' : 'Result'}: ${signedInr(sellPnl)}.`
-            : `Sold ${sellQty} ${lot.symbol} at ${inr(lot.currentPrice)}. ${grew ? 'Gain' : 'Result'}: ${signedInr(sellPnl)}. ${lot.quantity - sellQty} still open.`,
+            ? `Sold all ${lot.quantity} ${lot.symbol} at ${inr(last)}. ${grew ? 'Gain' : 'Result'}: ${signedInr(sellPnl)}.`
+            : `Sold ${sellQty} ${lot.symbol} at ${inr(last)}. ${grew ? 'Gain' : 'Result'}: ${signedInr(sellPnl)}. ${lot.quantity - sellQty} still open.`,
           'success',
         );
       }
@@ -176,19 +182,17 @@ export default function PaperLotCard({
             </Box>
           </Box>
 
-          <Typography
-            variant="h5"
-            sx={{ fontWeight: 700, color: pnlColor, fontVariantNumeric: 'tabular-nums' }}
-          >
-            {grew ? 'Grown ' : 'Down '}
-            {signedInr(stats.pnl)}{' '}
-            <Typography component="span" variant="h6" color={pnlColor}>
-              ({signedPct(stats.pct)})
-            </Typography>
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            {signedInr(stats.perShare)} per share vs your average buy
-          </Typography>
+          <Box sx={{ mb: 2 }}>
+            <LivePriceStrip
+              symbol={lot.symbol}
+              quotePrice={last}
+              listedAt={liveQuote.listedAt}
+              previousClose={liveQuote.previousClose}
+              changePercent={liveQuote.changePercent}
+              holding={liveLot}
+              embedded
+            />
+          </Box>
 
           <Grid container spacing={1}>
             <Grid item xs={6} sm={3}>
@@ -205,22 +209,6 @@ export default function PaperLotCard({
               </Typography>
               <Typography sx={{ fontVariantNumeric: 'tabular-nums' }}>
                 {inr(stats.marketValue, 0)}
-              </Typography>
-            </Grid>
-            <Grid item xs={6} sm={3}>
-              <Typography variant="caption" color="text.secondary">
-                Avg buy
-              </Typography>
-              <Typography sx={{ fontVariantNumeric: 'tabular-nums' }}>
-                {inr(lot.entryPrice)}
-              </Typography>
-            </Grid>
-            <Grid item xs={6} sm={3}>
-              <Typography variant="caption" color="text.secondary">
-                Last price
-              </Typography>
-              <Typography sx={{ fontVariantNumeric: 'tabular-nums' }}>
-                {inr(lot.currentPrice)}
               </Typography>
             </Grid>
             <Grid item xs={6} sm={3}>
@@ -250,8 +238,8 @@ export default function PaperLotCard({
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             {action === 'buy'
-              ? `Cash available ${inr(cash, 0)}. Last ${inr(lot.currentPrice)}. This adds to the same lot and averages your buy price.`
-              : `You hold ${lot.quantity}. Selling books paper P&L at last ${inr(lot.currentPrice)}. Sell all or part.`}
+              ? `Cash available ${inr(cash, 0)}. Live ${inr(last)}. This adds to the same lot and averages your buy price.`
+              : `You hold ${lot.quantity}. Selling books paper P&L at live ${inr(last)}. Sell all or part.`}
           </Typography>
           <TextField
             autoFocus
