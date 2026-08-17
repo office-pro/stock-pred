@@ -6,6 +6,7 @@ import { BrokerConfigPage } from './pages/BrokerConfigPage';
 import DashboardPage from './pages/DashboardPage';
 import LoginPage from './pages/LoginPage';
 import PortfolioPage from './pages/PortfolioPage';
+import MlLabPage from './pages/MlLabPage';
 import PredictionsPage from './pages/PredictionsPage';
 import RegisterPage from './pages/RegisterPage';
 import ScannerPage from './pages/ScannerPage';
@@ -22,6 +23,7 @@ export default function App(): JSX.Element {
         <Route path="/stocks/:symbol" element={<StockDetailPage />} />
         <Route path="/signals" element={<SignalsPage />} />
         <Route path="/predictions" element={<PredictionsPage />} />
+        <Route path="/ml-lab" element={<MlLabPage />} />
         <Route path="/backtest" element={<BacktestPage />} />
         <Route path="/portfolio" element={<PortfolioPage />} />
         <Route path="/broker-config" element={<BrokerConfigPage />} />

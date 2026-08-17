@@ -16,6 +16,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { StockQuote } from '@stockpred/shared-types';
 import { useAppSelector } from '../store';
+import { niftyChip } from '../lib/index-universes';
 import ChangeCell from './ChangeCell';
 import PaperBuyButton from './PaperBuyButton';
 import SignalBadge from './SignalBadge';
@@ -92,6 +93,7 @@ export default function StockTable({
                 stock.scanner?.band === 'STRONG_BULLISH' ||
                 (stock.scanner?.bullScore ?? 0) >= 70;
               const isMaxProfit = Boolean(maxProfitSymbol) && stock.symbol === maxProfitSymbol;
+              const indexChip = niftyChip(stock.symbol);
               return (
                 <TableRow
                   key={`${stock.exchange}-${stock.symbol}`}
@@ -113,6 +115,7 @@ export default function StockTable({
                         />
                       )}
                       {isMaxProfit && <Chip size="small" color="success" label="Max profit" />}
+                      {indexChip && <Chip size="small" variant="outlined" label={indexChip} />}
                     </Stack>
                     <Typography variant="caption" color="text.secondary">
                       {stock.name}

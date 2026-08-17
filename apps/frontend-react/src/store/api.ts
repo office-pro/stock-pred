@@ -70,6 +70,49 @@ export interface PredictionsPayload {
   disclaimer: string;
 }
 
+export type MlJobKind = 'train_all' | 'predict_all' | 'train_manipulation';
+export type MlUniverseId = 'nifty50' | 'nifty100' | 'nifty500' | 'smallcap' | 'all';
+
+export interface MlJobCatalogItem {
+  kind: MlJobKind;
+  title: string;
+  npm: string;
+  npmByUniverse?: Partial<Record<MlUniverseId, string>>;
+  blurb: string;
+}
+
+export interface MlUniverseOption {
+  id: MlUniverseId;
+  label: string;
+  blurb: string;
+}
+
+export interface MlJobRow {
+  id: string;
+  kind: MlJobKind;
+  title: string;
+  npm: string;
+  universe?: MlUniverseId;
+  status: 'running' | 'succeeded' | 'failed' | 'cancelled';
+  percent: number;
+  stage: string;
+  detail?: string;
+  current: number;
+  total: number;
+  lines: string[];
+  startedAt: number;
+  finishedAt: number | null;
+  exitCode: number | null;
+  error: string | null;
+}
+
+export interface MlJobSnapshot {
+  job: MlJobRow | null;
+  available: MlJobCatalogItem[];
+  universes?: MlUniverseOption[];
+  modelsTrained?: boolean;
+}
+
 export interface TradeRow {
   id: string;
   symbol: string;
@@ -158,7 +201,7 @@ const baseQueryWithReauth: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQue
 export const api = createApi({
   reducerPath: 'api',
   baseQuery: baseQueryWithReauth,
-  tagTypes: ['Stocks', 'Signals', 'Predictions', 'Portfolio', 'Trades'],
+  tagTypes: ['Stocks', 'Signals', 'Predictions', 'Portfolio', 'Trades', 'MlJobs'],
   endpoints: (builder) => ({
     getStocks: builder.query<
       {
@@ -214,14 +257,15 @@ export const api = createApi({
         hasMore: boolean;
         context: MarketContext;
       },
-      { page?: number; limit?: number; minScore?: number; sort?: string }
+      { page?: number; limit?: number; minScore?: number; sort?: string; minInvestigate?: number }
     >({
-      query: ({ page = 1, limit = 40, minScore = 55, sort = 'score' } = {}) => {
+      query: ({ page = 1, limit = 40, minScore = 55, sort = 'score', minInvestigate = 0 } = {}) => {
         const params = new URLSearchParams();
         params.append('page', page.toString());
         params.append('limit', limit.toString());
         params.append('minScore', minScore.toString());
         params.append('sort', sort);
+        params.append('minInvestigate', minInvestigate.toString());
         return `/scanner?${params.toString()}`;
       },
       providesTags: ['Stocks'],
@@ -330,6 +374,18 @@ export const api = createApi({
     getPredictions: builder.query<PredictionsPayload, string>({
       query: (symbol) => `/predictions/${symbol}`,
       transformResponse: unwrap<PredictionsPayload>,
+    }),
+    getMlJob: builder.query<MlJobSnapshot, void>({
+      query: () => '/ml/jobs/current',
+      providesTags: ['MlJobs'],
+    }),
+    startMlJob: builder.mutation<{ job: MlJobRow }, { kind: MlJobKind; universe?: MlUniverseId }>({
+      query: (body) => ({ url: '/ml/jobs', method: 'POST', body }),
+      invalidatesTags: ['MlJobs'],
+    }),
+    cancelMlJob: builder.mutation<MlJobSnapshot, void>({
+      query: () => ({ url: '/ml/jobs/current/cancel', method: 'POST' }),
+      invalidatesTags: ['MlJobs'],
     }),
     runBacktest: builder.mutation<
       BacktestResult,
@@ -440,6 +496,9 @@ export const {
   useGetAllPredictionsQuery,
   useGetPredictionAccuracyQuery,
   useGetPredictionsQuery,
+  useGetMlJobQuery,
+  useStartMlJobMutation,
+  useCancelMlJobMutation,
   useRunBacktestMutation,
   useRunScannerBacktestMutation,
   useGetPortfolioQuery,

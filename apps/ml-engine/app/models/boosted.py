@@ -87,3 +87,100 @@ class LgbmModel:
 
         self.model = _BoosterAdapter(booster)
         return self
+
+
+class XgbBinaryModel:
+    """Binary investigate head — separate artifacts from the 3-class direction models."""
+
+    name = "xgboost"
+
+    def __init__(self):
+        self.model = None
+
+    def train(self, x: np.ndarray, y: np.ndarray) -> None:
+        from xgboost import XGBClassifier
+
+        n_pos = max(int((y == 1).sum()), 1)
+        n_neg = max(int((y == 0).sum()), 1)
+        self.model = XGBClassifier(
+            n_estimators=200,
+            max_depth=4,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            objective="binary:logistic",
+            eval_metric="logloss",
+            tree_method="hist",
+            scale_pos_weight=n_neg / n_pos,
+            random_state=42,
+        )
+        self.model.fit(x, y)
+
+    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+        if self.model is None:
+            raise RuntimeError("xgboost binary model not loaded")
+        return self.model.predict_proba(x)
+
+    def save(self, path: str) -> None:
+        self.model.save_model(path)
+
+    def load(self, path: str) -> "XgbBinaryModel":
+        from xgboost import XGBClassifier
+
+        self.model = XGBClassifier()
+        self.model.load_model(path)
+        return self
+
+
+class LgbmBinaryModel:
+    name = "lightgbm"
+
+    def __init__(self):
+        self.model = None
+
+    def train(self, x: np.ndarray, y: np.ndarray) -> None:
+        from lightgbm import LGBMClassifier
+
+        n_pos = max(int((y == 1).sum()), 1)
+        n_neg = max(int((y == 0).sum()), 1)
+        self.model = LGBMClassifier(
+            n_estimators=250,
+            num_leaves=31,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            objective="binary",
+            scale_pos_weight=n_neg / n_pos,
+            random_state=42,
+            verbosity=-1,
+        )
+        self.model.fit(x, y)
+
+    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+        if self.model is None:
+            raise RuntimeError("lightgbm binary model not loaded")
+        return self.model.predict_proba(x)
+
+    def save(self, path: str) -> None:
+        self.model.booster_.save_model(path)
+
+    def load(self, path: str) -> "LgbmBinaryModel":
+        import lightgbm as lgb
+
+        booster = lgb.Booster(model_file=path)
+
+        class _BoosterAdapter:
+            def __init__(self, inner):
+                self._inner = inner
+
+            def predict_proba(self, x: np.ndarray) -> np.ndarray:
+                raw = np.asarray(self._inner.predict(x), dtype="float64")
+                if raw.ndim == 1:
+                    p1 = raw
+                else:
+                    p1 = raw[:, -1]
+                p1 = np.clip(p1, 0.0, 1.0)
+                return np.column_stack([1.0 - p1, p1])
+
+        self.model = _BoosterAdapter(booster)
+        return self

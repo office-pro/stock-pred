@@ -1,4 +1,5 @@
 import type { StockQuote } from '@stockpred/shared-types';
+import { type IndexUniverseId, inIndexUniverse } from './index-universes';
 
 export type RankFilter = 'PROFIT' | 'CONFIDENCE' | 'BULL';
 
@@ -54,12 +55,16 @@ export function rankQuotes(
     suggestion: 'ALL' | 'BUY' | 'SELL';
     filters: RankFilter[];
     search?: string;
+    universe?: IndexUniverseId;
   },
 ): StockQuote[] {
   let out = rows;
   const query = options.search?.trim().toUpperCase();
   if (query) {
     out = out.filter((row) => row.symbol.includes(query) || row.name.toUpperCase().includes(query));
+  }
+  if (options.universe && options.universe !== 'all') {
+    out = out.filter((row) => inIndexUniverse(row.symbol, options.universe as IndexUniverseId));
   }
   if (options.bestPick) {
     out = out.filter(isBestPickQuality);

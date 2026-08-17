@@ -238,9 +238,23 @@ services:
       ML_MODELS_DIR: /service/ml-models
       ML_PREDICTION_INTERVAL_SECONDS: ${ML_PREDICTION_INTERVAL_SECONDS:-300}
       ML_PREDICT_UNIVERSE_LIMIT: ${ML_PREDICT_UNIVERSE_LIMIT:-0}
+      PYTHONUNBUFFERED: '1'
     ports: ['8000:8000']
+    command:
+      [
+        'uvicorn',
+        'app.server:app',
+        '--host',
+        '0.0.0.0',
+        '--port',
+        '8000',
+        '--reload',
+        '--reload-dir',
+        '/service/app',
+      ]
     volumes:
       - ml-models:/service/ml-models
+      - ./apps/ml-engine/app:/service/app
     depends_on:
       market-data-service: { condition: service_started }
       kafka: { condition: service_healthy }

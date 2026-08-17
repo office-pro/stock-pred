@@ -8,6 +8,7 @@ import numpy as np
 from .config import CORE_HORIZONS, HORIZONS, SEQUENCE_LENGTH, settings
 from .data import load_candles, load_market_context
 from .features import FEATURE_COLUMNS, build_features
+from .universes import normalize_universe
 from .models.boosted import LgbmModel, XgbModel
 from .models.ensemble import blend_probabilities, decide, expected_move
 from .models.scaler import Scaler
@@ -21,9 +22,7 @@ class HorizonModels:
         directory = os.path.join(settings.models_dir, horizon)
         metadata_path = os.path.join(directory, "metadata.json")
         if not os.path.exists(metadata_path):
-            raise FileNotFoundError(
-                f"No trained models for {horizon} (run `python ml/train.py` first)"
-            )
+            raise FileNotFoundError(missing_models_message())
         with open(metadata_path, "r", encoding="utf-8") as handle:
             self.metadata = json.load(handle)
         self.scaler = Scaler.load(os.path.join(directory, "scaler.json"))
@@ -49,6 +48,19 @@ def models_available() -> bool:
     return all(
         os.path.exists(os.path.join(settings.models_dir, horizon, "metadata.json"))
         for horizon in CORE_HORIZONS
+    )
+
+
+def train_command(universe: str = "all") -> str:
+    basket = normalize_universe(universe)
+    return "npm run train:ml:all" if basket == "all" else f"npm run train:ml:{basket}"
+
+
+def missing_models_message(universe: str = "all") -> str:
+    cmd = train_command(universe)
+    return (
+        f"No trained models in {settings.models_dir}. "
+        f"Run `{cmd}` first (direction models are shared across Nifty 50/100/500)."
     )
 
 

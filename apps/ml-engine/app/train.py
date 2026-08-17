@@ -1,7 +1,7 @@
 """Training pipeline: pooled dataset across the universe, one model set per horizon.
 
 Usage:
-    python -m app.train [--days 1500] [--synthetic] [--symbols RELIANCE,TCS,...]
+    python -m app.train [--days 1500] [--universe nifty50] [--synthetic] [--symbols RELIANCE,TCS,...]
 """
 import argparse
 import json
@@ -12,6 +12,7 @@ import numpy as np
 
 from .config import CLASSES, CORE_HORIZONS, HORIZONS, settings
 from .data import load_candles, load_market_context, load_universe, synthetic_candles
+from .universes import add_universe_arg, normalize_universe
 from .features import FEATURE_COLUMNS, build_features, make_dataset
 from .models.boosted import LgbmModel, XgbModel
 from .models.scaler import Scaler
@@ -24,7 +25,7 @@ def collect_dataset(
     market = load_market_context(days) if not synthetic else None
     xs, ys, fwds = [], [], []
     skipped = []
-    for symbol in symbols:
+    for i, symbol in enumerate(symbols):
         try:
             candles = (
                 synthetic_candles(symbol, days) if synthetic else load_candles(symbol, days)
@@ -32,7 +33,7 @@ def collect_dataset(
         except RuntimeError as error:
             # Real-data-only policy: a symbol with no real data is skipped,
             # never silently replaced with synthetic candles.
-            print(f"[train] skipping {symbol}: {error}")
+            print(f"[train] skipping {symbol}: {error}", flush=True)
             skipped.append(symbol)
             continue
         features = build_features(candles, market)
@@ -41,6 +42,12 @@ def collect_dataset(
             xs.append(x)
             ys.append(y)
             fwds.append(fwd)
+        if (i + 1) % 25 == 0 or i + 1 == len(symbols):
+            print(
+                f"[train] features {i + 1}/{len(symbols)} "
+                f"(kept {len(xs)}, skipped {len(skipped)})",
+                flush=True,
+            )
     if skipped:
         print(f"[train] WARNING: {len(skipped)} symbols skipped (no real data): {skipped}")
     if not xs:
@@ -62,7 +69,7 @@ def class_move_stats(y: np.ndarray, fwd: np.ndarray) -> Dict[str, float]:
 
 def train_horizon(horizon: str, symbols: List[str], days: int, synthetic: bool) -> None:
     config = HORIZONS[horizon]
-    print(f"[train] horizon={horizon} bars={config['bars']} threshold={config['threshold']}")
+    print(f"[train] horizon={horizon} bars={config['bars']} threshold={config['threshold']}", flush=True)
     x, y, fwd = collect_dataset(symbols, days, synthetic, config["bars"], config["threshold"])
     print(f"[train] dataset: {x.shape[0]} samples x {x.shape[1]} features")
     distribution = {CLASSES[i]: int((y == i).sum()) for i in range(3)}
@@ -123,14 +130,20 @@ def main() -> None:
     parser.add_argument("--synthetic", action="store_true", help="force synthetic data (offline)")
     parser.add_argument("--symbols", type=str, default="", help="comma-separated symbol override")
     parser.add_argument("--all-horizons", action="store_true", help="also train 10D and 20D models")
+    add_universe_arg(parser)
     args = parser.parse_args()
+    basket = normalize_universe(args.universe)
 
     symbols = (
         [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
         if args.symbols
-        else load_universe()
+        else load_universe(basket)
     )
-    print(f"[train] universe: {len(symbols)} symbols, {args.days} days, synthetic={args.synthetic}")
+    print(
+        f"[train] universe: {len(symbols)} symbols ({basket}), "
+        f"{args.days} days, synthetic={args.synthetic}",
+        flush=True,
+    )
     horizons = list(HORIZONS) if args.all_horizons else list(CORE_HORIZONS)
     for horizon in horizons:
         train_horizon(horizon, symbols, args.days, args.synthetic)
