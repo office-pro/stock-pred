@@ -17,7 +17,7 @@ from .data import load_candles, load_market_context, load_universe
 from .features import FEATURE_COLUMNS, build_features
 from .models.ensemble import blend_probabilities, decide, expected_move
 from .persistence import persist_outcomes_sync
-from .predict import get_models, models_available
+from .predict import get_models, missing_models_message, models_available
 
 
 def _action(direction: str) -> str:
@@ -177,7 +177,7 @@ def score_horizon(horizon: str, symbols: List[str], lookback: int = 20) -> List[
 
 def score_all(limit_symbols: int = 80, lookback: int = 20, symbols: List[str] | None = None) -> Dict[str, object]:
     if not models_available():
-        raise RuntimeError("No trained models - run python -m app.train first")
+        raise RuntimeError(missing_models_message())
     names = symbols if symbols else load_universe()[:limit_symbols]
     outcomes: List[dict] = []
     accuracy: Dict[str, object] = {}

@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { label: 'Scanner', to: '/scanner' },
   { label: 'Signals', to: '/signals' },
   { label: 'ML Predictions', to: '/predictions' },
+  { label: 'ML Lab', to: '/ml-lab' },
   { label: 'Backtest', to: '/backtest' },
   { label: 'Paper book', to: '/portfolio' },
   { label: 'Brokers', to: '/broker-config' },

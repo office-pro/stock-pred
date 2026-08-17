@@ -23,14 +23,31 @@ import {
   maxProfitAmong,
   rankQuotes,
 } from '../lib/quote-rank';
+import { INDEX_BASKET_SIZE, type IndexUniverseId, inIndexUniverse } from '../lib/index-universes';
 import { useGetPredictionAccuracyQuery, useGetStocksQuery } from '../store/api';
 
-type DashboardTab = 'NSE' | 'BSE' | 'ALERTS' | 'BEST';
+type DashboardTab = 'NSE' | 'BSE' | 'NIFTY50' | 'NIFTY100' | 'NIFTY500' | 'ALERTS' | 'BEST';
 type SuggestionFilter = 'ALL' | 'BUY' | 'SELL';
 type HorizonFilter = 'NEXT_DAY' | 'NEXT_WEEK';
 
 const PAGE_SIZE = 40;
 const FETCH_LIMIT = 5000;
+
+function universeForTab(tab: DashboardTab): Exclude<IndexUniverseId, 'all'> | undefined {
+  if (tab === 'NIFTY50') return 'nifty50';
+  if (tab === 'NIFTY100') return 'nifty100';
+  if (tab === 'NIFTY500') return 'nifty500';
+  return undefined;
+}
+
+function tabNoun(tab: DashboardTab): string {
+  if (tab === 'NIFTY50') return 'Nifty 50';
+  if (tab === 'NIFTY100') return 'Nifty 100';
+  if (tab === 'NIFTY500') return 'Nifty 500';
+  if (tab === 'ALERTS') return 'focus';
+  if (tab === 'BEST') return 'best pick';
+  return tab;
+}
 
 function emptyTableMessage(
   alertsMode: boolean,
@@ -52,9 +69,10 @@ function emptyTableMessage(
       ? 'No paper Buy or Sell alerts yet. Train models (`npm run train:ml`) or wait for the blend to fire.'
       : `No ${suggestion} alerts right now. Try All, or train models.`;
   }
+  const noun = tabNoun(exchange);
   return suggestion === 'ALL'
-    ? `No ${exchange} stocks match this search.`
-    : `No ${suggestion} AI advisories on this ${exchange} page. Try All, or train models.`;
+    ? `No ${noun} stocks match this search.`
+    : `No ${suggestion} AI advisories on this ${noun} page. Try All, or train models.`;
 }
 
 function apiSort(filters: RankFilter[], tab: DashboardTab): string | undefined {
@@ -70,7 +88,17 @@ function tabFromSearch(): DashboardTab {
   const tab = new URLSearchParams(window.location.search).get('tab');
   if (tab === 'alerts') return 'ALERTS';
   if (tab === 'best') return 'BEST';
+  if (tab === 'nifty50') return 'NIFTY50';
+  if (tab === 'nifty100') return 'NIFTY100';
+  if (tab === 'nifty500') return 'NIFTY500';
+  if (tab === 'bse') return 'BSE';
   return 'NSE';
+}
+
+function apiExchange(tab: DashboardTab): string | undefined {
+  if (tab === 'NSE' || tab === 'NIFTY50' || tab === 'NIFTY100' || tab === 'NIFTY500') return 'NSE';
+  if (tab === 'BSE') return 'BSE';
+  return undefined;
 }
 
 export default function DashboardPage(): JSX.Element {
@@ -82,8 +110,10 @@ export default function DashboardPage(): JSX.Element {
   const [search, setSearch] = useState('');
   const alertsMode = exchange === 'ALERTS';
   const bestPickMode = exchange === 'BEST';
+  const universe = universeForTab(exchange);
+  const indexMode = Boolean(universe);
   const focusMode = alertsMode || bestPickMode;
-  const clientRanked = focusMode || rankFilters.length > 0;
+  const clientRanked = focusMode || indexMode || rankFilters.length > 0;
 
   const {
     currentData: paginatedData,
@@ -95,7 +125,7 @@ export default function DashboardPage(): JSX.Element {
       page: clientRanked ? 1 : page,
       limit: clientRanked ? FETCH_LIMIT : PAGE_SIZE,
       search: clientRanked ? undefined : search || undefined,
-      exchange: focusMode ? undefined : exchange,
+      exchange: apiExchange(exchange),
       suggestion:
         bestPickMode || alertsMode ? 'ACTIONABLE' : suggestion === 'ALL' ? undefined : suggestion,
       horizon,
@@ -116,8 +146,9 @@ export default function DashboardPage(): JSX.Element {
         suggestion,
         filters: rankFilters,
         search: clientRanked ? search : undefined,
+        universe,
       }),
-    [paginatedData?.data, bestPickMode, suggestion, rankFilters, clientRanked, search],
+    [paginatedData?.data, bestPickMode, suggestion, rankFilters, clientRanked, search, universe],
   );
   const totalPages = clientRanked
     ? Math.max(1, Math.ceil(ranked.length / PAGE_SIZE))
@@ -128,7 +159,8 @@ export default function DashboardPage(): JSX.Element {
     : ranked;
   const counts = paginatedData?.counts ?? { NSE: 0, BSE: 0, all: 0 };
   const pool = paginatedData?.data ?? [];
-  const qualityPool = bestPickMode ? pool.filter(isBestPickQuality) : pool;
+  const scopedPool = universe ? pool.filter((row) => inIndexUniverse(row.symbol, universe)) : pool;
+  const qualityPool = bestPickMode ? scopedPool.filter(isBestPickQuality) : scopedPool;
   const suggestionCounts = {
     BUY: qualityPool.filter((row) => row.suggestion === 'BUY').length,
     SELL: qualityPool.filter((row) => row.suggestion === 'SELL').length,
@@ -216,9 +248,17 @@ export default function DashboardPage(): JSX.Element {
       )}
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-        <Tabs value={exchange} onChange={handleExchangeChange}>
+        <Tabs
+          value={exchange}
+          onChange={handleExchangeChange}
+          variant="scrollable"
+          allowScrollButtonsMobile
+        >
           <Tab value="NSE" label={`NSE (${counts.NSE})`} />
           <Tab value="BSE" label={`BSE (${counts.BSE})`} />
+          <Tab value="NIFTY50" label={`Nifty 50 stocks (${INDEX_BASKET_SIZE.nifty50})`} />
+          <Tab value="NIFTY100" label={`Nifty 100 stocks (${INDEX_BASKET_SIZE.nifty100})`} />
+          <Tab value="NIFTY500" label={`Nifty 500 stocks (${INDEX_BASKET_SIZE.nifty500})`} />
           <Tab value="ALERTS" label="Alerts" />
           <Tab value="BEST" label="Best Pick" />
         </Tabs>
@@ -238,7 +278,7 @@ export default function DashboardPage(): JSX.Element {
               ? 'Search best picks...'
               : alertsMode
                 ? 'Search alerts...'
-                : `Search ${exchange} stocks...`
+                : `Search ${tabNoun(exchange)} stocks...`
           }
           value={search}
           onChange={(event) => {
@@ -304,7 +344,7 @@ export default function DashboardPage(): JSX.Element {
           />
         )}
         <Typography variant="body2" color="text.secondary">
-          {ranked.length} {bestPickMode ? 'best pick' : alertsMode ? 'focus' : exchange}
+          {ranked.length} {tabNoun(exchange)}
           {suggestion === 'ALL' ? '' : ` ${suggestion.toLowerCase()}`} stocks
         </Typography>
       </Stack>
@@ -315,6 +355,13 @@ export default function DashboardPage(): JSX.Element {
           target-profit bar (2%+ vs entry). Max profit, Max confidence, and Bull run can be
           combined; with Max profit on, the highest Profit % is always first. This is not investment
           advice.
+        </Alert>
+      )}
+      {indexMode && universe && (
+        <Alert severity="info" sx={{ mb: 2 }} data-testid="index-banner">
+          Showing NSE names in the {tabNoun(exchange)} basket ({INDEX_BASKET_SIZE[universe]}) as of
+          the last index snapshot. Missing rows usually mean the symbol is not in the live book yet.
+          This is not investment advice.
         </Alert>
       )}
       {alertsMode && (
@@ -371,8 +418,7 @@ export default function DashboardPage(): JSX.Element {
       {stocks && stocks.length > 0 && (
         <Box sx={{ mt: 2, textAlign: 'center' }}>
           <Typography variant="body2" color="text.secondary">
-            Showing {stocks.length} of {ranked.length}{' '}
-            {bestPickMode ? 'best pick' : alertsMode ? 'focus' : exchange} stocks. Page{' '}
+            Showing {stocks.length} of {ranked.length} {tabNoun(exchange)} stocks. Page{' '}
             {currentPage} of {totalPages}
           </Typography>
         </Box>

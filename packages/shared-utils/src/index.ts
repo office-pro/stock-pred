@@ -21,3 +21,4 @@ export * from './forecast';
 export * from './scanner';
 export * from './scanner-alerts';
 export * from './scanner-backtest';
+export * from './manipulation-features';

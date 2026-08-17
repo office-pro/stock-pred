@@ -1,7 +1,16 @@
 import numpy as np
 
 from app.data import synthetic_candles
-from app.features import FEATURE_COLUMNS, build_features, label_direction, make_dataset
+from app.features import (
+    FEATURE_COLUMNS,
+    MANIPULATION_FEATURE_COLUMNS,
+    build_features,
+    inject_pump_dump,
+    label_direction,
+    label_investigate,
+    make_dataset,
+    make_manipulation_dataset,
+)
 
 
 def test_synthetic_candles_are_valid():
@@ -24,6 +33,16 @@ def test_build_features_produces_all_columns():
     # After warmup, features are finite.
     tail = features[FEATURE_COLUMNS].iloc[-50:]
     assert np.isfinite(tail.to_numpy(dtype="float64")).all()
+    for column in (
+        "return_10d",
+        "volume_zscore_20",
+        "volume_zscore_60",
+        "return_acceleration",
+        "rel_return_1d",
+        "rel_return_5d",
+        "rel_return_20d",
+    ):
+        assert column in features.columns, f"missing manipulation feature: {column}"
 
 
 def test_labels_cover_all_classes():
@@ -52,3 +71,26 @@ def test_make_dataset_works_with_sixty_sessions():
     assert x.shape[0] == y.shape[0] == fwd.shape[0]
     assert x.shape[0] > 20
     assert not np.isnan(x).any()
+
+
+def test_weak_labels_flag_joint_price_volume_outliers():
+    candles = synthetic_candles("POLYCAB", 220)
+    spiked = candles.copy()
+    spiked["volume"] = spiked["volume"].astype("float64")
+    spiked.loc[spiked.index[-1], "close"] = spiked["close"].iloc[-2] * 1.28
+    spiked.loc[spiked.index[-1], "high"] = spiked["close"].iloc[-1] * 1.01
+    spiked.loc[spiked.index[-1], "volume"] = float(spiked["volume"].iloc[-60:-1].mean()) * 9
+    features = build_features(spiked)
+    labels = label_investigate(features)
+    assert int(labels.iloc[-1]) == 1
+    x, y = make_manipulation_dataset(features)
+    assert x.shape[1] == len(MANIPULATION_FEATURE_COLUMNS)
+    assert 1 in set(y.tolist())
+
+
+def test_inject_pump_dump_creates_investigate_labels():
+    candles = inject_pump_dump(synthetic_candles("CDSL", 180))
+    features = build_features(candles)
+    labels = label_investigate(features)
+    assert int(labels.iloc[-1]) == 1 or int(labels.iloc[-2]) == 1
+

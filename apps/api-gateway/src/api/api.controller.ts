@@ -78,6 +78,15 @@ export class ExecuteTradeRequestDto {
   stopLoss?: number;
 }
 
+export class MlJobStartDto {
+  @IsIn(['train_all', 'predict_all', 'train_manipulation'])
+  kind!: string;
+
+  @IsOptional()
+  @IsIn(['nifty50', 'nifty100', 'nifty500', 'smallcap', 'all'])
+  universe?: string;
+}
+
 export class BrokerConfigDto {
   @IsString()
   brokerType!: string;
@@ -115,6 +124,11 @@ export class ApiController {
   @Get('stocks/:symbol')
   getStock(@Param('symbol') symbol: string): Promise<unknown> {
     return this.proxy.get('marketData', `/stocks/${encodeURIComponent(symbol)}`);
+  }
+
+  @Get('stocks/:symbol/anomaly')
+  getAnomaly(@Param('symbol') symbol: string): Promise<unknown> {
+    return this.proxy.get('marketData', `/stocks/${encodeURIComponent(symbol)}/anomaly`);
   }
 
   @Get('stocks/:symbol/candles')
@@ -160,9 +174,10 @@ export class ApiController {
     @Query('limit', new DefaultValuePipe(40), ParseIntPipe) limit = 40,
     @Query('minScore', new DefaultValuePipe(55), ParseIntPipe) minScore = 55,
     @Query('sort') sort = 'score',
+    @Query('minInvestigate', new DefaultValuePipe(0), ParseIntPipe) minInvestigate = 0,
   ): Promise<unknown> {
     return this.proxy.get('marketData', '/scanner', {
-      params: { page, limit, minScore, sort },
+      params: { page, limit, minScore, sort, minInvestigate },
     });
   }
 
@@ -268,6 +283,26 @@ export class ApiController {
     return withDisclaimer(
       await this.proxy.get('mlEngine', `/predictions/${encodeURIComponent(symbol)}`),
     );
+  }
+
+  // ---------------------------------------------------------------- ML Lab jobs
+
+  @Get('ml/jobs/current')
+  @UseGuards(JwtAuthGuard)
+  getMlJob(): Promise<unknown> {
+    return this.proxy.get('mlEngine', '/jobs/current');
+  }
+
+  @Post('ml/jobs')
+  @UseGuards(JwtAuthGuard)
+  startMlJob(@Body() dto: MlJobStartDto): Promise<unknown> {
+    return this.proxy.post('mlEngine', '/jobs', dto);
+  }
+
+  @Post('ml/jobs/current/cancel')
+  @UseGuards(JwtAuthGuard)
+  cancelMlJob(): Promise<unknown> {
+    return this.proxy.post('mlEngine', '/jobs/current/cancel');
   }
 
   // ---------------------------------------------------------------- backtest

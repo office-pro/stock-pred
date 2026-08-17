@@ -1,11 +1,13 @@
 """Candle loading: market-data-service REST with a synthetic offline fallback."""
 import math
+from functools import lru_cache
 from typing import Dict, List, Optional
 
 import httpx
 import pandas as pd
 
 from .config import FALLBACK_SYMBOLS, settings
+from .universes import basket_symbols, describe_filter, normalize_universe
 
 DAY_MS = 86_400_000
 
@@ -119,7 +121,7 @@ def load_candles(
     )
 
 
-def load_universe() -> List[str]:
+def load_listed_symbols() -> List[str]:
     """Load symbols from market-data (paged), then database, then fallback.
 
     No minimum-size cutoff: a partial list is better than silently dropping
@@ -147,7 +149,7 @@ def load_universe() -> List[str]:
                 break
             page += 1
         if symbols:
-            print(f"Loaded {len(symbols)} stocks from market-data-service")
+            print(f"Listed book: {len(symbols)} symbols from market-data-service", flush=True)
             return symbols
         print("Market-data-service returned no stocks, trying database...")
     except Exception as e:
@@ -171,7 +173,7 @@ def load_universe() -> List[str]:
         symbols = loop.run_until_complete(fetch_from_db())
         loop.close()
         if symbols:
-            print(f"Loaded {len(symbols)} stocks from database")
+            print(f"Listed book: {len(symbols)} symbols from database", flush=True)
             return symbols
     except Exception as e:
         print(f"Database query failed: {e}, using fallback...")
@@ -180,11 +182,31 @@ def load_universe() -> List[str]:
     return list(dict.fromkeys(FALLBACK_SYMBOLS))
 
 
+def load_universe(universe: str = "all") -> List[str]:
+    """Listed symbols, optionally an index basket.
+
+    Named baskets (nifty50/100/500/smallcap) use the constituent list directly
+    so a Nifty 50 predict does not wait on paging ~4,500 full quotes.
+    """
+    name = normalize_universe(universe)
+    if name != "all":
+        kept = basket_symbols(name)
+        print(
+            f"[universe] {name}: {len(kept)} constituents (skipped full listed-book scan)",
+            flush=True,
+        )
+        return kept
+    listed = load_listed_symbols()
+    print(describe_filter(len(listed), listed, name), flush=True)
+    return listed
+
+
+@lru_cache(maxsize=8)
 def load_market_context(limit: int) -> Dict[str, pd.DataFrame]:
     """Index series used for market features (Nifty/Midcap trend, India VIX).
 
-    A missing index series degrades to an empty frame (the feature builder
-    fills neutral zeros) - never to synthetic index data.
+    Cached per history depth so a 50-name batch does not refetch Nifty/VIX
+    on every symbol.
     """
     context: Dict[str, pd.DataFrame] = {}
     for key, symbol in INDEX_SYMBOLS.items():

@@ -16,7 +16,11 @@ import {
 } from '@mui/material';
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import type { OverextensionRisk } from '@stockpred/shared-types';
+import {
+  MANIPULATION_DISCLAIMER,
+  type ManipulationBand,
+  type OverextensionRisk,
+} from '@stockpred/shared-types';
 import MarketContextBar from '../components/MarketContextBar';
 import { useGetScannerQuery } from '../store/api';
 
@@ -26,12 +30,19 @@ const RISK_COLOR: Record<OverextensionRisk, 'default' | 'warning' | 'error'> = {
   HIGH_RISK_BULLISH: 'error',
 };
 
+const UNUSUAL_COLOR: Record<ManipulationBand, 'default' | 'warning' | 'error'> = {
+  NORMAL: 'default',
+  SUSPICIOUS: 'warning',
+  INVESTIGATE: 'error',
+};
+
 export default function ScannerPage(): JSX.Element {
   const [page, setPage] = useState(1);
   const [minScore, setMinScore] = useState(55);
+  const [minInvestigate, setMinInvestigate] = useState(0);
   const [sort, setSort] = useState('score');
   const { data, isError, isFetching } = useGetScannerQuery(
-    { page, limit: 40, minScore, sort },
+    { page, limit: 40, minScore, sort, minInvestigate },
     { pollingInterval: 20_000 },
   );
   const rows = data?.data ?? [];
@@ -43,9 +54,10 @@ export default function ScannerPage(): JSX.Element {
         Bull Run Scanner
       </Typography>
       <Alert severity="info" sx={{ mb: 2 }}>
-        Ranked candidates from bull score, UP probability, and 20-session expected return. These are
-        probabilities and expected ranges, not a promise that a stock will rise. Not investment
-        advice.
+        Ranked candidates from bull score, UP probability, and 20-session expected return. Unusual
+        intensity compares today to that stock's own history and Nifty — {MANIPULATION_DISCLAIMER}{' '}
+        These are probabilities and expected ranges, not a promise that a stock will rise. Not
+        investment advice.
       </Alert>
       <MarketContextBar context={data?.context} />
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
@@ -69,12 +81,30 @@ export default function ScannerPage(): JSX.Element {
         <TextField
           select
           size="small"
+          label="Min unusual"
+          value={minInvestigate}
+          onChange={(event) => {
+            setMinInvestigate(Number(event.target.value));
+            setPage(1);
+          }}
+          sx={{ width: 150 }}
+        >
+          {[0, 40, 70].map((value) => (
+            <MenuItem key={value} value={value}>
+              {value === 0 ? 'Any' : `${value}+`}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          select
+          size="small"
           label="Sort"
           value={sort}
           onChange={(event) => setSort(event.target.value)}
           sx={{ width: 180 }}
         >
           <MenuItem value="score">Bull score</MenuItem>
+          <MenuItem value="unusual">Unusual intensity</MenuItem>
           <MenuItem value="up">UP %</MenuItem>
           <MenuItem value="expected20d">20D expected</MenuItem>
           <MenuItem value="rs">NIFTY RS</MenuItem>
@@ -94,6 +124,7 @@ export default function ScannerPage(): JSX.Element {
               <TableCell>Stock</TableCell>
               <TableCell align="right">Score</TableCell>
               <TableCell>Band</TableCell>
+              <TableCell align="right">Unusual</TableCell>
               <TableCell align="right">UP %</TableCell>
               <TableCell align="right">20D Exp</TableCell>
               <TableCell align="right">5D / 10D</TableCell>
@@ -104,6 +135,7 @@ export default function ScannerPage(): JSX.Element {
           <TableBody>
             {rows.map((row) => {
               const scan = row.scanner;
+              const unusual = row.manipulation;
               const fc = scan?.forecast;
               return (
                 <TableRow key={row.symbol} hover>
@@ -127,6 +159,17 @@ export default function ScannerPage(): JSX.Element {
                   </TableCell>
                   <TableCell>
                     <Chip size="small" label={(scan?.band ?? 'NEUTRAL').replace(/_/g, ' ')} />
+                  </TableCell>
+                  <TableCell align="right">
+                    {unusual ? (
+                      <Chip
+                        size="small"
+                        color={UNUSUAL_COLOR[unusual.band]}
+                        label={`${unusual.investigateIntensity} ${unusual.band}`}
+                      />
+                    ) : (
+                      '—'
+                    )}
                   </TableCell>
                   <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
                     {fc ? `${fc.upProbability}%` : '—'}
@@ -164,7 +207,7 @@ export default function ScannerPage(): JSX.Element {
             })}
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8}>
+                <TableCell colSpan={9}>
                   <Typography variant="body2" color="text.secondary">
                     No names cleared the score filter. Hydrate market-data history or lower the
                     minimum score.

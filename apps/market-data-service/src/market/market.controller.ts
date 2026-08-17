@@ -10,6 +10,7 @@ import {
 import {
   Candle,
   IndexQuote,
+  ManipulationSnapshot,
   MarketDepth,
   MarketIndex,
   RelativeComparison,
@@ -49,6 +50,11 @@ export class MarketController {
   @Get('stocks/:symbol')
   getStock(@Param('symbol') symbol: string): Promise<StockQuote> {
     return this.market.getQuote(symbol.toUpperCase());
+  }
+
+  @Get('stocks/:symbol/anomaly')
+  getAnomaly(@Param('symbol') symbol: string): ManipulationSnapshot | null {
+    return this.market.getManipulation(symbol.toUpperCase());
   }
 
   @Get('stocks/:symbol/candles')
@@ -96,8 +102,9 @@ export class MarketController {
     @Query('limit', new DefaultValuePipe(40), ParseIntPipe) limit = 40,
     @Query('minScore', new DefaultValuePipe(55), ParseIntPipe) minScore = 55,
     @Query('sort') sort = 'score',
+    @Query('minInvestigate', new DefaultValuePipe(0), ParseIntPipe) minInvestigate = 0,
   ): ReturnType<MarketService['getScanner']> {
-    return this.market.getScanner(page, Math.min(limit, 100), minScore, sort);
+    return this.market.getScanner(page, Math.min(limit, 100), minScore, sort, minInvestigate);
   }
 
   @Get('indices/:index/candles')

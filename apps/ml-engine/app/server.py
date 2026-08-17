@@ -3,14 +3,15 @@
 Run: uvicorn app.server:app --host 0.0.0.0 --port 8000
 """
 import asyncio
-import subprocess
-import sys
 from contextlib import asynccontextmanager
 from typing import Dict, List
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
+from . import jobs as ml_jobs
+from . import manipulation as investigate
 from .config import DISCLAIMER, settings
 from .data import load_universe
 from .persistence import (
@@ -20,11 +21,16 @@ from .persistence import (
     publish_prediction,
     shutdown,
 )
-from .predict import models_available, predict_symbol
+from .predict import missing_models_message, models_available, predict_symbol
 from .score import load_accuracy, score_all
 
 _background_task = None
 _scored_ledger = False
+
+
+MANIPULATION_DISCLAIMER = (
+    "Unusual vs this stock's history — not a finding of market abuse."
+)
 
 
 async def prediction_loop() -> None:
@@ -32,7 +38,9 @@ async def prediction_loop() -> None:
     global _scored_ledger
     await asyncio.sleep(15)  # let the platform settle on boot
     while True:
-        if models_available():
+        direction_ok = models_available()
+        investigate_ok = investigate.models_available()
+        if direction_ok or investigate_ok:
             symbols = load_universe()
             if settings.predict_universe_limit > 0:
                 symbols = symbols[: settings.predict_universe_limit]
@@ -40,17 +48,24 @@ async def prediction_loop() -> None:
             scored = 0
             for symbol in symbols:
                 try:
-                    predictions = await asyncio.to_thread(predict_symbol, symbol)
-                    for prediction in predictions:
-                        await persist_prediction(prediction)
-                        await publish_prediction(prediction)
+                    if direction_ok:
+                        predictions = await asyncio.to_thread(predict_symbol, symbol)
+                        for prediction in predictions:
+                            await persist_prediction(prediction)
+                            await publish_prediction(prediction)
+                    if investigate_ok:
+                        await asyncio.to_thread(investigate.predict_symbol, symbol)
                     scored += 1
                     if scored % 20 == 0:
                         persist_latest_file()
+                        if investigate_ok:
+                            investigate.persist_latest_file()
                         print(f"[ml-engine] cached {scored}/{len(symbols)} symbols")
                 except Exception as error:  # noqa: BLE001
                     print(f"[ml-engine] scoring failed for {symbol}: {error}")
             persist_latest_file()
+            if investigate_ok:
+                investigate.persist_latest_file()
             print("[ml-engine] latest predictions cached to disk")
             if not _scored_ledger:
                 try:
@@ -60,7 +75,7 @@ async def prediction_loop() -> None:
                 except Exception as error:  # noqa: BLE001
                     print(f"[ml-engine] outcome scoring failed: {error}")
         else:
-            print("[ml-engine] no trained models found - run `python ml/train.py`")
+            print(f"[ml-engine] no trained models found - {missing_models_message()}")
         await asyncio.sleep(settings.prediction_interval_seconds)
 
 
@@ -88,6 +103,7 @@ def health() -> Dict[str, object]:
         "status": "ok",
         "service": "ml-engine",
         "modelsTrained": models_available(),
+        "manipulationModelsTrained": investigate.models_available(),
     }
 
 
@@ -193,7 +209,7 @@ async def get_predictions(symbol: str) -> Dict[str, object]:
     if not models_available():
         raise HTTPException(
             status_code=503,
-            detail="Models are not trained yet. Run `python ml/train.py` first.",
+            detail=missing_models_message(),
         )
     try:
         predictions: List[Dict[str, object]] = await asyncio.to_thread(
@@ -209,10 +225,67 @@ async def get_predictions(symbol: str) -> Dict[str, object]:
     return {"symbol": symbol.upper(), "predictions": predictions, "disclaimer": DISCLAIMER}
 
 
+@app.get("/manipulation/all")
+def get_all_manipulation(limit: int = 5000) -> Dict[str, object]:
+    limit = min(max(limit, 1), 5000)
+    return {
+        "scores": investigate.list_scores(limit),
+        "disclaimer": MANIPULATION_DISCLAIMER,
+    }
+
+
+@app.get("/manipulation/{symbol}")
+async def get_manipulation(symbol: str) -> Dict[str, object]:
+    if not investigate.models_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Unusual-activity models are not trained yet. Run `python ml/train-manipulation.py`.",
+        )
+    try:
+        score = await asyncio.to_thread(investigate.predict_symbol, symbol.upper())
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    investigate.persist_latest_file()
+    return {**score, "disclaimer": MANIPULATION_DISCLAIMER}
+
+
+class JobStartBody(BaseModel):
+    kind: str
+    universe: str = "all"
+
+
+@app.get("/jobs/current")
+def current_job() -> Dict[str, object]:
+    return ml_jobs.snapshot()
+
+
+@app.post("/jobs")
+def start_ml_job(body: JobStartBody) -> Dict[str, object]:
+    try:
+        job = ml_jobs.start(body.kind, body.universe)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    slim = {key: value for key, value in job.items() if key != "lines"}
+    return {"job": slim, "available": ml_jobs.catalog(), "universes": ml_jobs.universe_catalog()}
+
+
+@app.post("/jobs/current/cancel")
+def cancel_ml_job() -> Dict[str, object]:
+    try:
+        return ml_jobs.cancel()
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
 @app.post("/train")
 def trigger_training() -> Dict[str, str]:
-    """Kick off training out-of-process so the API stays responsive."""
-    subprocess.Popen(  # noqa: S603 - fixed argv, no shell
-        [sys.executable, "-m", "app.train"],
-    )
+    """Kick off full-universe direction training out-of-process."""
+    try:
+        ml_jobs.start("train_all")
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     return {"status": "training started in background"}

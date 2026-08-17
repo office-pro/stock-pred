@@ -16,6 +16,7 @@ import {
   DepthLevel,
   Exchange,
   IndexQuote,
+  ManipulationSnapshot,
   MarketDataSource,
   MarketDepth,
   MarketIndex,
@@ -40,6 +41,8 @@ import {
   sampleFromCandles,
   classifyMarketRegime,
   buildBullRunSnapshot,
+  buildManipulationSnapshot,
+  MANIPULATION_MIN_BARS,
   isBullRunAlert,
   isBearReversalAlert,
   scannerAlertCooldownMs,
@@ -59,6 +62,7 @@ import {
   recentWeekdays,
 } from './bhavcopy-quotes';
 import { PredictionCache } from './prediction-cache';
+import { ManipulationCache } from './manipulation-cache';
 import { KafkaProducerService } from './kafka.service';
 import { IndexState, INTRADAY_BUFFER, SymbolState } from './market-state';
 import { MarketDataProvider } from './providers/provider.interface';
@@ -110,9 +114,11 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private readonly liveRefreshInflight = new Map<string, Promise<void>>();
   private orchestrator: RealTimeOrchestrator | null = null;
   private readonly predictions = new PredictionCache();
+  private readonly manipulationScores = new ManipulationCache();
   private readonly paperCapital = getEnvNumber('PAPER_TRADING_CAPITAL', DEFAULT_PAPER_CAPITAL);
   private readonly advisoryMemo = new Map<string, ReturnType<typeof composeTradeAdvisory>>();
   private readonly scannerMemo = new Map<string, ReturnType<typeof buildBullRunSnapshot>>();
+  private readonly manipulationMemo = new Map<string, ManipulationSnapshot | null>();
   private contextCache: { key: string; value: MarketContext } | null = null;
   private readonly alertSentAt = new Map<string, { kind: string; at: number; bullScore: number }>();
   private scannerAlertTimer: NodeJS.Timeout | null = null;
@@ -171,9 +177,16 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       this.advisoryMemo.clear();
       console.log(`[market-data] ML predictions loaded: ${count}`);
     });
+    void this.manipulationScores.refresh().then((count) => {
+      this.manipulationMemo.clear();
+      if (count > 0) console.log(`[market-data] manipulation model scores loaded: ${count}`);
+    });
     this.predictionTimer = setInterval(() => {
       void this.predictions.refresh().then((count) => {
         if (count > 0) this.advisoryMemo.clear();
+      });
+      void this.manipulationScores.refresh().then((count) => {
+        if (count > 0) this.manipulationMemo.clear();
       });
     }, 60_000);
     this.scannerAlertTimer = setInterval(() => void this.emitScannerAlerts(), 60_000);
@@ -484,6 +497,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     limit: number,
     minScore: number,
     sort: string,
+    minInvestigate = 0,
   ): {
     data: StockQuote[];
     total: number;
@@ -493,14 +507,26 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     context: MarketContext;
   } {
     const context = this.marketContext();
-    const rows = [...this.stocks.values()]
-      .filter((state) => state.daily.length >= 40)
-      .map((state) => this.toQuote(state, PredictionHorizon.NEXT_WEEK, true))
-      .filter((q) => q.scanner && q.scanner.bullScore >= minScore);
     const sortKey = sort.trim().toLowerCase();
+    const unusualSort = sortKey === 'unusual' || sortKey === 'investigate';
+    const rows = [...this.stocks.values()]
+      .filter((state) => state.daily.length >= (unusualSort ? MANIPULATION_MIN_BARS : 40))
+      .map((state) => this.toQuote(state, PredictionHorizon.NEXT_WEEK, true))
+      .filter((q) => {
+        if (unusualSort) {
+          return (q.manipulation?.investigateIntensity ?? 0) >= (minInvestigate || 40);
+        }
+        if (!q.scanner || q.scanner.bullScore < minScore) return false;
+        return minInvestigate <= 0 || (q.manipulation?.investigateIntensity ?? 0) >= minInvestigate;
+      });
     rows.sort((a, b) => {
       const sa = a.scanner;
       const sb = b.scanner;
+      if (unusualSort) {
+        return (
+          (b.manipulation?.investigateIntensity ?? 0) - (a.manipulation?.investigateIntensity ?? 0)
+        );
+      }
       if (!sa || !sb) return 0;
       if (sortKey === 'up')
         return (sb.forecast?.upProbability ?? 0) - (sa.forecast?.upProbability ?? 0);
@@ -517,6 +543,11 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     const start = (page - 1) * limit;
     const data = rows.slice(start, start + limit);
     return { data, total, page, limit, hasMore: start + limit < total, context };
+  }
+
+  getManipulation(symbol: string): ManipulationSnapshot | null {
+    const state = this.requireSymbol(symbol);
+    return this.manipulationFor(state);
   }
 
   compare(symbol: string, benchmark: MarketIndex, windowDays: number): RelativeComparison {
@@ -978,6 +1009,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
         ...advisoryDefaults,
         relativeStrengthNifty50: null,
         scanner: null,
+        manipulation: null,
         updatedAt: Date.now(),
       };
     }
@@ -1025,6 +1057,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
         ? (this.scannerFor(state)?.relativeStrengthNifty50 ?? null)
         : (this.niftyRs(state)?.relativeStrength ?? null),
       scanner: includeScanner ? this.scannerFor(state) : null,
+      manipulation: this.manipulationFor(state),
       updatedAt: state.lastTick?.time ?? today.time,
     };
   }
@@ -1105,6 +1138,29 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     if (this.scannerMemo.size > 8000) {
       const first = this.scannerMemo.keys().next().value;
       if (first) this.scannerMemo.delete(first);
+    }
+    return snapshot;
+  }
+
+  private manipulationFor(state: SymbolState): ManipulationSnapshot | null {
+    if (state.daily.length < MANIPULATION_MIN_BARS) return null;
+    const last = state.daily[state.daily.length - 1];
+    const niftyDaily = this.indices.get(MarketIndex.NIFTY_50)?.daily ?? [];
+    const niftyStamp = niftyDaily[niftyDaily.length - 1]?.time ?? 0;
+    const ml = this.manipulationScores.get(state.info.symbol);
+    const memoKey = `${state.info.symbol}|${last.time}|${state.daily.length}|${niftyStamp}|${ml?.investigateProbability ?? ''}|${ml?.modelVersion ?? ''}`;
+    const cached = this.manipulationMemo.get(memoKey);
+    if (cached !== undefined) return cached;
+    const snapshot = buildManipulationSnapshot({
+      candles: state.daily,
+      niftyCandles: niftyDaily,
+      investigateProbability: ml?.investigateProbability ?? null,
+      modelVersion: ml?.modelVersion ?? 'statistical-v1',
+    });
+    this.manipulationMemo.set(memoKey, snapshot);
+    if (this.manipulationMemo.size > 8000) {
+      const first = this.manipulationMemo.keys().next().value;
+      if (first) this.manipulationMemo.delete(first);
     }
     return snapshot;
   }

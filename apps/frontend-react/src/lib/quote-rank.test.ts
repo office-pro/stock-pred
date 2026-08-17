@@ -53,6 +53,14 @@ describe('rankQuotes', () => {
     expect(ranked[0].symbol).toBe('HIGH');
   });
 
+  it('keeps only Nifty 50 constituents when that universe is set', () => {
+    const ranked = rankQuotes(
+      [quote({ symbol: 'RELIANCE' }), quote({ symbol: 'LOW' }), quote({ symbol: 'HDFCBANK' })],
+      { bestPick: false, suggestion: 'ALL', filters: [], universe: 'nifty50' },
+    );
+    expect(ranked.map((row) => row.symbol)).toEqual(['HDFCBANK', 'RELIANCE']);
+  });
+
   it('drops names below the Best Pick confidence and profit bars', () => {
     const ranked = rankQuotes(
       [quote({ symbol: 'THIN', entry: 100, target: 101, confidence: 90 }), high],

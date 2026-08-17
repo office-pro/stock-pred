@@ -1,4 +1,5 @@
 import { PredictionHorizon } from './ml';
+import type { ManipulationSnapshot } from './manipulation';
 import type { BullRunSnapshot } from './scanner';
 
 /** Exchanges supported by the platform. */
@@ -135,6 +136,7 @@ export interface StockQuote extends StockInfo {
   /** NIFTY 50 relative strength over ~60 sessions; > 1 outperforms. */
   relativeStrengthNifty50?: number | null;
   scanner?: BullRunSnapshot | null;
+  manipulation?: ManipulationSnapshot | null;
   updatedAt: number;
 }
 

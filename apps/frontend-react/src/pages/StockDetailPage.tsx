@@ -27,6 +27,7 @@ import { useParams } from 'react-router-dom';
 import type { PatternEventView } from '@stockpred/shared-types';
 import CandleChart, { ChartSignalMarker } from '../components/CandleChart';
 import LivePriceStrip from '../components/LivePriceStrip';
+import ManipulationPanel from '../components/ManipulationPanel';
 import PaperBuyButton from '../components/PaperBuyButton';
 import SignalBadge from '../components/SignalBadge';
 import { holdingForSymbol } from '../lib/paper-pnl';
@@ -441,6 +442,15 @@ export default function StockDetailPage(): JSX.Element {
       )}
 
       <Grid container spacing={2}>
+        {stock?.manipulation && (
+          <Grid item xs={12}>
+            <Card variant="outlined">
+              <CardContent>
+                <ManipulationPanel snapshot={stock.manipulation} />
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
         {stock?.scanner && (
           <Grid item xs={12}>
             <Card variant="outlined">
