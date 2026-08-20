@@ -111,8 +111,8 @@ function nestService(folder, port, graceMs = 45_000) {
   };
 }
 
-function buildCatalog(pythonCmd) {
-  const viteJs = path.join(
+function resolveViteBin() {
+  const nested = path.join(
     ROOT,
     'apps',
     'frontend-react',
@@ -121,6 +121,13 @@ function buildCatalog(pythonCmd) {
     'bin',
     'vite.js',
   );
+  const hoisted = path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
+  if (fs.existsSync(nested)) return nested;
+  return hoisted;
+}
+
+function buildCatalog(pythonCmd) {
+  const viteJs = resolveViteBin();
   return [
     nestService('auth-service', 3001),
     nestService('market-data-service', 3002, 180_000),

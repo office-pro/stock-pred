@@ -21,6 +21,13 @@ class Scaler:
     def transform(self, x: np.ndarray) -> np.ndarray:
         if self.mean is None or self.std is None:
             raise RuntimeError("Scaler is not fitted")
+        if x.ndim != 2:
+            raise RuntimeError("Scaler expects a 2D feature matrix")
+        if x.shape[1] != int(self.mean.shape[0]):
+            raise RuntimeError(
+                f"Feature count {x.shape[1]} does not match scaler {int(self.mean.shape[0])}. "
+                "Retrain after adding feature columns (`npm run train:ml:nifty50`)."
+            )
         return ((x - self.mean) / self.std).astype("float32")
 
     def save(self, path: str) -> None:

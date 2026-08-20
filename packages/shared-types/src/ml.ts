@@ -66,4 +66,7 @@ export interface PredictionAccuracy {
   calibration: AccuracyBucket[];
   avgPnlPercent: number | null;
   scoredCalls?: number;
+  source?: string;
+  ensemble?: string;
+  holdoutDays?: number;
 }

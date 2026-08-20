@@ -1,14 +1,18 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   DefaultValuePipe,
   Get,
   Param,
   ParseIntPipe,
+  Post,
   Query,
 } from '@nestjs/common';
 import {
   Candle,
+  FundamentalView,
+  AltDataView,
   IndexQuote,
   ManipulationSnapshot,
   MarketDepth,
@@ -18,10 +22,17 @@ import {
   Timeframe,
 } from '@stockpred/shared-types';
 import { MarketService } from './market.service';
+import { FundamentalsStore } from './fundamentals-store';
+import { AltDataStore } from './alt-data-store';
+import { parseFullFlag } from './alt-data/ingest-freshness';
 
 @Controller()
 export class MarketController {
-  constructor(private readonly market: MarketService) {}
+  constructor(
+    private readonly market: MarketService,
+    private readonly fundamentals: FundamentalsStore,
+    private readonly altData: AltDataStore,
+  ) {}
 
   @Get('stocks')
   getStocks(
@@ -84,6 +95,99 @@ export class MarketController {
       throw new BadRequestException(`Unsupported benchmark: ${String(benchmark)}`);
     }
     return this.market.compare(symbol.toUpperCase(), benchmark, window);
+  }
+
+  @Get('stocks/:symbol/fundamentals')
+  getFundamentals(@Param('symbol') symbol: string): Promise<FundamentalView> {
+    return this.fundamentals.latestView(symbol.toUpperCase());
+  }
+
+  @Post('stocks/:symbol/fundamentals/ingest')
+  ingestOne(
+    @Param('symbol') symbol: string,
+    @Query('full') full?: string,
+  ): Promise<{
+    symbol: string;
+    snapshots: number;
+    skipped?: boolean;
+    reason?: string;
+    cached?: boolean;
+  }> {
+    return this.fundamentals.ingestOne(symbol.toUpperCase(), { full: parseFullFlag(full) });
+  }
+
+  @Post('fundamentals/refresh-sector-medians')
+  refreshSectorMedians(): Promise<{ updated: number }> {
+    return this.fundamentals.refreshSectorMedians();
+  }
+
+  @Get('fundamentals/panel')
+  getFundamentalsPanel(): ReturnType<FundamentalsStore['panel']> {
+    return this.fundamentals.panel();
+  }
+
+  @Get('stocks/:symbol/alt-data')
+  getAltData(@Param('symbol') symbol: string): Promise<AltDataView> {
+    return this.altData.latestView(symbol.toUpperCase());
+  }
+
+  @Post('stocks/:symbol/alt-data/news/ingest')
+  ingestNews(@Param('symbol') symbol: string, @Query('full') full?: string) {
+    return this.altData.ingestNews(symbol.toUpperCase(), { full: parseFullFlag(full) });
+  }
+
+  @Post('stocks/:symbol/alt-data/social/ingest')
+  ingestSocial(@Param('symbol') symbol: string, @Query('full') full?: string) {
+    return this.altData.ingestSocial(symbol.toUpperCase(), { full: parseFullFlag(full) });
+  }
+
+  @Post('alt-data/ingest/news')
+  ingestNewsUniverse(@Query('universe') universe?: string, @Query('full') full?: string) {
+    return this.altData.ingestNewsUniverse(universe, { full: parseFullFlag(full) });
+  }
+
+  @Post('alt-data/ingest/social')
+  ingestSocialUniverse(@Query('universe') universe?: string, @Query('full') full?: string) {
+    return this.altData.ingestSocialUniverse(universe, { full: parseFullFlag(full) });
+  }
+
+  @Post('alt-data/ingest/macro')
+  ingestMacro(@Query('full') full?: string) {
+    return this.altData.ingestMacro({ full: parseFullFlag(full) });
+  }
+
+  @Post('alt-data/news/upsert')
+  upsertNews(
+    @Query('symbol') symbol: string,
+    @Body()
+    body: { headlines?: Parameters<AltDataStore['upsertNews']>[1] },
+  ) {
+    if (!symbol) throw new BadRequestException('symbol is required');
+    return this.altData.upsertNews(symbol.toUpperCase(), body.headlines ?? []);
+  }
+
+  @Post('alt-data/social/upsert')
+  upsertSocial(
+    @Query('symbol') symbol: string,
+    @Body() body: { rows?: Parameters<AltDataStore['upsertSocial']>[1] },
+  ) {
+    if (!symbol) throw new BadRequestException('symbol is required');
+    return this.altData.upsertSocial(symbol.toUpperCase(), body.rows ?? []);
+  }
+
+  @Get('alt-data/panel/news')
+  newsPanel() {
+    return this.altData.newsPanel();
+  }
+
+  @Get('alt-data/panel/social')
+  socialPanel() {
+    return this.altData.socialPanel();
+  }
+
+  @Get('alt-data/panel/macro')
+  macroPanel() {
+    return this.altData.macroPanel();
   }
 
   @Get('indices')

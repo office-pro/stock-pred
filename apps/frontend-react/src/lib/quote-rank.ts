@@ -1,7 +1,8 @@
-import type { StockQuote } from '@stockpred/shared-types';
+import type { ManipulationBand, StockQuote } from '@stockpred/shared-types';
 import { type IndexUniverseId, inIndexUniverse } from './index-universes';
 
 export type RankFilter = 'PROFIT' | 'CONFIDENCE' | 'BULL';
+export type SuspiciousFilter = 'ALL' | ManipulationBand;
 
 export const BEST_PICK_MIN_CONFIDENCE = 75;
 export const BEST_PICK_MIN_PROFIT_PCT = 2;
@@ -31,6 +32,11 @@ export function isBestPickQuality(stock: StockQuote): boolean {
   );
 }
 
+export function matchesSuspicious(stock: StockQuote, filter: SuspiciousFilter): boolean {
+  if (filter === 'ALL') return true;
+  return stock.manipulation?.band === filter;
+}
+
 export function maxProfitAmong(rows: StockQuote[]): { pct: number; symbol: string | null } {
   let pct = 0;
   let symbol: string | null = null;
@@ -54,6 +60,7 @@ export function rankQuotes(
     bestPick: boolean;
     suggestion: 'ALL' | 'BUY' | 'SELL';
     filters: RankFilter[];
+    suspicious?: SuspiciousFilter;
     search?: string;
     universe?: IndexUniverseId;
   },
@@ -73,6 +80,9 @@ export function rankQuotes(
   }
   if (options.suggestion === 'BUY' || options.suggestion === 'SELL') {
     out = out.filter((row) => row.suggestion === options.suggestion);
+  }
+  if (options.suspicious && options.suspicious !== 'ALL') {
+    out = out.filter((row) => matchesSuspicious(row, options.suspicious as SuspiciousFilter));
   }
   if (options.filters.includes('BULL')) {
     out = out.filter(isBullRunStock);

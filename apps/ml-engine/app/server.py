@@ -3,6 +3,8 @@
 Run: uvicorn app.server:app --host 0.0.0.0 --port 8000
 """
 import asyncio
+import json
+import os
 from contextlib import asynccontextmanager
 from typing import Dict, List
 
@@ -104,6 +106,26 @@ def health() -> Dict[str, object]:
         "service": "ml-engine",
         "modelsTrained": models_available(),
         "manipulationModelsTrained": investigate.models_available(),
+    }
+
+
+def _read_json(name: str) -> Dict[str, object]:
+    path = os.path.join(settings.models_dir, name)
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    return payload if isinstance(payload, dict) else {}
+
+
+@app.get("/evaluations")
+def get_evaluations() -> Dict[str, object]:
+    """Holdout, walk-forward, and costed ML backtest reports if present."""
+    return {
+        "holdout": _read_json("holdout.json"),
+        "walkForward": _read_json("walkforward.json"),
+        "mlBacktest": _read_json("ml-backtest.json"),
+        "disclaimer": DISCLAIMER,
     }
 
 

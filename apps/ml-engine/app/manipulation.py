@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from .config import settings
-from .data import load_candles, load_market_context
+from .data import attach_alt_data, load_candles, load_market_context
 from .features import MANIPULATION_FEATURE_COLUMNS, build_features
 from .models.boosted import LgbmBinaryModel, XgbBinaryModel
 from .models.scaler import Scaler
@@ -54,8 +54,8 @@ def _positive_prob(proba: np.ndarray) -> float:
 
 def predict_symbol(symbol: str, history_days: int = 180) -> Dict[str, object]:
     candles = load_candles(symbol, history_days)
-    market = load_market_context(history_days)
-    features = build_features(candles, market)
+    market = attach_alt_data(load_market_context(history_days))
+    features = build_features(candles, market, symbol=symbol)
     matrix = features[MANIPULATION_FEATURE_COLUMNS].to_numpy(dtype="float32")
     matrix = np.nan_to_num(matrix, nan=0.0)
     if matrix.shape[0] < 60:

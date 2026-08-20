@@ -26,15 +26,20 @@ import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import { useParams } from 'react-router-dom';
 import type { PatternEventView } from '@stockpred/shared-types';
 import CandleChart, { ChartSignalMarker } from '../components/CandleChart';
+import FundamentalsPanel from '../components/FundamentalsPanel';
+import AltDataPanel from '../components/AltDataPanel';
 import LivePriceStrip from '../components/LivePriceStrip';
 import ManipulationPanel from '../components/ManipulationPanel';
 import PaperBuyButton from '../components/PaperBuyButton';
 import SignalBadge from '../components/SignalBadge';
+import StockBriefStrip from '../components/StockBriefStrip';
 import { holdingForSymbol } from '../lib/paper-pnl';
 import {
   useGetCandlesQuery,
   useGetCompareQuery,
   useGetDepthQuery,
+  useGetFundamentalsQuery,
+  useGetAltDataQuery,
   useGetIndexCandlesQuery,
   useGetPortfolioQuery,
   useGetPredictionsQuery,
@@ -90,6 +95,8 @@ export default function StockDetailPage(): JSX.Element {
   } | null>(null);
 
   const { data: stock } = useGetStockQuery(upper, { pollingInterval: 3_000 });
+  const { data: fundamentals } = useGetFundamentalsQuery(upper);
+  const { data: altData } = useGetAltDataQuery(upper);
   const { data: portfolio } = useGetPortfolioQuery(undefined, { pollingInterval: 10_000 });
   const paperLot = holdingForSymbol(portfolio?.holdings, upper);
   const { data: candles, isLoading } = useGetCandlesQuery({
@@ -222,6 +229,14 @@ export default function StockDetailPage(): JSX.Element {
           <>
             <Chip size="small" label={stock.exchange} />
             <Chip size="small" label={stock.sector} variant="outlined" />
+            {fundamentals && !fundamentals.missing && fundamentals.displayScore != null && (
+              <Chip
+                size="small"
+                color="primary"
+                variant="outlined"
+                label={`FA ${Math.round(fundamentals.displayScore)}`}
+              />
+            )}
             <SignalBadge signal={paperAction} />
           </>
         )}
@@ -363,6 +378,13 @@ export default function StockDetailPage(): JSX.Element {
                 {chartExpanded ? <FullscreenExitIcon /> : <FullscreenIcon />}
               </IconButton>
             </Stack>
+            <StockBriefStrip
+              altData={altData}
+              paperAction={paperAction}
+              predictions={predictions?.predictions}
+              patternOutlook={patterns?.outlook ?? null}
+              fundamentalsScore={fundamentals?.displayScore ?? null}
+            />
             <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
               {fmtDate(firstBar)} → {fmtDate(lastBar)} · {sessionCount.toLocaleString('en-IN')}{' '}
               daily sessions
@@ -442,6 +464,12 @@ export default function StockDetailPage(): JSX.Element {
       )}
 
       <Grid container spacing={2}>
+        <Grid item xs={12}>
+          <FundamentalsPanel data={fundamentals} />
+        </Grid>
+        <Grid item xs={12}>
+          <AltDataPanel data={altData} />
+        </Grid>
         {stock?.manipulation && (
           <Grid item xs={12}>
             <Card variant="outlined">

@@ -6,6 +6,8 @@ import type {
   AuthUser,
   BacktestResult,
   Candle,
+  FundamentalView,
+  AltDataView,
   IndexQuote,
   MarketContext,
   MarketDepth,
@@ -70,7 +72,18 @@ export interface PredictionsPayload {
   disclaimer: string;
 }
 
-export type MlJobKind = 'train_all' | 'predict_all' | 'train_manipulation';
+export type MlJobKind =
+  | 'run_all'
+  | 'ingest_fundamentals'
+  | 'ingest_alt_data'
+  | 'ingest_macro'
+  | 'ingest_news'
+  | 'ingest_social'
+  | 'train_all'
+  | 'predict_all'
+  | 'train_manipulation'
+  | 'walk_forward'
+  | 'ml_backtest';
 export type MlUniverseId = 'nifty50' | 'nifty100' | 'nifty500' | 'smallcap' | 'all';
 
 export interface MlJobCatalogItem {
@@ -241,6 +254,12 @@ export const api = createApi({
     }),
     getStock: builder.query<StockQuote, string>({
       query: (symbol) => `/stocks/${symbol}`,
+    }),
+    getFundamentals: builder.query<FundamentalView, string>({
+      query: (symbol) => `/stocks/${symbol}/fundamentals`,
+    }),
+    getAltData: builder.query<AltDataView, string>({
+      query: (symbol) => `/stocks/${symbol}/alt-data`,
     }),
     getIndices: builder.query<IndexQuote[], void>({
       query: () => '/indices',
@@ -480,6 +499,8 @@ export const api = createApi({
 export const {
   useGetStocksQuery,
   useGetStockQuery,
+  useGetFundamentalsQuery,
+  useGetAltDataQuery,
   useLazyGetStockQuery,
   useGetIndicesQuery,
   useGetMarketContextQuery,

@@ -68,4 +68,44 @@ describe('rankQuotes', () => {
     );
     expect(ranked.map((row) => row.symbol)).toEqual(['HIGH']);
   });
+
+  it('keeps only the selected suspicious band', () => {
+    const normal = quote({
+      symbol: 'SAFE',
+      manipulation: {
+        band: 'NORMAL',
+        investigateIntensity: 10,
+        investigateProbability: null,
+        priceAnomaly: 0,
+        volumeAnomaly: 0,
+        volatilityAnomaly: 0,
+        marketRelativeAnomaly: 0,
+        evidence: [],
+        flags: { accumulation: false, expansion: false, dump: false },
+        modelVersion: 'test',
+      },
+    });
+    const investigate = quote({
+      symbol: 'RISKY',
+      manipulation: {
+        band: 'INVESTIGATE',
+        investigateIntensity: 88,
+        investigateProbability: null,
+        priceAnomaly: 80,
+        volumeAnomaly: 70,
+        volatilityAnomaly: 60,
+        marketRelativeAnomaly: 50,
+        evidence: [],
+        flags: { accumulation: false, expansion: true, dump: false },
+        modelVersion: 'test',
+      },
+    });
+    const ranked = rankQuotes([normal, investigate, high], {
+      bestPick: false,
+      suggestion: 'ALL',
+      filters: [],
+      suspicious: 'INVESTIGATE',
+    });
+    expect(ranked.map((row) => row.symbol)).toEqual(['RISKY']);
+  });
 });

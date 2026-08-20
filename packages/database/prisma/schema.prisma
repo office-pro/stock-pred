@@ -266,3 +266,209 @@ model BacktestRun {
 
   @@map("backtest_runs")
 }
+
+// Point-in-time fundamentals (Yahoo quoteSummary + quarterly statements).
+// Join only rows with availableAt <= bar time — never today's PE on old bars.
+model FundamentalSnapshot {
+  id        String   @id @default(uuid())
+  symbol    String
+  asOfDate  DateTime @map("as_of_date")
+  availableAt DateTime @map("available_at")
+  source    String   @default("yahoo")
+  sector    String?
+
+  revenue       Float?
+  pat           Float?
+  eps           Float?
+  ebit          Float?
+  ebitda        Float?
+  equity        Float?
+  totalDebt     Float? @map("total_debt")
+  totalAssets   Float? @map("total_assets")
+  currentAssets Float? @map("current_assets")
+  currentLiab   Float? @map("current_liab")
+  cash          Float?
+  ocf           Float?
+  capex         Float?
+  fcf           Float?
+
+  revYoy        Float? @map("rev_yoy")
+  patYoy        Float? @map("pat_yoy")
+  epsYoy        Float? @map("eps_yoy")
+  opMargin      Float? @map("op_margin")
+  netMargin     Float? @map("net_margin")
+  grossMargin   Float? @map("gross_margin")
+  ebitdaMargin  Float? @map("ebitda_margin")
+  roe           Float?
+  roa           Float?
+  roce          Float?
+  debtEquity    Float? @map("debt_equity")
+  currentRatio  Float? @map("current_ratio")
+  cashRatio     Float? @map("cash_ratio")
+  ocfPat        Float? @map("ocf_pat")
+  fcfGrowth     Float? @map("fcf_growth")
+  fcfMargin     Float? @map("fcf_margin")
+
+  trailingEps     Float? @map("trailing_eps")
+  bookValue       Float? @map("book_value")
+  trailingPe      Float? @map("trailing_pe")
+  priceToBook     Float? @map("price_to_book")
+  sectorMedianPe  Float? @map("sector_median_pe")
+  promoterHolding Float? @map("promoter_holding")
+  institutionHolding Float? @map("institution_holding")
+  displayScore    Float? @map("display_score")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([symbol, asOfDate])
+  @@index([symbol, availableAt])
+  @@index([availableAt])
+  @@map("fundamental_snapshots")
+}
+
+// Maps headlines / social text onto NSE symbols. Unmatched entities are dropped.
+model SymbolAlias {
+  id        String   @id @default(uuid())
+  alias     String
+  symbol    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([alias, symbol])
+  @@index([symbol])
+  @@map("symbol_aliases")
+}
+
+model NewsArticle {
+  id          String   @id @default(uuid())
+  source      String
+  url         String   @unique
+  title       String
+  publishedAt DateTime @map("published_at")
+  availableAt DateTime @map("available_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  mentions NewsMention[]
+
+  @@index([publishedAt])
+  @@map("news_articles")
+}
+
+model NewsMention {
+  id            String   @id @default(uuid())
+  articleId     String   @map("article_id")
+  symbol        String
+  sentiment     Float
+  pos           Float    @default(0)
+  neg           Float    @default(0)
+  neu           Float    @default(0)
+  eventType     String   @map("event_type")
+  eventStrength Float    @map("event_strength")
+  confidence    Float    @default(0.5)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  article NewsArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@unique([articleId, symbol])
+  @@index([symbol])
+  @@map("news_mentions")
+}
+
+// Pre-aggregated windows so train does not scan raw articles per bar.
+model NewsDailyFeature {
+  id                   String   @id @default(uuid())
+  symbol               String
+  asOfDate             DateTime @map("as_of_date")
+  availableAt          DateTime @map("available_at")
+  source               String   @default("news")
+  newsCount1d          Float    @map("news_count_1d")
+  newsCount7d          Float    @map("news_count_7d")
+  newsCount30d         Float    @map("news_count_30d")
+  newsSent1d           Float    @map("news_sent_1d")
+  newsSent7d           Float    @map("news_sent_7d")
+  newsSent30d          Float    @map("news_sent_30d")
+  newsSentStd7d        Float    @map("news_sent_std_7d")
+  newsSentChange7d     Float    @map("news_sent_change_7d")
+  newsSentTrend30d     Float    @map("news_sent_trend_30d")
+  newsPos7d            Float    @map("news_pos_7d")
+  newsNeg7d            Float    @map("news_neg_7d")
+  newsHighImpact7d     Float    @map("news_high_impact_7d")
+  newsEventMomentum7d  Float    @map("news_event_momentum_7d")
+  earningsSentiment    Float    @map("earnings_sentiment")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@unique([symbol, asOfDate])
+  @@index([symbol, availableAt])
+  @@map("news_daily_features")
+}
+
+model SocialDailyFeature {
+  id                    String   @id @default(uuid())
+  symbol                String
+  asOfDate              DateTime @map("as_of_date")
+  availableAt           DateTime @map("available_at")
+  source                String   @default("social")
+  mentions1d            Float    @map("social_mentions_1d")
+  mentions7d            Float    @map("social_mentions_7d")
+  mentionGrowth         Float    @map("social_mention_growth")
+  attentionSpike        Float    @map("social_attention_spike")
+  uniqueAuthors1d       Float    @map("social_unique_authors_1d")
+  sentiment1d           Float    @map("social_sent_1d")
+  sentimentChange       Float    @map("social_sent_change")
+  bullRatio7d           Float    @map("social_bull_ratio_7d")
+  bearRatio7d           Float    @map("social_bear_ratio_7d")
+  coordination          Float    @map("social_coordination")
+  trendsScore7d         Float    @map("trends_score_7d")
+  trendsChange7d        Float    @map("trends_change_7d")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@unique([symbol, asOfDate])
+  @@index([symbol, availableAt])
+  @@map("social_daily_features")
+}
+
+model MacroObservation {
+  id          String   @id @default(uuid())
+  seriesId    String   @map("series_id")
+  asOfDate    DateTime @map("as_of_date")
+  availableAt DateTime @map("available_at")
+  value       Float
+  source      String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([seriesId, asOfDate])
+  @@index([seriesId, availableAt])
+  @@map("macro_observations")
+}
+
+model MacroDailyFeature {
+  id             String   @id @default(uuid())
+  asOfDate       DateTime @map("as_of_date")
+  availableAt    DateTime @map("available_at")
+  source         String   @default("macro")
+  usdinr         Float?
+  usdinrChg20d   Float?   @map("usdinr_chg_20d")
+  usdinrChg60d   Float?   @map("usdinr_chg_60d")
+  brent          Float?
+  brentChg20d    Float?   @map("brent_chg_20d")
+  goldChg20d     Float?   @map("gold_chg_20d")
+  us10y          Float?   @map("us10y")
+  us10yChg20d    Float?   @map("us10y_chg_20d")
+  spxChg20d      Float?   @map("spx_chg_20d")
+  nasdaqChg20d   Float?   @map("nasdaq_chg_20d")
+  dxyChg20d      Float?   @map("dxy_chg_20d")
+  indiaCpi       Float?   @map("india_cpi")
+  indiaCpiChg    Float?   @map("india_cpi_chg")
+  repoRate       Float?   @map("repo_rate")
+  repoChg90d     Float?   @map("repo_chg_90d")
+  fiiFlow20d     Float?   @map("fii_flow_20d")
+  diiFlow20d     Float?   @map("dii_flow_20d")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([asOfDate])
+  @@index([availableAt])
+  @@map("macro_daily_features")
+}

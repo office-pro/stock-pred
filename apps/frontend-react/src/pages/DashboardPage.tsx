@@ -18,6 +18,7 @@ import MarketContextBar from '../components/MarketContextBar';
 import StockTable from '../components/StockTable';
 import {
   RankFilter,
+  SuspiciousFilter,
   isBullRunStock,
   isBestPickQuality,
   maxProfitAmong,
@@ -55,7 +56,11 @@ function emptyTableMessage(
   suggestion: SuggestionFilter,
   exchange: DashboardTab,
   filters: RankFilter[],
+  suspicious: SuspiciousFilter,
 ): string {
+  if (suspicious !== 'ALL') {
+    return `No ${suspicious.toLowerCase()} names on this tape. Try All activity, or wait for unusual-activity scores.`;
+  }
   if (filters.includes('BULL')) {
     return 'No bull-run stocks on this tape (bull score 70+). Hydrate history or open the Scanner.';
   }
@@ -106,6 +111,7 @@ export default function DashboardPage(): JSX.Element {
   const [suggestion, setSuggestion] = useState<SuggestionFilter>('ALL');
   const [horizon, setHorizon] = useState<HorizonFilter>('NEXT_DAY');
   const [rankFilters, setRankFilters] = useState<RankFilter[]>([]);
+  const [suspicious, setSuspicious] = useState<SuspiciousFilter>('ALL');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const alertsMode = exchange === 'ALERTS';
@@ -113,7 +119,7 @@ export default function DashboardPage(): JSX.Element {
   const universe = universeForTab(exchange);
   const indexMode = Boolean(universe);
   const focusMode = alertsMode || bestPickMode;
-  const clientRanked = focusMode || indexMode || rankFilters.length > 0;
+  const clientRanked = focusMode || indexMode || rankFilters.length > 0 || suspicious !== 'ALL';
 
   const {
     currentData: paginatedData,
@@ -145,10 +151,20 @@ export default function DashboardPage(): JSX.Element {
         bestPick: bestPickMode,
         suggestion,
         filters: rankFilters,
+        suspicious,
         search: clientRanked ? search : undefined,
         universe,
       }),
-    [paginatedData?.data, bestPickMode, suggestion, rankFilters, clientRanked, search, universe],
+    [
+      paginatedData?.data,
+      bestPickMode,
+      suggestion,
+      rankFilters,
+      suspicious,
+      clientRanked,
+      search,
+      universe,
+    ],
   );
   const totalPages = clientRanked
     ? Math.max(1, Math.ceil(ranked.length / PAGE_SIZE))
@@ -167,6 +183,11 @@ export default function DashboardPage(): JSX.Element {
     HOLD: qualityPool.filter((row) => row.suggestion === 'HOLD').length,
   };
   const bullRunCount = qualityPool.filter(isBullRunStock).length;
+  const suspiciousCounts = {
+    NORMAL: qualityPool.filter((row) => row.manipulation?.band === 'NORMAL').length,
+    SUSPICIOUS: qualityPool.filter((row) => row.manipulation?.band === 'SUSPICIOUS').length,
+    INVESTIGATE: qualityPool.filter((row) => row.manipulation?.band === 'INVESTIGATE').length,
+  };
 
   const provenance = useMemo(() => {
     if (!stocks || stocks.length === 0) return null;
@@ -208,6 +229,15 @@ export default function DashboardPage(): JSX.Element {
     setPage(1);
   };
 
+  const handleSuspiciousChange = (
+    _event: React.MouseEvent<HTMLElement>,
+    value: SuspiciousFilter | null,
+  ): void => {
+    if (!value) return;
+    setSuspicious(value);
+    setPage(1);
+  };
+
   const handleClearRankFilters = (): void => {
     setRankFilters([]);
     setPage(1);
@@ -233,10 +263,12 @@ export default function DashboardPage(): JSX.Element {
 
       {typeof buyHit === 'number' && (
         <Alert severity="info" sx={{ mb: 2 }} data-testid="accuracy-banner">
-          {horizonLabel} model track record: {accuracy?.overallHitRate}% of {scored ?? 0} scored
-          calls were labeled correctly (Buy ideas {buyHit}% right). Chips blend the ML forecast with
-          stock trend and Nifty: they must not fight, and a weak model on a flat tape stays Hold.
-          Paper size is 1% of ₹10 L capital. This is not investment advice.
+          {horizonLabel} model track record
+          {accuracy?.source === 'time_series_holdout' ? ' (last-year holdout, trees)' : ''}:{' '}
+          {accuracy?.overallHitRate}% of {scored ?? 0} scored calls were labeled correctly (Buy
+          ideas {buyHit}% right). Chips blend the ML forecast with stock trend and Nifty: they must
+          not fight, and a weak model on a flat tape stays Hold. Paper size is 1% of ₹10 L capital.
+          This is not investment advice.
         </Alert>
       )}
       {accuracy == null && (
@@ -310,6 +342,25 @@ export default function DashboardPage(): JSX.Element {
           </ToggleButton>
           <ToggleButton value="SELL" color="error">
             Sell ({suggestionCounts.SELL})
+          </ToggleButton>
+        </ToggleButtonGroup>
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={suspicious}
+          onChange={handleSuspiciousChange}
+          aria-label="Unusual activity band"
+          data-testid="suspicious-filter"
+        >
+          <ToggleButton value="ALL">All activity</ToggleButton>
+          <ToggleButton value="NORMAL">
+            Normal{suspiciousCounts.NORMAL ? ` (${suspiciousCounts.NORMAL})` : ''}
+          </ToggleButton>
+          <ToggleButton value="SUSPICIOUS" color="warning">
+            Suspicious{suspiciousCounts.SUSPICIOUS ? ` (${suspiciousCounts.SUSPICIOUS})` : ''}
+          </ToggleButton>
+          <ToggleButton value="INVESTIGATE" color="error">
+            Investigate{suspiciousCounts.INVESTIGATE ? ` (${suspiciousCounts.INVESTIGATE})` : ''}
           </ToggleButton>
         </ToggleButtonGroup>
         <ToggleButton
@@ -400,7 +451,14 @@ export default function DashboardPage(): JSX.Element {
       )}
       {!isLoading && stocks.length === 0 && (
         <Alert severity="info">
-          {emptyTableMessage(alertsMode, bestPickMode, suggestion, exchange, rankFilters)}
+          {emptyTableMessage(
+            alertsMode,
+            bestPickMode,
+            suggestion,
+            exchange,
+            rankFilters,
+            suspicious,
+          )}
         </Alert>
       )}
 
