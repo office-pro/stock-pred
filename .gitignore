@@ -15,6 +15,13 @@ coverage/
 .env
 .env.local
 .env.*.local
+azure.env
+azure.*.env
+scripts/azure/env/development.sh
+scripts/azure/env/production.sh
+scripts/azure/.bootstrap-secrets
+*.pgdump
+*.dump
 
 # ML artifacts
 ml-models/

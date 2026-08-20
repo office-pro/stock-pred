@@ -14,7 +14,7 @@ from typing import List, Tuple
 import numpy as np
 
 from .config import settings
-from .data import load_candles, load_market_context, load_universe, synthetic_candles
+from .data import attach_alt_data, load_candles, load_market_context, load_universe, synthetic_candles
 from .universes import add_universe_arg, normalize_universe
 from .features import (
     MANIPULATION_FEATURE_COLUMNS,
@@ -41,7 +41,7 @@ def _balance(x: np.ndarray, y: np.ndarray, rng: np.random.Generator) -> Tuple[np
 
 
 def collect_dataset(symbols: List[str], days: int, synthetic: bool):
-    market = load_market_context(days) if not synthetic else None
+    market = attach_alt_data(load_market_context(days)) if not synthetic else {}
     xs, ys = [], []
     skipped = []
     rng = np.random.default_rng(42)
@@ -56,7 +56,7 @@ def collect_dataset(symbols: List[str], days: int, synthetic: bool):
             continue
         if i % 17 == 0:
             candles = inject_pump_dump(candles)
-        features = build_features(candles, market)
+        features = build_features(candles, market, symbol=symbol)
         x, y = make_manipulation_dataset(features)
         if len(x) > 0:
             xs.append(x)

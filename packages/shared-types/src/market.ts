@@ -150,6 +150,57 @@ export interface IndexQuote {
   updatedAt: number;
 }
 
+export interface FundamentalView {
+  symbol: string;
+  asOfDate: number;
+  availableAt: number;
+  sector: string | null;
+  pe: number | null;
+  pb: number | null;
+  roe: number | null;
+  debtEquity: number | null;
+  revYoy: number | null;
+  patYoy: number | null;
+  netMargin: number | null;
+  currentRatio: number | null;
+  displayScore: number | null;
+  missing: boolean;
+}
+
+/** Latest as-of news/social/macro for UI (not a second buy/sell score). */
+export interface AltDataView {
+  symbol: string;
+  news: {
+    asOfDate: number;
+    availableAt: number;
+    sentiment7d: number;
+    count7d: number;
+    highImpact7d: number;
+    earningsSentiment: number;
+  } | null;
+  social: {
+    asOfDate: number;
+    availableAt: number;
+    mentions1d: number;
+    attentionSpike: number;
+    sentiment1d: number;
+    coordination: number;
+    trends7d: number;
+  } | null;
+  macro: {
+    asOfDate: number;
+    availableAt: number;
+    usdinr: number | null;
+    usdinrChg20d: number | null;
+    brent: number | null;
+    brentChg20d: number | null;
+    repoRate: number | null;
+    repoChg90d: number | null;
+    indiaCpi: number | null;
+  } | null;
+  missing: boolean;
+}
+
 /** Relative comparison of a stock against a benchmark index. */
 export interface RelativeComparison {
   symbol: string;

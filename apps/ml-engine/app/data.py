@@ -1,9 +1,11 @@
-"""Candle loading: market-data-service REST with a synthetic offline fallback."""
+"""Candle loading: Postgres first, then market-data REST, then optional synthetic."""
+import asyncio
 import math
 from functools import lru_cache
 from typing import Dict, List, Optional
 
 import httpx
+import numpy as np
 import pandas as pd
 
 from .config import FALLBACK_SYMBOLS, settings
@@ -81,6 +83,62 @@ def synthetic_candles(symbol: str, days: int, base_price: float = 1000.0) -> pd.
     return frame
 
 
+_pg_loop: Optional[asyncio.AbstractEventLoop] = None
+_pg_pool = None
+
+
+def _pg_fetch(query: str, *args):
+    """Reuse one asyncpg pool so universe scans are not 4,500 TCP handshakes."""
+    global _pg_loop, _pg_pool
+    import asyncpg
+
+    if _pg_loop is None:
+        _pg_loop = asyncio.new_event_loop()
+
+    async def _run():
+        global _pg_pool
+        if _pg_pool is None:
+            _pg_pool = await asyncpg.create_pool(settings.asyncpg_dsn, min_size=1, max_size=4)
+        async with _pg_pool.acquire() as conn:
+            return await conn.fetch(query, *args)
+
+    return _pg_loop.run_until_complete(_run())
+
+
+def fetch_candles_db(symbol: str, limit: int) -> Optional[pd.DataFrame]:
+    """Daily bars from Postgres `candles`. None when the table is empty or unreachable."""
+    try:
+        rows = _pg_fetch(
+            """
+            SELECT time, open, high, low, close, volume
+            FROM candles
+            WHERE symbol = $1 AND timeframe = '1d'
+            ORDER BY time DESC
+            LIMIT $2
+            """,
+            symbol,
+            int(limit),
+        )
+    except Exception:
+        return None
+    if not rows:
+        return None
+    frame = pd.DataFrame(
+        [
+            {
+                "time": int(row["time"]),
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "volume": float(row["volume"]),
+            }
+            for row in reversed(list(rows))
+        ]
+    )
+    return frame
+
+
 def fetch_candles(symbol: str, limit: int, is_index: bool = False) -> Optional[pd.DataFrame]:
     """Daily candles over REST; None on failure (caller decides the fallback)."""
     path = f"/indices/{symbol}/candles" if is_index else f"/stocks/{symbol}/candles"
@@ -110,6 +168,9 @@ def load_candles(
     ``allow_synthetic`` opt-in (the --synthetic training flag). Without it,
     a missing feed raises so predictions are only ever made on real data.
     """
+    frame = fetch_candles_db(symbol, limit)
+    if frame is not None and len(frame) >= 40:
+        return frame
     frame = fetch_candles(symbol, limit, is_index)
     if frame is not None and len(frame) >= 40:
         return frame
@@ -212,4 +273,316 @@ def load_market_context(limit: int) -> Dict[str, pd.DataFrame]:
     for key, symbol in INDEX_SYMBOLS.items():
         frame = fetch_candles(symbol, limit, is_index=True)
         context[key] = frame if frame is not None else pd.DataFrame()
+    return context
+
+
+FUNDAMENTAL_PANEL_COLUMNS = [
+    "symbol",
+    "available_at",
+    "sector",
+    "rev_yoy",
+    "pat_yoy",
+    "eps_yoy",
+    "op_margin",
+    "net_margin",
+    "gross_margin",
+    "ebitda_margin",
+    "roe",
+    "roa",
+    "roce",
+    "debt_equity",
+    "current_ratio",
+    "cash_ratio",
+    "ocf_pat",
+    "fcf_growth",
+    "fcf_margin",
+    "trailing_eps",
+    "book_value",
+    "sector_median_pe",
+    "promoter_holding",
+    "institution_holding",
+    "log_ttm_revenue",
+]
+
+
+def _empty_fund_panel() -> pd.DataFrame:
+    return pd.DataFrame(columns=FUNDAMENTAL_PANEL_COLUMNS)
+
+
+def _normalize_fund_panel(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame is None or frame.empty:
+        return _empty_fund_panel()
+    out = frame.copy()
+    if "available_at" in out.columns:
+        out["available_at"] = pd.to_datetime(out["available_at"], utc=True, errors="coerce")
+    if "symbol" in out.columns:
+        out["symbol"] = out["symbol"].astype(str).str.upper()
+    for column in FUNDAMENTAL_PANEL_COLUMNS:
+        if column not in out.columns:
+            out[column] = np.nan if column not in ("symbol", "available_at", "sector") else None
+    return out[FUNDAMENTAL_PANEL_COLUMNS]
+
+
+def _fund_panel_from_db() -> Optional[pd.DataFrame]:
+    try:
+        import asyncio
+
+        import asyncpg
+
+        async def fetch_rows():
+            conn = await asyncpg.connect(settings.asyncpg_dsn)
+            rows = await conn.fetch(
+                """
+                SELECT symbol, available_at, sector,
+                       rev_yoy, pat_yoy, eps_yoy, op_margin, net_margin, gross_margin,
+                       ebitda_margin, roe, roa, roce, debt_equity, current_ratio, cash_ratio,
+                       ocf_pat, fcf_growth, fcf_margin, trailing_eps, book_value,
+                       sector_median_pe, promoter_holding, institution_holding, revenue
+                FROM fundamental_snapshots
+                ORDER BY symbol, available_at
+                """
+            )
+            await conn.close()
+            return rows
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        rows = loop.run_until_complete(fetch_rows())
+        loop.close()
+        if not rows:
+            return _empty_fund_panel()
+        frame = pd.DataFrame([dict(row) for row in rows])
+        if "revenue" in frame.columns:
+            revenue = pd.to_numeric(frame["revenue"], errors="coerce")
+            frame["log_ttm_revenue"] = np.where(revenue > 0, np.log(revenue), np.nan)
+            frame = frame.drop(columns=["revenue"])
+        return _normalize_fund_panel(frame)
+    except Exception:
+        return None
+
+
+def _fund_panel_from_rest() -> Optional[pd.DataFrame]:
+    try:
+        response = httpx.get(f"{settings.market_data_url}/fundamentals/panel", timeout=30.0)
+        response.raise_for_status()
+        payload = response.json()
+        rows = payload if isinstance(payload, list) else payload.get("data", [])
+        if not rows:
+            return _empty_fund_panel()
+        return _normalize_fund_panel(pd.DataFrame(rows))
+    except Exception:
+        return None
+
+
+@lru_cache(maxsize=1)
+def load_fundamentals_panel() -> pd.DataFrame:
+    """All statement snapshots for point-in-time joins. Empty if none ingested."""
+    frame = _fund_panel_from_db()
+    if frame is None:
+        frame = _fund_panel_from_rest()
+    if frame is None:
+        frame = _empty_fund_panel()
+    names = int(frame["symbol"].nunique()) if not frame.empty else 0
+    print(f"[fundamentals] panel: {len(frame)} snapshots across {names} symbols", flush=True)
+    return frame
+
+
+def attach_fundamentals(market: Optional[Dict[str, pd.DataFrame]]) -> Dict[str, pd.DataFrame]:
+    context = dict(market or {})
+    if "fund_panel" not in context:
+        context["fund_panel"] = load_fundamentals_panel()
+    return context
+
+
+NEWS_PANEL_COLUMNS = [
+    "symbol",
+    "available_at",
+    * [
+        "news_count_1d",
+        "news_count_7d",
+        "news_count_30d",
+        "news_sent_1d",
+        "news_sent_7d",
+        "news_sent_30d",
+        "news_sent_std_7d",
+        "news_sent_change_7d",
+        "news_sent_trend_30d",
+        "news_pos_7d",
+        "news_neg_7d",
+        "news_high_impact_7d",
+        "news_event_momentum_7d",
+        "earnings_sentiment",
+    ],
+]
+
+SOCIAL_PANEL_COLUMNS = [
+    "symbol",
+    "available_at",
+    "social_mentions_1d",
+    "social_mentions_7d",
+    "social_mention_growth",
+    "social_attention_spike",
+    "social_unique_authors_1d",
+    "social_sent_1d",
+    "social_sent_change",
+    "social_bull_ratio_7d",
+    "social_bear_ratio_7d",
+    "social_coordination",
+    "trends_score_7d",
+    "trends_change_7d",
+]
+
+MACRO_PANEL_COLUMNS = [
+    "available_at",
+    "usdinr",
+    "usdinr_chg_20d",
+    "usdinr_chg_60d",
+    "brent",
+    "brent_chg_20d",
+    "gold_chg_20d",
+    "us10y",
+    "us10y_chg_20d",
+    "spx_chg_20d",
+    "nasdaq_chg_20d",
+    "dxy_chg_20d",
+    "india_cpi",
+    "india_cpi_chg",
+    "repo_rate",
+    "repo_chg_90d",
+    "fii_flow_20d",
+    "dii_flow_20d",
+]
+
+
+def _empty_panel(columns: list) -> pd.DataFrame:
+    return pd.DataFrame(columns=columns)
+
+
+def _normalize_dated_panel(frame: pd.DataFrame, columns: list, has_symbol: bool) -> pd.DataFrame:
+    if frame is None or frame.empty:
+        return _empty_panel(columns)
+    out = frame.copy()
+    if "available_at" in out.columns:
+        out["available_at"] = pd.to_datetime(out["available_at"], utc=True, errors="coerce")
+    if has_symbol and "symbol" in out.columns:
+        out["symbol"] = out["symbol"].astype(str).str.upper()
+    for column in columns:
+        if column not in out.columns:
+            out[column] = None if column in ("symbol", "available_at") else np.nan
+    return out[columns]
+
+
+def _panel_from_db(sql: str) -> Optional[pd.DataFrame]:
+    try:
+        import asyncio
+
+        import asyncpg
+
+        async def fetch_rows():
+            conn = await asyncpg.connect(settings.asyncpg_dsn)
+            rows = await conn.fetch(sql)
+            await conn.close()
+            return rows
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        rows = loop.run_until_complete(fetch_rows())
+        loop.close()
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame([dict(row) for row in rows])
+    except Exception:
+        return None
+
+
+def _panel_from_rest(path: str) -> Optional[pd.DataFrame]:
+    try:
+        response = httpx.get(f"{settings.market_data_url}{path}", timeout=30.0)
+        response.raise_for_status()
+        payload = response.json()
+        rows = payload if isinstance(payload, list) else payload.get("data", [])
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame(rows)
+    except Exception:
+        return None
+
+
+@lru_cache(maxsize=1)
+def load_news_panel() -> pd.DataFrame:
+    frame = _panel_from_db(
+        """
+        SELECT symbol, available_at,
+               news_count_1d, news_count_7d, news_count_30d,
+               news_sent_1d, news_sent_7d, news_sent_30d,
+               news_sent_std_7d, news_sent_change_7d, news_sent_trend_30d,
+               news_pos_7d, news_neg_7d, news_high_impact_7d, news_event_momentum_7d,
+               earnings_sentiment
+        FROM news_daily_features
+        ORDER BY symbol, available_at
+        """
+    )
+    if frame is None:
+        frame = _panel_from_rest("/alt-data/panel/news")
+    if frame is None:
+        frame = _empty_panel(NEWS_PANEL_COLUMNS)
+    out = _normalize_dated_panel(frame, NEWS_PANEL_COLUMNS, True)
+    names = int(out["symbol"].nunique()) if not out.empty else 0
+    print(f"[news] panel: {len(out)} rows across {names} symbols", flush=True)
+    return out
+
+
+@lru_cache(maxsize=1)
+def load_social_panel() -> pd.DataFrame:
+    frame = _panel_from_db(
+        """
+        SELECT symbol, available_at,
+               social_mentions_1d, social_mentions_7d, social_mention_growth,
+               social_attention_spike, social_unique_authors_1d, social_sent_1d,
+               social_sent_change, social_bull_ratio_7d, social_bear_ratio_7d,
+               social_coordination, trends_score_7d, trends_change_7d
+        FROM social_daily_features
+        ORDER BY symbol, available_at
+        """
+    )
+    if frame is None:
+        frame = _panel_from_rest("/alt-data/panel/social")
+    if frame is None:
+        frame = _empty_panel(SOCIAL_PANEL_COLUMNS)
+    out = _normalize_dated_panel(frame, SOCIAL_PANEL_COLUMNS, True)
+    names = int(out["symbol"].nunique()) if not out.empty else 0
+    print(f"[social] panel: {len(out)} rows across {names} symbols", flush=True)
+    return out
+
+
+@lru_cache(maxsize=1)
+def load_macro_panel() -> pd.DataFrame:
+    frame = _panel_from_db(
+        """
+        SELECT available_at, usdinr, usdinr_chg_20d, usdinr_chg_60d,
+               brent, brent_chg_20d, gold_chg_20d, us10y, us10y_chg_20d,
+               spx_chg_20d, nasdaq_chg_20d, dxy_chg_20d,
+               india_cpi, india_cpi_chg, repo_rate, repo_chg_90d,
+               fii_flow_20d, dii_flow_20d
+        FROM macro_daily_features
+        ORDER BY available_at
+        """
+    )
+    if frame is None:
+        frame = _panel_from_rest("/alt-data/panel/macro")
+    if frame is None:
+        frame = _empty_panel(MACRO_PANEL_COLUMNS)
+    out = _normalize_dated_panel(frame, MACRO_PANEL_COLUMNS, False)
+    print(f"[macro] panel: {len(out)} daily rows", flush=True)
+    return out
+
+
+def attach_alt_data(market: Optional[Dict[str, pd.DataFrame]]) -> Dict[str, pd.DataFrame]:
+    context = attach_fundamentals(market)
+    if "news_panel" not in context:
+        context["news_panel"] = load_news_panel()
+    if "social_panel" not in context:
+        context["social_panel"] = load_social_panel()
+    if "macro_panel" not in context:
+        context["macro_panel"] = load_macro_panel()
     return context

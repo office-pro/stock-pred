@@ -79,7 +79,19 @@ export class ExecuteTradeRequestDto {
 }
 
 export class MlJobStartDto {
-  @IsIn(['train_all', 'predict_all', 'train_manipulation'])
+  @IsIn([
+    'run_all',
+    'ingest_fundamentals',
+    'ingest_alt_data',
+    'ingest_macro',
+    'ingest_news',
+    'ingest_social',
+    'train_all',
+    'predict_all',
+    'train_manipulation',
+    'walk_forward',
+    'ml_backtest',
+  ])
   kind!: string;
 
   @IsOptional()
@@ -156,6 +168,21 @@ export class ApiController {
     return this.proxy.get('marketData', `/stocks/${encodeURIComponent(symbol)}/compare`, {
       params: { benchmark, window },
     });
+  }
+
+  @Get('stocks/:symbol/fundamentals')
+  getFundamentals(@Param('symbol') symbol: string): Promise<unknown> {
+    return this.proxy.get('marketData', `/stocks/${encodeURIComponent(symbol)}/fundamentals`);
+  }
+
+  @Get('stocks/:symbol/alt-data')
+  getAltData(@Param('symbol') symbol: string): Promise<unknown> {
+    return this.proxy.get('marketData', `/stocks/${encodeURIComponent(symbol)}/alt-data`);
+  }
+
+  @Get('fundamentals/panel')
+  getFundamentalsPanel(): Promise<unknown> {
+    return this.proxy.get('marketData', '/fundamentals/panel');
   }
 
   @Get('indices')
@@ -291,6 +318,12 @@ export class ApiController {
   @UseGuards(JwtAuthGuard)
   getMlJob(): Promise<unknown> {
     return this.proxy.get('mlEngine', '/jobs/current');
+  }
+
+  @Get('ml/evaluations')
+  @UseGuards(JwtAuthGuard)
+  getMlEvaluations(): Promise<unknown> {
+    return this.proxy.get('mlEngine', '/evaluations');
   }
 
   @Post('ml/jobs')

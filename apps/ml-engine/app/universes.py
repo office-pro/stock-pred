@@ -101,6 +101,14 @@ def add_universe_arg(parser) -> None:
     )
 
 
+def add_full_arg(parser) -> None:
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Rebuild from scratch (ignore skip-if-fresh ingest and wipe the feature cache)",
+    )
+
+
 @lru_cache(maxsize=1)
 def _baskets() -> Dict[str, List[str]]:
     path = os.path.join(os.path.dirname(__file__), "data", "index_universes.json")

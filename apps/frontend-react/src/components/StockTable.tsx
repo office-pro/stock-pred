@@ -14,12 +14,24 @@ import {
 } from '@mui/material';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { StockQuote } from '@stockpred/shared-types';
+import type { ManipulationBand, OverextensionRisk, StockQuote } from '@stockpred/shared-types';
 import { useAppSelector } from '../store';
 import { niftyChip } from '../lib/index-universes';
 import ChangeCell from './ChangeCell';
 import PaperBuyButton from './PaperBuyButton';
 import SignalBadge from './SignalBadge';
+
+const RISK_COLOR: Record<OverextensionRisk, 'default' | 'warning' | 'error'> = {
+  NOT_EXTENDED: 'default',
+  EXTENDED: 'warning',
+  HIGH_RISK_BULLISH: 'error',
+};
+
+const SUSPICIOUS_COLOR: Record<ManipulationBand, 'default' | 'warning' | 'error'> = {
+  NORMAL: 'default',
+  SUSPICIOUS: 'warning',
+  INVESTIGATE: 'error',
+};
 
 function fmtPrice(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value) || value <= 0) return '-';
@@ -75,6 +87,8 @@ export default function StockTable({
               <TableCell align="right">Qty</TableCell>
               <TableCell align="right">Profit %</TableCell>
               <TableCell align="right">Conf</TableCell>
+              <TableCell>Risk</TableCell>
+              <TableCell>Suspicious</TableCell>
               <TableCell align="center">Paper</TableCell>
             </TableRow>
           </TableHead>
@@ -94,6 +108,8 @@ export default function StockTable({
                 (stock.scanner?.bullScore ?? 0) >= 70;
               const isMaxProfit = Boolean(maxProfitSymbol) && stock.symbol === maxProfitSymbol;
               const indexChip = niftyChip(stock.symbol);
+              const risk = stock.scanner?.risk;
+              const unusual = stock.manipulation;
               return (
                 <TableRow
                   key={`${stock.exchange}-${stock.symbol}`}
@@ -158,6 +174,24 @@ export default function StockTable({
                   </TableCell>
                   <TableCell align="right">
                     {stock.confidence ? `${stock.confidence.toFixed(0)}%` : '-'}
+                  </TableCell>
+                  <TableCell>
+                    {risk ? (
+                      <Chip size="small" color={RISK_COLOR[risk]} label={risk.replace(/_/g, ' ')} />
+                    ) : (
+                      '-'
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {unusual ? (
+                      <Chip
+                        size="small"
+                        color={SUSPICIOUS_COLOR[unusual.band]}
+                        label={`${unusual.investigateIntensity} ${unusual.band}`}
+                      />
+                    ) : (
+                      '-'
+                    )}
                   </TableCell>
                   <TableCell align="center" onClick={(event) => event.stopPropagation()}>
                     <PaperBuyButton

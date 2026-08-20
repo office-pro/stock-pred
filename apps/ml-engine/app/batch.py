@@ -2,7 +2,7 @@
 from typing import List, Optional
 
 from .config import HORIZONS
-from .data import load_market_context, load_universe
+from .data import load_macro_panel, load_news_panel, load_social_panel, load_fundamentals_panel, load_market_context, load_universe
 from .persistence import cache_prediction, persist_latest_file
 from .predict import get_models, missing_models_message, models_available, predict_symbol
 from .universes import add_universe_arg, normalize_universe
@@ -26,6 +26,10 @@ def run(
         except FileNotFoundError:
             continue
     load_market_context(120)
+    load_fundamentals_panel()
+    load_news_panel()
+    load_social_panel()
+    load_macro_panel()
     print("[batch] models ready", flush=True)
     written = 0
     for i, symbol in enumerate(names):

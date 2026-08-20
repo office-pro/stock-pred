@@ -13,7 +13,7 @@ from typing import Dict, List
 import numpy as np
 
 from .config import HORIZONS, SEQUENCE_LENGTH, settings
-from .data import load_candles, load_market_context, load_universe
+from .data import attach_alt_data, load_candles, load_market_context, load_universe
 from .features import FEATURE_COLUMNS, build_features
 from .models.ensemble import blend_probabilities, decide, expected_move
 from .persistence import persist_outcomes_sync
@@ -101,7 +101,7 @@ def score_horizon(horizon: str, symbols: List[str], lookback: int = 20) -> List[
         models = get_models(horizon)
     except FileNotFoundError:
         return []
-    market = load_market_context(120)
+    market = attach_alt_data(load_market_context(120))
     outcomes: List[dict] = []
 
     for symbol in symbols:
@@ -111,7 +111,7 @@ def score_horizon(horizon: str, symbols: List[str], lookback: int = 20) -> List[
             continue
         if len(candles) < SEQUENCE_LENGTH + bars + 5:
             continue
-        features = build_features(candles, market)
+        features = build_features(candles, market, symbol=symbol)
         matrix = np.nan_to_num(features[FEATURE_COLUMNS].to_numpy(dtype="float32"), nan=0.0)
         closes = features["close"].to_numpy()
         times = features["time"].to_numpy()
@@ -122,15 +122,8 @@ def score_horizon(horizon: str, symbols: List[str], lookback: int = 20) -> List[
             if window.shape[0] < SEQUENCE_LENGTH:
                 continue
             x_scaled = models.scaler.transform(window)
-            latest = x_scaled[-1:]
             try:
-                probas = {
-                    "xgboost": models.xgb.predict_proba(latest),
-                    "lightgbm": models.lgbm.predict_proba(latest),
-                    "lstm": models.lstm.predict_proba_last(x_scaled),
-                    "transformer": models.transformer.predict_proba_last(x_scaled),
-                }
-                blended = blend_probabilities(probas)[0]
+                blended = blend_probabilities(models.probabilities(x_scaled))[0]
                 decision = decide(blended)
             except Exception:  # noqa: BLE001
                 continue
@@ -209,14 +202,22 @@ def score_all(limit_symbols: int = 80, lookback: int = 20, symbols: List[str] | 
 
 
 def load_accuracy(horizon: str | None = None) -> dict:
-    path = os.path.join(settings.models_dir, "accuracy.json")
-    if not os.path.exists(path):
-        return {}
-    with open(path, "r", encoding="utf8") as handle:
-        payload = json.load(handle)
+    holdout_path = os.path.join(settings.models_dir, "holdout.json")
+    accuracy_path = os.path.join(settings.models_dir, "accuracy.json")
+    payload: dict = {}
+    if os.path.exists(accuracy_path):
+        with open(accuracy_path, "r", encoding="utf8") as handle:
+            payload = json.load(handle)
+    holdout: dict = {}
+    if os.path.exists(holdout_path):
+        with open(holdout_path, "r", encoding="utf8") as handle:
+            holdout = json.load(handle)
     if horizon:
-        return payload.get(horizon, {})
-    return payload
+        row = holdout.get(horizon) or payload.get(horizon, {})
+        return row if isinstance(row, dict) else {}
+    merged = dict(payload)
+    merged.update(holdout)
+    return merged
 
 
 def main() -> None:

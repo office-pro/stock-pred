@@ -356,10 +356,8 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       | 'bull'
       | 'best';
     const bestPickMode = suggestionUpper === 'BEST';
-    const includeScanner = sortKey === 'bull' || bestPickMode || suggestionUpper === 'ACTIONABLE';
-    let quotes = [...this.stocks.values()].map((state) =>
-      this.toQuote(state, horizonKey, includeScanner),
-    );
+    // Always attach scanner + manipulation so dashboard/predictions can show Risk / Suspicious.
+    let quotes = [...this.stocks.values()].map((state) => this.toQuote(state, horizonKey, true));
     const counts = {
       NSE: quotes.filter((q) => q.exchange === Exchange.NSE).length,
       BSE: quotes.filter((q) => q.exchange === Exchange.BSE).length,
