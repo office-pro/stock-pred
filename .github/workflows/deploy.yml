@@ -1,0 +1,87 @@
+name: deploy
+
+on:
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target Azure environment
+        type: choice
+        options: [development, production]
+        default: development
+
+concurrency:
+  group: deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'development') }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'development') }}
+      url: ${{ vars.APP_URL }}
+    env:
+      TARGET_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'development') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard against destructive commands
+        run: |
+          if grep -R --include='*.sh' -nE 'docker compose down[[:space:]].*-v|prisma migrate reset|dropdb |flexible-server delete' scripts/azure \
+            | grep -vE 'refusing|disabled|never'; then
+            echo "unsafe deploy command found" >&2
+            exit 1
+          fi
+
+      - name: Install rsync
+        run: sudo apt-get update -y && sudo apt-get install -y rsync openssh-client
+
+      - name: SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Rsync code (no .env, no ml-models)
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          ssh "${SSH_USER}@${SSH_HOST}" "mkdir -p /opt/stockpred"
+          rsync -az --delete --exclude-from=scripts/azure/rsync-exclude.txt \
+            ./ "${SSH_USER}@${SSH_HOST}:/opt/stockpred/"
+
+      - name: Deploy on VM
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          ssh "${SSH_USER}@${SSH_HOST}" \
+            "chmod +x /opt/stockpred/scripts/azure/*.sh && \
+             GITHUB_SHA='${{ github.sha }}' STOCKPRED_DEPLOY_ROOT=/opt/stockpred \
+             /opt/stockpred/scripts/azure/deploy.sh --on-server --env '${TARGET_ENV}' --force"
+
+      - name: Health check
+        env:
+          HEALTH_URL: ${{ vars.HEALTH_URL }}
+        run: |
+          if [ -z "${HEALTH_URL}" ]; then
+            echo "HEALTH_URL not set on the GitHub Environment — skip remote curl"
+            exit 0
+          fi
+          curl -fsS --retry 12 --retry-delay 5 --retry-all-errors "${HEALTH_URL}"
+
+      - name: Print URLs
+        run: |
+          {
+            echo "## ${TARGET_ENV}"
+            echo "- App: ${{ vars.APP_URL }}"
+            echo "- Health: ${{ vars.HEALTH_URL }}"
+            echo "- ML Lab: ${{ vars.APP_URL }}/ml-lab"
+          } >> "$GITHUB_STEP_SUMMARY"
