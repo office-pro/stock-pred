@@ -1,0 +1,21 @@
+# Public edge for Azure VMs. CADDY_SITE is http://:80 until DNS exists,
+# then e.g. https://dev.example.com or https://example.com
+{$CADDY_SITE:http://:80} {
+	encode gzip
+
+	handle /health* {
+		reverse_proxy api-gateway:3000
+	}
+
+	handle /api* {
+		reverse_proxy api-gateway:3000
+	}
+
+	handle /socket.io* {
+		reverse_proxy api-gateway:3000
+	}
+
+	handle {
+		reverse_proxy frontend:80
+	}
+}
