@@ -23,7 +23,7 @@ export class BacktestService {
     const fullRequest: Required<BacktestRequest> = {
       symbol: request.symbol.toUpperCase(),
       years: request.years,
-      initialCapital: request.initialCapital ?? getEnvNumber('PAPER_TRADING_CAPITAL', 1_000_000),
+      initialCapital: request.initialCapital ?? getEnvNumber('PAPER_TRADING_CAPITAL', 10_000_000),
       riskPerTradePercent: request.riskPerTradePercent ?? getEnvNumber('RISK_PER_TRADE_PCT', 1),
     };
     const bars = fullRequest.years * TRADING_DAYS_PER_YEAR + WARMUP_BARS;

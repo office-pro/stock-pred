@@ -99,7 +99,7 @@ export default function PortfolioPage(): JSX.Element {
       </Box>
 
       <Alert severity="info" sx={{ mb: 2 }}>
-        Virtual ₹{inr(portfolio?.capital ?? 1_000_000)} starting cash. Each open lot shows live
+        Virtual ₹{inr(portfolio?.capital ?? 10_000_000)} starting cash. Each open lot shows live
         price, bought at, and profit or loss %. Use <b>Buy more</b> or <b>Sell</b> on a lot, or
         Paper Buy from Dashboard → Alerts. No live broker. This is not investment advice.
       </Alert>

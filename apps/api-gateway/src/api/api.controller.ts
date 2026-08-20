@@ -154,6 +154,16 @@ export class ApiController {
     });
   }
 
+  @Get('stocks/:symbol/candles/mtf')
+  getMultiTimeframeCandles(
+    @Param('symbol') symbol: string,
+    @Query('limit', new DefaultValuePipe(120), ParseIntPipe) limit = 120,
+  ): Promise<unknown> {
+    return this.proxy.get('marketData', `/stocks/${encodeURIComponent(symbol)}/candles/mtf`, {
+      params: { limit },
+    });
+  }
+
   @Get('stocks/:symbol/depth')
   getDepth(@Param('symbol') symbol: string): Promise<unknown> {
     return this.proxy.get('marketData', `/stocks/${encodeURIComponent(symbol)}/depth`);
@@ -175,14 +185,83 @@ export class ApiController {
     return this.proxy.get('marketData', `/stocks/${encodeURIComponent(symbol)}/fundamentals`);
   }
 
+  @Post('stocks/:symbol/fundamentals/ingest')
+  @UseGuards(OptionalJwtAuthGuard)
+  ingestFundamentals(
+    @Param('symbol') symbol: string,
+    @Query('full') full?: string,
+  ): Promise<unknown> {
+    return this.proxy.post(
+      'marketData',
+      `/stocks/${encodeURIComponent(symbol)}/fundamentals/ingest`,
+      undefined,
+      { params: { full }, timeout: 300_000 },
+    );
+  }
+
+  @Post('stocks/:symbol/technical/refresh')
+  @UseGuards(OptionalJwtAuthGuard)
+  refreshTechnical(@Param('symbol') symbol: string): Promise<unknown> {
+    return this.proxy.post(
+      'marketData',
+      `/stocks/${encodeURIComponent(symbol)}/technical/refresh`,
+      undefined,
+      { timeout: 300_000 },
+    );
+  }
+
+  @Get('stocks/:symbol/peer-valuation')
+  getPeerValuation(@Param('symbol') symbol: string): Promise<unknown> {
+    return this.proxy.get('marketData', `/stocks/${encodeURIComponent(symbol)}/peer-valuation`);
+  }
+
   @Get('stocks/:symbol/alt-data')
   getAltData(@Param('symbol') symbol: string): Promise<unknown> {
     return this.proxy.get('marketData', `/stocks/${encodeURIComponent(symbol)}/alt-data`);
   }
 
+  @Post('stocks/:symbol/alt-data/news/ingest')
+  @UseGuards(OptionalJwtAuthGuard)
+  ingestNews(@Param('symbol') symbol: string, @Query('full') full?: string): Promise<unknown> {
+    return this.proxy.post(
+      'marketData',
+      `/stocks/${encodeURIComponent(symbol)}/alt-data/news/ingest`,
+      undefined,
+      { params: { full }, timeout: 300_000 },
+    );
+  }
+
+  @Post('stocks/:symbol/alt-data/social/ingest')
+  @UseGuards(OptionalJwtAuthGuard)
+  ingestSocial(@Param('symbol') symbol: string, @Query('full') full?: string): Promise<unknown> {
+    return this.proxy.post(
+      'marketData',
+      `/stocks/${encodeURIComponent(symbol)}/alt-data/social/ingest`,
+      undefined,
+      { params: { full }, timeout: 300_000 },
+    );
+  }
+
+  @Post('alt-data/ingest/macro')
+  @UseGuards(OptionalJwtAuthGuard)
+  ingestMacro(
+    @Query('full') full?: string,
+    @Query('includeIndia') includeIndia?: string,
+  ): Promise<unknown> {
+    return this.proxy.post('marketData', '/alt-data/ingest/macro', undefined, {
+      params: { full, includeIndia },
+      timeout: 300_000,
+    });
+  }
+
   @Get('fundamentals/panel')
   getFundamentalsPanel(): Promise<unknown> {
     return this.proxy.get('marketData', '/fundamentals/panel');
+  }
+
+  @Get('fundamentals/sector-medians')
+  getSectorMedians(): Promise<unknown> {
+    return this.proxy.get('marketData', '/fundamentals/sector-medians');
   }
 
   @Get('indices')
@@ -381,6 +460,11 @@ export class ApiController {
     return this.proxy.get('autoTrader', '/portfolio');
   }
 
+  @Get('holdings')
+  getHoldings(): Promise<unknown> {
+    return this.proxy.get('autoTrader', '/holdings');
+  }
+
   @Get('trades')
   getTrades(@Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50): Promise<unknown> {
     return this.proxy.get('autoTrader', '/trades', { params: { limit } });
@@ -393,6 +477,113 @@ export class ApiController {
     return this.proxy.post('autoTrader', '/circuit-breaker/reset', undefined, {
       headers: { 'x-user-id': request.user?.sub ?? 'unknown-admin' },
     });
+  }
+
+  // ----------------------------------------------------------- trader agent
+
+  @Get('agent/mode')
+  agentMode(): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/mode');
+  }
+
+  @Post('agent/trading-enabled')
+  @UseGuards(OptionalJwtAuthGuard)
+  setAgentTradingEnabled(@Body() body: unknown): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/trading-enabled', body);
+  }
+
+  @Post('agent/mode')
+  @UseGuards(OptionalJwtAuthGuard)
+  setAgentMode(@Body() body: unknown): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/mode', body);
+  }
+
+  @Post('agent/kill-switch')
+  @UseGuards(OptionalJwtAuthGuard)
+  agentKillSwitch(@Body() body: unknown): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/kill-switch', body);
+  }
+
+  @Get('agent/capabilities')
+  agentCapabilities(): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/capabilities');
+  }
+
+  @Get('agent/capability-requests')
+  agentCapabilityRequests(): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/capability-requests');
+  }
+
+  @Post('agent/capability-requests/ack')
+  @UseGuards(OptionalJwtAuthGuard)
+  ackCapability(@Body() body: unknown): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/capability-requests/ack', body);
+  }
+
+  @Get('agent/suggestions')
+  agentSuggestions(): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/suggestions');
+  }
+
+  @Post('agent/suggestions/:id/ack')
+  @UseGuards(OptionalJwtAuthGuard)
+  ackAgentSuggestion(@Param('id') id: string): Promise<unknown> {
+    return this.proxy.post('traderAgent', `/agent/suggestions/${encodeURIComponent(id)}/ack`, {});
+  }
+
+  @Post('agent/suggestions/:id/implement')
+  @UseGuards(OptionalJwtAuthGuard)
+  implementAgentSuggestion(@Param('id') id: string): Promise<unknown> {
+    return this.proxy.post(
+      'traderAgent',
+      `/agent/suggestions/${encodeURIComponent(id)}/implement`,
+      {},
+    );
+  }
+
+  @Get('agent/opportunities')
+  agentOpportunities(@Query('limit') limit?: string): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/opportunities', {
+      params: { limit: limit ?? 20 },
+    });
+  }
+
+  @Get('agent/analysis/:symbol')
+  agentAnalysis(@Param('symbol') symbol: string): Promise<unknown> {
+    return this.proxy.get('traderAgent', `/agent/analysis/${encodeURIComponent(symbol)}`);
+  }
+
+  @Get('agent/positions')
+  agentPositions(): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/positions');
+  }
+
+  @Get('agent/portfolio')
+  agentPortfolio(): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/portfolio');
+  }
+
+  @Post('agent/recommendations/:id/approve')
+  @UseGuards(OptionalJwtAuthGuard)
+  approveAgentRecommendation(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post(
+      'traderAgent',
+      `/agent/recommendations/${encodeURIComponent(id)}/approve`,
+      body,
+      {
+        headers: request.user?.sub ? { 'x-user-id': request.user.sub } : undefined,
+      },
+    );
+  }
+
+  @Post('agent/broker-ready')
+  @UseGuards(OptionalJwtAuthGuard)
+  agentBrokerReady(@Body() body: unknown): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/broker-ready', body);
   }
 
   // ------------------------------------------------------------ notifications

@@ -47,3 +47,7 @@ cypress/screenshots/
 
 # Prisma
 packages/database/prisma/dev.db
+
+# Trader-agent retained suggestion cards / Cursor task briefs
+apps/trader-agent/data/
+.cursor/agent-tasks/

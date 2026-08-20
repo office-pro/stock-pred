@@ -136,6 +136,7 @@ function buildCatalog(pythonCmd) {
     nestService('backtest-service', 3005),
     nestService('auto-trader', 3006),
     nestService('notification-service', 3007),
+    nestService('trader-agent', 3008),
     nestService('api-gateway', 3000, 60_000),
     {
       name: 'ml-engine',
@@ -169,7 +170,14 @@ function buildCatalog(pythonCmd) {
 
 const START_WAVES = [
   ['auth-service', 'market-data-service'],
-  ['signal-engine', 'pattern-engine', 'backtest-service', 'auto-trader', 'notification-service'],
+  [
+    'signal-engine',
+    'pattern-engine',
+    'backtest-service',
+    'auto-trader',
+    'notification-service',
+    'trader-agent',
+  ],
   ['api-gateway', 'ml-engine'],
   ['frontend'],
 ];
@@ -328,6 +336,7 @@ function overlayEnv(startedInfra) {
   env.BACKTEST_SERVICE_URL = env.BACKTEST_SERVICE_URL || 'http://localhost:3005';
   env.AUTO_TRADER_URL = env.AUTO_TRADER_URL || 'http://localhost:3006';
   env.NOTIFICATION_SERVICE_URL = env.NOTIFICATION_SERVICE_URL || 'http://localhost:3007';
+  env.TRADER_AGENT_URL = env.TRADER_AGENT_URL || 'http://localhost:3008';
   env.ML_ENGINE_URL = env.ML_ENGINE_URL || 'http://localhost:8000';
   env.ML_MODELS_DIR = path.resolve(ROOT, env.ML_MODELS_DIR || './ml-models');
   env.CORS_ORIGIN = env.CORS_ORIGIN || 'http://localhost:8080,http://localhost:5173';
@@ -544,6 +553,7 @@ const DOCKER_APPS = [
   { name: 'backtest-service', health: 'http://127.0.0.1:3005/health' },
   { name: 'auto-trader', health: 'http://127.0.0.1:3006/health' },
   { name: 'notification-service', health: 'http://127.0.0.1:3007/health' },
+  { name: 'trader-agent', health: 'http://127.0.0.1:3008/health' },
   { name: 'api-gateway', health: 'http://127.0.0.1:3000/health' },
   { name: 'ml-engine', health: 'http://127.0.0.1:8000/health' },
   { name: 'frontend', health: 'http://127.0.0.1:8080/' },

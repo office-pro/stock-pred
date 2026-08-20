@@ -7,3 +7,4 @@ export * from './auth';
 export * from './api';
 export * from './scanner';
 export * from './manipulation';
+export * from './agent';

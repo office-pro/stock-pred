@@ -18,7 +18,11 @@ import {
   Typography,
 } from '@mui/material';
 import { authErrorMessage } from '../lib/auth-errors';
-import { useConfigureBrokerMutation, useTestBrokerConnectionMutation } from '../store/api';
+import {
+  useConfigureBrokerMutation,
+  useNotifyAgentBrokerReadyMutation,
+  useTestBrokerConnectionMutation,
+} from '../store/api';
 
 interface BrokerConfig {
   brokerType: 'PAPER' | 'ZERODHA' | 'ANGELONE' | 'UPSTOX' | 'SHOONYA' | 'FYERS';
@@ -61,6 +65,7 @@ export const BrokerConfigPage: React.FC = () => {
   } | null>(null);
   const [configureBroker, { isLoading: saving }] = useConfigureBrokerMutation();
   const [testBroker, { isLoading: testing }] = useTestBrokerConnectionMutation();
+  const [notifyAgent] = useNotifyAgentBrokerReadyMutation();
   const loading = saving || testing;
 
   const selectedBrokerConfig = BROKER_CONFIGS[brokerType];
@@ -88,6 +93,10 @@ export const BrokerConfigPage: React.FC = () => {
         brokerType,
         credentials: selectedBrokerConfig.fields.length > 0 ? credentials : undefined,
       }).unwrap();
+      await notifyAgent({
+        configured: true,
+        testOk: brokerType === 'PAPER' ? true : undefined,
+      }).catch(() => undefined);
       setMessage({
         type: 'success',
         text:
@@ -107,11 +116,13 @@ export const BrokerConfigPage: React.FC = () => {
   const handleTest = async () => {
     try {
       const result = await testBroker({ brokerType }).unwrap();
+      await notifyAgent({ configured: true, testOk: true }).catch(() => undefined);
       setMessage({
         type: 'success',
         text: result.message || `Successfully connected to ${brokerType}`,
       });
     } catch (error) {
+      await notifyAgent({ configured: true, testOk: false }).catch(() => undefined);
       setMessage({
         type: 'error',
         text: authErrorMessage(error, 'Connection test failed'),

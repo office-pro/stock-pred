@@ -28,6 +28,8 @@ import type { PatternEventView } from '@stockpred/shared-types';
 import CandleChart, { ChartSignalMarker } from '../components/CandleChart';
 import FundamentalsPanel from '../components/FundamentalsPanel';
 import AltDataPanel from '../components/AltDataPanel';
+import StockIngestPanel from '../components/StockIngestPanel';
+import TradeThesisPanel from '../components/TradeThesisPanel';
 import LivePriceStrip from '../components/LivePriceStrip';
 import ManipulationPanel from '../components/ManipulationPanel';
 import PaperBuyButton from '../components/PaperBuyButton';
@@ -39,6 +41,7 @@ import {
   useGetCompareQuery,
   useGetDepthQuery,
   useGetFundamentalsQuery,
+  useGetPeerValuationQuery,
   useGetAltDataQuery,
   useGetIndexCandlesQuery,
   useGetPortfolioQuery,
@@ -94,16 +97,23 @@ export default function StockDetailPage(): JSX.Element {
     severity: 'success' | 'error' | 'info';
   } | null>(null);
 
-  const { data: stock } = useGetStockQuery(upper, { pollingInterval: 3_000 });
-  const { data: fundamentals } = useGetFundamentalsQuery(upper);
-  const { data: altData } = useGetAltDataQuery(upper);
+  const { data: stock, refetch: refetchStock } = useGetStockQuery(upper, {
+    pollingInterval: 3_000,
+  });
+  const { data: fundamentals, refetch: refetchFundamentals } = useGetFundamentalsQuery(upper);
+  const { data: peer } = useGetPeerValuationQuery(upper);
+  const { data: altData, refetch: refetchAltData } = useGetAltDataQuery(upper);
   const { data: portfolio } = useGetPortfolioQuery(undefined, { pollingInterval: 10_000 });
   const paperLot = holdingForSymbol(portfolio?.holdings, upper);
-  const { data: candles, isLoading } = useGetCandlesQuery({
+  const {
+    data: candles,
+    isLoading,
+    refetch: refetchCandles,
+  } = useGetCandlesQuery({
     symbol: upper,
     limit: FULL_HISTORY_LIMIT,
   });
-  const { data: sr } = useGetSupportResistanceQuery(upper);
+  const { data: sr, refetch: refetchSr } = useGetSupportResistanceQuery(upper);
   const { data: signals } = useGetSymbolSignalsQuery(upper, { pollingInterval: 30_000 });
   const { data: patterns } = useGetSymbolPatternsQuery(upper);
   const { data: predictions, isError: predictionsUnavailable } = useGetPredictionsQuery(upper);
@@ -464,6 +474,32 @@ export default function StockDetailPage(): JSX.Element {
       )}
 
       <Grid container spacing={2}>
+        <Grid item xs={12}>
+          <TradeThesisPanel
+            stock={stock}
+            altData={altData}
+            fundamentals={fundamentals}
+            peer={peer}
+            paperAction={paperAction}
+            predictions={predictions?.predictions}
+            patternOutlook={patterns?.outlook ?? null}
+            signalConfidence={current?.confidence ?? stock?.confidence ?? null}
+            signalRules={current?.rules ?? null}
+          />
+        </Grid>
+        <Grid item xs={12}>
+          <StockIngestPanel
+            symbol={upper}
+            onToast={(text, severity) => setToast({ text, severity })}
+            onRefetch={() => {
+              void refetchStock();
+              void refetchFundamentals();
+              void refetchAltData();
+              void refetchCandles();
+              void refetchSr();
+            }}
+          />
+        </Grid>
         <Grid item xs={12}>
           <FundamentalsPanel data={fundamentals} />
         </Grid>

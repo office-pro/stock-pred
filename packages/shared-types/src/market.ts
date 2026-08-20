@@ -167,6 +167,32 @@ export interface FundamentalView {
   missing: boolean;
 }
 
+/** PE/PB vs sector peer medians for relative valuation. */
+export interface PeerValuationView {
+  symbol: string;
+  sector: string | null;
+  pe: number | null;
+  pb: number | null;
+  sectorMedianPe: number | null;
+  sectorMedianPb: number | null;
+  /** Symbols in the sector with a usable PE (includes this symbol when PE is present). */
+  peerCount: number;
+  /** (pe / medianPe - 1) * 100; null when either side missing. */
+  peVsMedianPct: number | null;
+  /** (pb / medianPb - 1) * 100; null when either side missing. */
+  pbVsMedianPct: number | null;
+  missing: boolean;
+}
+
+/** Multi-timeframe intraday candle pack (1m source + aggregated 5m/15m/1h). */
+export interface MultiTimeframeCandles {
+  symbol: string;
+  '1m': Candle[];
+  '5m': Candle[];
+  '15m': Candle[];
+  '1h': Candle[];
+}
+
 /** Latest as-of news/social/macro for UI (not a second buy/sell score). */
 export interface AltDataView {
   symbol: string;

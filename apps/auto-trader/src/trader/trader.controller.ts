@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { Transform } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNumber,
@@ -65,6 +66,11 @@ export class BrokerTestDto {
   brokerType!: string;
 }
 
+export class AgentTradingEnabledDto {
+  @IsBoolean()
+  enabled!: boolean;
+}
+
 @Controller()
 export class TraderController {
   constructor(private readonly trader: TraderService) {}
@@ -72,6 +78,11 @@ export class TraderController {
   @Get('portfolio')
   portfolio(): Promise<PortfolioSnapshot> {
     return this.trader.getPortfolio();
+  }
+
+  @Get('holdings')
+  holdings(): Promise<{ holdings: PortfolioSnapshot['holdings'] }> {
+    return this.trader.getHoldings();
   }
 
   @Get('trades')
@@ -111,5 +122,15 @@ export class TraderController {
   @Post('brokers/test')
   async testBroker(@Body() dto: BrokerTestDto): Promise<{ success: boolean; message: string }> {
     return this.trader.testBrokerConnection(dto.brokerType);
+  }
+
+  @Get('agent-trading/enabled')
+  getAgentTradingEnabled(): { agentTradingEnabled: boolean } {
+    return { agentTradingEnabled: this.trader.isAgentTradingEnabled() };
+  }
+
+  @Post('agent-trading/enabled')
+  setAgentTradingEnabled(@Body() dto: AgentTradingEnabledDto): { agentTradingEnabled: boolean } {
+    return this.trader.setAgentTradingEnabled(dto.enabled);
   }
 }

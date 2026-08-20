@@ -22,6 +22,14 @@ const YAHOO_SERIES: Array<{ id: string; ticker: string; lagDays: number }> = [
   { id: 'dxy', ticker: 'DX-Y.NYB', lagDays: 1 },
 ];
 
+/** Extra India-focused series pulled on per-symbol / deep macro ingest. */
+const YAHOO_INDIA_SERIES: Array<{ id: string; ticker: string; lagDays: number }> = [
+  { id: 'nifty50', ticker: '^NSEI', lagDays: 0 },
+  { id: 'india_vix', ticker: '^INDIAVIX', lagDays: 0 },
+  { id: 'banknifty', ticker: '^NSEBANK', lagDays: 0 },
+  { id: 'usdinr_b', ticker: 'USDINR=X', lagDays: 0 },
+];
+
 const FRED_SERIES: Array<{ id: string; fred: string; lagDays: number }> = [
   { id: 'india_cpi', fred: 'FPCPITOTLZGIND', lagDays: 90 },
   { id: 'repo_rate', fred: 'INTDSRINM193N', lagDays: 14 },
@@ -34,7 +42,9 @@ function sleep(ms: number): Promise<void> {
 }
 
 export function yahooMacroAvailableAt(seriesId: string, asOfDate: Date): Date {
-  const series = YAHOO_SERIES.find((row) => row.id === seriesId);
+  const series =
+    YAHOO_SERIES.find((row) => row.id === seriesId) ??
+    YAHOO_INDIA_SERIES.find((row) => row.id === seriesId);
   const lagDays = series?.lagDays ?? 1;
   return new Date(asOfDate.getTime() + lagDays * DAY_MS);
 }
@@ -53,9 +63,12 @@ function utcDay(ms: number): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
-export async function fetchYahooMacroSeries(): Promise<MacroPoint[]> {
+export async function fetchYahooMacroSeries(options?: {
+  includeIndia?: boolean;
+}): Promise<MacroPoint[]> {
+  const catalog = options?.includeIndia ? [...YAHOO_SERIES, ...YAHOO_INDIA_SERIES] : YAHOO_SERIES;
   const points: MacroPoint[] = [];
-  for (const series of YAHOO_SERIES) {
+  for (const series of catalog) {
     try {
       const response = await axios.get<YahooChart>(
         `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(series.ticker)}`,
@@ -77,7 +90,10 @@ export async function fetchYahooMacroSeries(): Promise<MacroPoint[]> {
           asOfDate,
           availableAt: yahooMacroAvailableAt(series.id, asOfDate),
           value: close,
-          source: 'yahoo',
+          source:
+            options?.includeIndia && YAHOO_INDIA_SERIES.some((row) => row.id === series.id)
+              ? 'yahoo-india'
+              : 'yahoo',
         });
       }
     } catch {

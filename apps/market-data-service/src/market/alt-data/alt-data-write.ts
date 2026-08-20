@@ -2,13 +2,11 @@ import { getPrismaClient } from '@stockpred/database';
 import { EARNINGS_EVENTS, scoreHeadline } from './news-nlp';
 import {
   dedupeHeadlines,
-  fetchGdelt,
-  fetchGoogleNews,
-  fetchYahooNews,
+  fetchMultiSourceNews,
   filterGdeltByAliases,
   type Headline,
 } from './news-fetch';
-import { fetchReddit, type SocialPost } from './social-fetch';
+import { fetchMultiSourceSocial, type SocialPost } from './social-fetch';
 import { parseUniverse, resolveUniverseSymbols, type AltUniverseId } from './universe';
 import { fetchFredSeries, fetchYahooMacroSeries, type MacroPoint } from './yahoo-macro';
 import { isIstSessionAsOf, istSessionUtcDay } from './ingest-freshness';
@@ -240,6 +238,8 @@ export async function ingestNewsSymbol(
   skipped?: boolean;
   reason?: string;
   cached?: boolean;
+  sources?: string[];
+  sourceCounts?: Record<string, number>;
 }> {
   const prisma = getPrismaClient();
   try {
@@ -255,14 +255,19 @@ export async function ingestNewsSymbol(
     }
     const stock = await prisma.stock.findUnique({ where: { symbol } });
     const aliases = await aliasesFor(symbol);
-    const [google, yahoo, gdelt] = await Promise.all([
-      fetchGoogleNews(symbol, stock?.name),
-      stock?.yahooSymbol ? fetchYahooNews(stock.yahooSymbol) : fetchYahooNews(`${symbol}.NS`),
-      fetchGdelt(stock?.name || symbol).then((rows) => filterGdeltByAliases(rows, aliases)),
-    ]);
-    const headlines = [...google, ...yahoo, ...gdelt];
+    const { headlines, sources, counts } = await fetchMultiSourceNews({
+      symbol,
+      name: stock?.name,
+      yahooTicker: stock?.yahooSymbol,
+      aliases,
+    });
     const result = await upsertNews(symbol, headlines);
-    return { symbol, snapshots: result.daily };
+    return {
+      symbol,
+      snapshots: result.daily,
+      sources,
+      sourceCounts: counts,
+    };
   } catch (error) {
     return {
       symbol,
@@ -303,6 +308,8 @@ export async function ingestSocialSymbol(
   skipped?: boolean;
   reason?: string;
   cached?: boolean;
+  sources?: string[];
+  sourceCounts?: Record<string, number>;
 }> {
   try {
     if (!options?.full) {
@@ -316,9 +323,11 @@ export async function ingestSocialSymbol(
         return { symbol, snapshots: 0, cached: true };
       }
     }
-    const posts = await fetchReddit(symbol);
+    const prisma = getPrismaClient();
+    const stock = await prisma.stock.findUnique({ where: { symbol } });
+    const { posts, sources, counts } = await fetchMultiSourceSocial(symbol, stock?.name);
     const daily = await rollSocialDaily(symbol, posts);
-    return { symbol, snapshots: daily };
+    return { symbol, snapshots: daily, sources, sourceCounts: counts };
   } catch (error) {
     return {
       symbol,
@@ -444,8 +453,9 @@ async function rollSocialDaily(symbol: string, posts: SocialPost[]): Promise<num
       bullRatio7d: d7.filter((post) => post.sentiment > 0.15).length / Math.max(d7.length, 1),
       bearRatio7d: d7.filter((post) => post.sentiment < -0.15).length / Math.max(d7.length, 1),
       coordination: d1.length >= 4 ? clip(1 - unique / Math.max(d1.length, 1), 0, 1) : 0,
-      trendsScore7d: 0,
-      trendsChange7d: 0,
+      // Attention proxy from multi-source post volume (0–1 scale).
+      trendsScore7d: clip(d7.length / 40, 0, 1),
+      trendsChange7d: clip((d1.length - baseline) / Math.max(baseline, 1), -1, 1),
     };
   });
   return upsertSocialDaily(symbol, packed);
@@ -453,7 +463,14 @@ async function rollSocialDaily(symbol: string, posts: SocialPost[]): Promise<num
 
 export async function ingestMacro(options?: {
   full?: boolean;
-}): Promise<{ observations: number; daily: number; cached?: boolean }> {
+  /** When true (per-symbol stock page), also pull Nifty / India VIX / Bank Nifty. */
+  includeIndia?: boolean;
+}): Promise<{
+  observations: number;
+  daily: number;
+  cached?: boolean;
+  sources?: string[];
+}> {
   const prisma = getPrismaClient();
   try {
     if (!options?.full) {
@@ -463,10 +480,15 @@ export async function ingestMacro(options?: {
       });
       if (existing && isIstSessionAsOf(existing.asOfDate)) {
         console.log(`[macro] cached asOf=${today.toISOString().slice(0, 10)}`);
-        return { observations: 0, daily: 0, cached: true };
+        return { observations: 0, daily: 0, cached: true, sources: ['cache'] };
       }
     }
-    const points = [...(await fetchYahooMacroSeries()), ...(await fetchFredSeries())];
+    const includeIndia = Boolean(options?.includeIndia);
+    const [yahooPoints, fredPoints] = await Promise.all([
+      fetchYahooMacroSeries({ includeIndia }),
+      fetchFredSeries(),
+    ]);
+    const points = [...yahooPoints, ...fredPoints];
     for (const point of points) {
       await prisma.macroObservation.upsert({
         where: { seriesId_asOfDate: { seriesId: point.seriesId, asOfDate: point.asOfDate } },
@@ -475,7 +497,8 @@ export async function ingestMacro(options?: {
       });
     }
     const daily = await rollMacroDaily(points);
-    return { observations: points.length, daily };
+    const sources = [...new Set(points.map((row) => row.source))].sort();
+    return { observations: points.length, daily, sources };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('does not exist')) {

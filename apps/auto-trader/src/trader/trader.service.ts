@@ -30,7 +30,13 @@ import {
   TradeStatus,
   TradingMode,
 } from '@stockpred/shared-types';
-import { getEnv, getEnvNumber, positionSize, round2 } from '@stockpred/shared-utils';
+import {
+  getEnv,
+  getEnvNumber,
+  positionSize,
+  round2,
+  evaluateExitPolicy,
+} from '@stockpred/shared-utils';
 import { RiskManager } from './risk-manager';
 
 interface OpenPosition {
@@ -39,8 +45,11 @@ interface OpenPosition {
   quantity: number;
   entryPrice: number;
   target: number;
+  target2?: number;
   stopLoss: number;
   openedAt: number;
+  /** Soft thesis score from last agent/ML blend; null = unknown. */
+  thesisScore?: number | null;
 }
 
 /**
@@ -82,10 +91,12 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     ),
   });
 
-  private cash = getEnvNumber('PAPER_TRADING_CAPITAL', 1_000_000);
+  private cash = getEnvNumber('PAPER_TRADING_CAPITAL', 10_000_000);
   private readonly initialCapital = this.cash;
   private realizedPnl = 0;
   private selectedBroker = 'PAPER';
+  /** When false, only hard target/stop exits run — agent trail/partial policy is off. */
+  private agentTradingEnabled = false;
   private readonly positions = new Map<string, OpenPosition>();
   private readonly lastPrices = new Map<string, number>();
   private readonly tickets: ExecutedTrade[] = [];
@@ -212,6 +223,11 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
   async getPortfolio(): Promise<PortfolioSnapshot> {
     await this.refreshHoldingQuotes();
     return this.snapshotPortfolio();
+  }
+
+  async getHoldings(): Promise<{ holdings: PaperHolding[] }> {
+    const portfolio = await this.getPortfolio();
+    return { holdings: portfolio.holdings };
   }
 
   private snapshotPortfolio(): PortfolioSnapshot {
@@ -384,16 +400,57 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  setAgentTradingEnabled(enabled: boolean): { agentTradingEnabled: boolean } {
+    this.agentTradingEnabled = enabled;
+    return { agentTradingEnabled: this.agentTradingEnabled };
+  }
+
+  isAgentTradingEnabled(): boolean {
+    return this.agentTradingEnabled;
+  }
+
   // ---------------------------------------------------------- event logic
 
   private async onTick(tick: MarketTickEvent): Promise<void> {
     this.lastPrices.set(tick.symbol, tick.price);
     const position = this.positions.get(tick.symbol);
     if (position) {
-      if (tick.price <= position.stopLoss) {
-        await this.closePosition(position, position.stopLoss, TradeExitReason.STOP_LOSS_HIT);
-      } else if (tick.price >= position.target) {
-        await this.closePosition(position, position.target, TradeExitReason.TARGET_HIT);
+      if (this.agentTradingEnabled) {
+        const atr = Math.max(tick.price * 0.008, 0.05);
+        const action = evaluateExitPolicy(
+          {
+            symbol: position.symbol,
+            entryPrice: position.entryPrice,
+            quantity: position.quantity,
+            target: position.target,
+            target2: position.target2,
+            stopLoss: position.stopLoss,
+          },
+          {
+            price: tick.price,
+            thesisScore: position.thesisScore,
+            thesisIntact: position.thesisScore == null || position.thesisScore >= 58,
+            atr,
+          },
+        );
+        if (action.type === 'UPDATE_LEVELS') {
+          position.stopLoss = action.stopLoss;
+          position.target = action.target;
+          if (action.target2 != null) position.target2 = action.target2;
+        } else if (action.type === 'PARTIAL_EXIT') {
+          position.stopLoss = action.stopLoss;
+          position.target = action.target;
+          await this.reducePosition(position, action.quantity, tick.price, action.reason);
+        } else if (action.type === 'FULL_EXIT') {
+          await this.closePosition(position, tick.price, action.reason);
+        }
+      } else {
+        // Classic exits only — agent policy does not run until enabled.
+        if (tick.price <= position.stopLoss) {
+          await this.closePosition(position, tick.price, TradeExitReason.STOP_LOSS_HIT);
+        } else if (tick.price >= position.target) {
+          await this.closePosition(position, tick.price, TradeExitReason.TARGET_HIT);
+        }
       }
     }
     // Re-evaluate the breaker on the equity mark.
@@ -451,12 +508,20 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async onPrediction(prediction: PredictionGeneratedEvent): Promise<void> {
-    // Auto-sell: bearish ML prediction against an open position.
-    if (prediction.direction !== PredictionDirection.DOWN || prediction.confidence < 70) return;
     const position = this.positions.get(prediction.symbol);
+    if (position) {
+      position.thesisScore =
+        prediction.direction === PredictionDirection.DOWN
+          ? Math.max(0, 100 - prediction.confidence)
+          : prediction.direction === PredictionDirection.UP
+            ? prediction.confidence
+            : 50;
+    }
+    // Auto-sell: bearish ML prediction against an open position (thesis fail).
+    if (prediction.direction !== PredictionDirection.DOWN || prediction.confidence < 70) return;
     if (!position) return;
     const price = this.lastPrices.get(prediction.symbol) ?? position.entryPrice;
-    await this.closePosition(position, price, TradeExitReason.BEARISH_ML_PREDICTION);
+    await this.closePosition(position, price, TradeExitReason.THESIS_INVALID);
   }
 
   // ------------------------------------------------------------ execution
@@ -538,6 +603,7 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
       quantity,
       entryPrice: price,
       target,
+      target2: round2(price + (target - price) * 1.6),
       stopLoss,
       openedAt: Date.now(),
     };
@@ -622,7 +688,9 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     position: OpenPosition,
     quantity: number,
     exitPrice: number,
+    reason: TradeExitReason = TradeExitReason.MANUAL,
   ): Promise<ExecutedTrade> {
+    await this.placeBrokerSell(position.symbol, quantity, exitPrice);
     const pnl = round2((exitPrice - position.entryPrice) * quantity);
     this.cash += quantity * exitPrice;
     this.realizedPnl += pnl;
@@ -653,7 +721,7 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
           mode: this.mode,
           status: TradeStatus.CLOSED,
           exitPrice: round2(exitPrice),
-          exitReason: TradeExitReason.MANUAL,
+          exitReason: reason,
           pnl,
           closedAt: new Date(),
         },
@@ -671,7 +739,7 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
       mode: this.mode,
       status: TradeStatus.CLOSED,
       exitPrice: round2(exitPrice),
-      exitReason: TradeExitReason.MANUAL,
+      exitReason: reason,
       pnl,
       executedAt: position.openedAt,
       closedAt: Date.now(),
@@ -679,21 +747,22 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     this.tickets.unshift(executed);
     await this.audit('TRADE_REDUCED', 'auto-trader', { ...executed });
     console.log(
-      `[auto-trader] SELL ${position.symbol} x${quantity} @ ${round2(exitPrice)} pnl ${pnl} (partial)`,
+      `[auto-trader] SELL ${position.symbol} x${quantity} @ ${round2(exitPrice)} pnl ${pnl} (partial ${reason})`,
     );
     return executed;
   }
 
-  private async placeBrokerBuy(
+  private async placeBrokerOrder(
+    side: TradeSide,
     symbol: string,
     quantity: number,
     price: number,
     userId?: string,
   ): Promise<void> {
-    const externalOrderId = `paper-${Date.now()}-${symbol}`;
+    const externalOrderId = `order-${Date.now()}-${side}-${symbol}`;
     const orderRequest: OrderRequest = {
       symbol,
-      side: TradeSide.BUY,
+      side,
       quantity,
       price,
       orderType: 'MARKET',
@@ -706,13 +775,36 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
       orderResponse = await this.broker.placeOrder(orderRequest);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'unknown error';
-      await this.audit('ORDER_FAILED', 'auto-trader', { reason: errorMsg }, userId);
+      await this.audit('ORDER_FAILED', 'auto-trader', { reason: errorMsg, side }, userId);
       throw new BadRequestException(`Order failed: ${errorMsg}`);
     }
     if (orderResponse.status === 'REJECTED') {
-      await this.audit('ORDER_REJECTED', 'auto-trader', { reason: orderResponse.error }, userId);
+      await this.audit(
+        'ORDER_REJECTED',
+        'auto-trader',
+        { reason: orderResponse.error, side },
+        userId,
+      );
       throw new ForbiddenException(`Order rejected: ${orderResponse.error}`);
     }
+  }
+
+  private async placeBrokerBuy(
+    symbol: string,
+    quantity: number,
+    price: number,
+    userId?: string,
+  ): Promise<void> {
+    await this.placeBrokerOrder(TradeSide.BUY, symbol, quantity, price, userId);
+  }
+
+  private async placeBrokerSell(
+    symbol: string,
+    quantity: number,
+    price: number,
+    userId?: string,
+  ): Promise<void> {
+    await this.placeBrokerOrder(TradeSide.SELL, symbol, quantity, price, userId);
   }
 
   private async closePosition(
@@ -720,6 +812,7 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     exitPrice: number,
     reason: TradeExitReason,
   ): Promise<ExecutedTrade> {
+    await this.placeBrokerSell(position.symbol, position.quantity, exitPrice);
     this.positions.delete(position.symbol);
     const proceeds = position.quantity * exitPrice;
     this.cash += proceeds;

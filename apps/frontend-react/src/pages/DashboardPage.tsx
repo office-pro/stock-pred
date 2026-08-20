@@ -15,6 +15,7 @@ import {
 import { useMemo, useState } from 'react';
 import IndexCards from '../components/IndexCards';
 import MarketContextBar from '../components/MarketContextBar';
+import AgentTradingToggle from '../components/AgentTradingToggle';
 import StockTable from '../components/StockTable';
 import {
   RankFilter,
@@ -255,9 +256,18 @@ export default function DashboardPage(): JSX.Element {
 
   return (
     <>
-      <Typography variant="h5" sx={{ mb: 2, fontWeight: 700 }}>
-        Market Dashboard
-      </Typography>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={2}
+        sx={{ mb: 2 }}
+        alignItems={{ xs: 'stretch', sm: 'center' }}
+        justifyContent="space-between"
+      >
+        <Typography variant="h5" sx={{ fontWeight: 700 }}>
+          Market Dashboard
+        </Typography>
+        <AgentTradingToggle compact />
+      </Stack>
       <IndexCards />
       <MarketContextBar />
 
@@ -267,7 +277,7 @@ export default function DashboardPage(): JSX.Element {
           {accuracy?.source === 'time_series_holdout' ? ' (last-year holdout, trees)' : ''}:{' '}
           {accuracy?.overallHitRate}% of {scored ?? 0} scored calls were labeled correctly (Buy
           ideas {buyHit}% right). Chips blend the ML forecast with stock trend and Nifty: they must
-          not fight, and a weak model on a flat tape stays Hold. Paper size is 1% of ₹10 L capital.
+          not fight, and a weak model on a flat tape stays Hold. Paper size is 1% of ₹1 Cr capital.
           This is not investment advice.
         </Alert>
       )}
@@ -419,7 +429,7 @@ export default function DashboardPage(): JSX.Element {
         <Alert severity="info" sx={{ mb: 2 }} data-testid="alerts-banner">
           Focus list: Buy and Sell chips ranked by confidence. ML is used when models are trained;
           otherwise EMA/MACD trend fills the list. Click <b>Paper Buy</b> to open a lot in the paper
-          book (₹10 L cash). Open lots and cash live under Paper book. Click the row for chart
+          book (₹1 Cr cash). Open lots and cash live under Paper book. Click the row for chart
           history. This is not investment advice.
         </Alert>
       )}

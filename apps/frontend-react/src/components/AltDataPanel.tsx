@@ -37,8 +37,8 @@ export default function AltDataPanel({ data }: { data: AltDataView | undefined }
             News / Social / Macro
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            No as-of alternative data yet. Run ingest news, social, and macro from ML Lab, then
-            retrain. These numbers feed the same direction model — not a second score.
+            No as-of alternative data yet. Use <b>Data ingest</b> above for news, social, and macro,
+            then refresh. These numbers feed the same direction model — not a second score.
           </Typography>
         </CardContent>
       </Card>

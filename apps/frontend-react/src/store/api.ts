@@ -214,7 +214,19 @@ const baseQueryWithReauth: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQue
 export const api = createApi({
   reducerPath: 'api',
   baseQuery: baseQueryWithReauth,
-  tagTypes: ['Stocks', 'Signals', 'Predictions', 'Portfolio', 'Trades', 'MlJobs'],
+  tagTypes: [
+    'Stocks',
+    'Signals',
+    'Predictions',
+    'Portfolio',
+    'Trades',
+    'MlJobs',
+    'AgentMode',
+    'AgentSuggestions',
+    'AgentOpportunities',
+    'Fundamentals',
+    'AltData',
+  ],
   endpoints: (builder) => ({
     getStocks: builder.query<
       {
@@ -257,9 +269,60 @@ export const api = createApi({
     }),
     getFundamentals: builder.query<FundamentalView, string>({
       query: (symbol) => `/stocks/${symbol}/fundamentals`,
+      providesTags: (_r, _e, symbol) => [{ type: 'Fundamentals', id: symbol }],
+    }),
+    getPeerValuation: builder.query<import('@stockpred/shared-types').PeerValuationView, string>({
+      query: (symbol) => `/stocks/${symbol}/peer-valuation`,
+      providesTags: (_r, _e, symbol) => [{ type: 'Fundamentals', id: symbol }],
     }),
     getAltData: builder.query<AltDataView, string>({
       query: (symbol) => `/stocks/${symbol}/alt-data`,
+      providesTags: (_r, _e, symbol) => [{ type: 'AltData', id: symbol }],
+    }),
+    ingestFundamentals: builder.mutation<
+      { symbol: string; snapshots: number; skipped?: boolean; reason?: string; cached?: boolean },
+      { symbol: string; full?: boolean }
+    >({
+      query: ({ symbol, full = true }) => ({
+        url: `/stocks/${symbol}/fundamentals/ingest?full=${full ? '1' : '0'}`,
+        method: 'POST',
+      }),
+      invalidatesTags: (_r, _e, { symbol }) => [{ type: 'Fundamentals', id: symbol }],
+    }),
+    refreshTechnical: builder.mutation<
+      { symbol: string; candles: number; indicators: boolean; dataSource: string },
+      string
+    >({
+      query: (symbol) => ({
+        url: `/stocks/${symbol}/technical/refresh`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Stocks'],
+    }),
+    ingestNews: builder.mutation<unknown, { symbol: string; full?: boolean }>({
+      query: ({ symbol, full = true }) => ({
+        url: `/stocks/${symbol}/alt-data/news/ingest?full=${full ? '1' : '0'}`,
+        method: 'POST',
+      }),
+      invalidatesTags: (_r, _e, { symbol }) => [{ type: 'AltData', id: symbol }],
+    }),
+    ingestSocial: builder.mutation<unknown, { symbol: string; full?: boolean }>({
+      query: ({ symbol, full = true }) => ({
+        url: `/stocks/${symbol}/alt-data/social/ingest?full=${full ? '1' : '0'}`,
+        method: 'POST',
+      }),
+      invalidatesTags: (_r, _e, { symbol }) => [{ type: 'AltData', id: symbol }],
+    }),
+    ingestMacro: builder.mutation<unknown, { full?: boolean; includeIndia?: boolean } | void>({
+      query: (arg) => {
+        const full = !(arg && 'full' in arg && arg.full === false);
+        const includeIndia = Boolean(arg && 'includeIndia' in arg && arg.includeIndia);
+        return {
+          url: `/alt-data/ingest/macro?full=${full ? '1' : '0'}&includeIndia=${includeIndia ? '1' : '0'}`,
+          method: 'POST',
+        };
+      },
+      invalidatesTags: ['AltData'],
     }),
     getIndices: builder.query<IndexQuote[], void>({
       query: () => '/indices',
@@ -479,6 +542,182 @@ export const api = createApi({
     >({
       query: (body) => ({ url: '/brokers/test', method: 'POST', body }),
     }),
+    getAgentMode: builder.query<
+      {
+        tradingEnabled: boolean;
+        mode: 'RESEARCH' | 'PAPER' | 'LIVE';
+        killSwitch: boolean;
+        liveArming: {
+          armed: boolean;
+          blockers: string[];
+          brokerConfigured: boolean;
+          brokerTestOk: boolean;
+        };
+        disclaimer: string;
+      },
+      void
+    >({
+      query: () => '/agent/mode',
+      providesTags: ['AgentMode'],
+    }),
+    setAgentTradingEnabled: builder.mutation<{ tradingEnabled: boolean }, { enabled: boolean }>({
+      query: (body) => ({ url: '/agent/trading-enabled', method: 'POST', body }),
+      invalidatesTags: ['AgentMode'],
+    }),
+    setAgentMode: builder.mutation<
+      unknown,
+      { mode: 'RESEARCH' | 'PAPER' | 'LIVE'; confirmLive?: string }
+    >({
+      query: (body) => ({ url: '/agent/mode', method: 'POST', body }),
+      invalidatesTags: ['AgentMode'],
+    }),
+    setAgentKillSwitch: builder.mutation<unknown, { enabled: boolean; flatten?: boolean }>({
+      query: (body) => ({ url: '/agent/kill-switch', method: 'POST', body }),
+      invalidatesTags: ['AgentMode'],
+    }),
+    getAgentCapabilities: builder.query<
+      {
+        capabilities: Array<{
+          id: string;
+          title: string;
+          required: boolean;
+          available: boolean;
+          stale: boolean;
+          owner: string;
+          detail?: string;
+        }>;
+        requests: Array<{
+          id: string;
+          title: string;
+          whyNeeded: string;
+          priority: string;
+          suggestedOwner: string;
+          acknowledged?: boolean;
+        }>;
+      },
+      void
+    >({
+      query: () => '/agent/capabilities',
+      providesTags: ['MlJobs'],
+    }),
+    ackAgentCapability: builder.mutation<unknown, { id: string }>({
+      query: (body) => ({ url: '/agent/capability-requests/ack', method: 'POST', body }),
+      invalidatesTags: ['MlJobs', 'AgentSuggestions'],
+    }),
+    getAgentSuggestions: builder.query<
+      {
+        suggestions: Array<{
+          id: string;
+          title: string;
+          whyNeeded: string;
+          suggestedOwner: string;
+          priority: string;
+          status: 'open' | 'acknowledged' | 'implementing' | 'completed' | 'failed';
+          createdAt: number;
+          updatedAt: number;
+          acknowledgedAt?: number;
+          taskBriefPath?: string;
+          cursorAgentId?: string;
+          cursorRunId?: string;
+          resultSummary?: string;
+          lastError?: string;
+          progressLog?: string[];
+        }>;
+        cursorSdk: { configured: boolean; installed: boolean };
+      },
+      void
+    >({
+      query: () => '/agent/suggestions',
+      providesTags: ['AgentSuggestions'],
+    }),
+    ackAgentSuggestion: builder.mutation<unknown, { id: string }>({
+      query: ({ id }) => ({ url: `/agent/suggestions/${id}/ack`, method: 'POST', body: {} }),
+      invalidatesTags: ['AgentSuggestions', 'MlJobs'],
+    }),
+    implementAgentSuggestion: builder.mutation<
+      {
+        id: string;
+        status: string;
+        taskBriefPath?: string;
+        resultSummary?: string;
+        lastError?: string;
+      },
+      { id: string }
+    >({
+      query: ({ id }) => ({
+        url: `/agent/suggestions/${id}/implement`,
+        method: 'POST',
+        body: {},
+      }),
+      invalidatesTags: ['AgentSuggestions'],
+    }),
+    getAgentOpportunities: builder.query<
+      {
+        opportunities: Array<{
+          symbol: string;
+          decision: string;
+          currentPrice: number | null;
+          scores: { overall: number; fundamental: number | null; technical: number | null };
+          setup: {
+            positionSize: number;
+            entry: number | null;
+            stopLoss: number | null;
+            target1: number | null;
+          };
+          thesis: string;
+          recommendationId?: string;
+          missingCapabilities: string[];
+        }>;
+        capabilityRequests: Array<{
+          id: string;
+          title: string;
+          whyNeeded: string;
+          priority: string;
+        }>;
+        disclaimer: string;
+      },
+      { limit?: number } | void
+    >({
+      query: (arg) => {
+        const limit = arg && 'limit' in arg ? arg.limit : 20;
+        return `/agent/opportunities?limit=${limit ?? 20}`;
+      },
+      providesTags: ['AgentOpportunities'],
+    }),
+    getAgentAnalysis: builder.query<Record<string, unknown>, string>({
+      query: (symbol) => `/agent/analysis/${symbol}`,
+    }),
+    getAgentPositions: builder.query<
+      {
+        positions: Array<{
+          symbol: string;
+          quantity: number;
+          entryPrice: number;
+          currentPrice: number;
+          target: number;
+          stopLoss: number;
+          unrealizedPnl: number;
+          policy: string;
+          policyNote: string;
+        }>;
+        killSwitch: boolean;
+      },
+      void
+    >({
+      query: () => '/agent/positions',
+      providesTags: ['Portfolio', 'AgentOpportunities'],
+    }),
+    approveAgentRecommendation: builder.mutation<unknown, { id: string; quantity?: number }>({
+      query: ({ id, quantity }) => ({
+        url: `/agent/recommendations/${id}/approve`,
+        method: 'POST',
+        body: quantity != null ? { quantity } : {},
+      }),
+      invalidatesTags: ['Portfolio', 'Trades', 'AgentOpportunities'],
+    }),
+    notifyAgentBrokerReady: builder.mutation<unknown, { configured: boolean; testOk?: boolean }>({
+      query: (body) => ({ url: '/agent/broker-ready', method: 'POST', body }),
+    }),
     loginToBroker: builder.mutation<
       { authenticated: boolean; message: string },
       { brokerType: string }
@@ -500,7 +739,13 @@ export const {
   useGetStocksQuery,
   useGetStockQuery,
   useGetFundamentalsQuery,
+  useGetPeerValuationQuery,
   useGetAltDataQuery,
+  useIngestFundamentalsMutation,
+  useRefreshTechnicalMutation,
+  useIngestNewsMutation,
+  useIngestSocialMutation,
+  useIngestMacroMutation,
   useLazyGetStockQuery,
   useGetIndicesQuery,
   useGetMarketContextQuery,
@@ -534,4 +779,18 @@ export const {
   useTestBrokerConnectionMutation,
   useLoginToBrokerMutation,
   useLogoutFromBrokerMutation,
+  useGetAgentModeQuery,
+  useSetAgentTradingEnabledMutation,
+  useSetAgentModeMutation,
+  useSetAgentKillSwitchMutation,
+  useGetAgentCapabilitiesQuery,
+  useAckAgentCapabilityMutation,
+  useGetAgentSuggestionsQuery,
+  useAckAgentSuggestionMutation,
+  useImplementAgentSuggestionMutation,
+  useGetAgentOpportunitiesQuery,
+  useGetAgentAnalysisQuery,
+  useGetAgentPositionsQuery,
+  useApproveAgentRecommendationMutation,
+  useNotifyAgentBrokerReadyMutation,
 } = api;

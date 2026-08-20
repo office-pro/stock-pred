@@ -1,7 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { getPrismaClient } from '@stockpred/database';
-import type { FundamentalView } from '@stockpred/shared-types';
+import type { FundamentalView, PeerValuationView } from '@stockpred/shared-types';
 import { ingestSymbol, refreshSectorMedians } from './fundamentals-write';
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+function vsMedianPct(value: number | null, medianValue: number | null): number | null {
+  if (value == null || medianValue == null || medianValue === 0) return null;
+  return Math.round((value / medianValue - 1) * 100 * 100) / 100;
+}
 
 export interface FundamentalPanelRow {
   symbol: string;
@@ -141,5 +153,93 @@ export class FundamentalsStore {
   async refreshSectorMedians(): Promise<{ updated: number }> {
     const updated = await refreshSectorMedians();
     return { updated };
+  }
+
+  /** Latest PE/PB vs live sector peer medians (computed from latest snapshot per symbol). */
+  async peerValuation(symbol: string): Promise<PeerValuationView> {
+    const view = await this.latestView(symbol);
+    if (view.missing || !view.sector) {
+      return {
+        symbol,
+        sector: view.sector,
+        pe: view.pe,
+        pb: view.pb,
+        sectorMedianPe: null,
+        sectorMedianPb: null,
+        peerCount: 0,
+        peVsMedianPct: null,
+        pbVsMedianPct: null,
+        missing: true,
+      };
+    }
+
+    const rows = await this.prisma.fundamentalSnapshot.findMany({
+      where: { sector: view.sector, availableAt: { lte: new Date() } },
+      orderBy: [{ symbol: 'asc' }, { availableAt: 'desc' }],
+      select: { symbol: true, trailingPe: true, priceToBook: true },
+    });
+    const latest = new Map<string, { pe: number | null; pb: number | null }>();
+    for (const row of rows) {
+      if (latest.has(row.symbol)) continue;
+      latest.set(row.symbol, { pe: row.trailingPe, pb: row.priceToBook });
+    }
+
+    const pes: number[] = [];
+    const pbs: number[] = [];
+    for (const row of latest.values()) {
+      if (row.pe != null && row.pe > 0) pes.push(row.pe);
+      if (row.pb != null && row.pb > 0) pbs.push(row.pb);
+    }
+    const sectorMedianPe = median(pes);
+    const sectorMedianPb = median(pbs);
+    return {
+      symbol,
+      sector: view.sector,
+      pe: view.pe,
+      pb: view.pb,
+      sectorMedianPe,
+      sectorMedianPb,
+      peerCount: latest.size,
+      peVsMedianPct: vsMedianPct(view.pe, sectorMedianPe),
+      pbVsMedianPct: vsMedianPct(view.pb, sectorMedianPb),
+      missing: false,
+    };
+  }
+
+  async sectorMedians(): Promise<{
+    sectors: Array<{
+      sector: string;
+      medianPe: number | null;
+      medianPb: number | null;
+      peerCount: number;
+    }>;
+  }> {
+    const rows = await this.prisma.fundamentalSnapshot.findMany({
+      where: { availableAt: { lte: new Date() }, sector: { not: null } },
+      orderBy: [{ symbol: 'asc' }, { availableAt: 'desc' }],
+      select: { symbol: true, sector: true, trailingPe: true, priceToBook: true },
+    });
+    const latest = new Map<string, { sector: string; pe: number | null; pb: number | null }>();
+    for (const row of rows) {
+      if (!row.sector || latest.has(row.symbol)) continue;
+      latest.set(row.symbol, { sector: row.sector, pe: row.trailingPe, pb: row.priceToBook });
+    }
+    const bySector = new Map<string, { pes: number[]; pbs: number[]; count: number }>();
+    for (const row of latest.values()) {
+      const bucket = bySector.get(row.sector) ?? { pes: [], pbs: [], count: 0 };
+      bucket.count += 1;
+      if (row.pe != null && row.pe > 0) bucket.pes.push(row.pe);
+      if (row.pb != null && row.pb > 0) bucket.pbs.push(row.pb);
+      bySector.set(row.sector, bucket);
+    }
+    const sectors = [...bySector.entries()]
+      .map(([sector, bucket]) => ({
+        sector,
+        medianPe: median(bucket.pes),
+        medianPb: median(bucket.pbs),
+        peerCount: bucket.count,
+      }))
+      .sort((a, b) => a.sector.localeCompare(b.sector));
+    return { sectors };
   }
 }

@@ -10,6 +10,7 @@ export type ServiceName =
   | 'mlEngine'
   | 'backtest'
   | 'autoTrader'
+  | 'traderAgent'
   | 'notifications';
 
 /** Thin HTTP fan-out to internal services with consistent error mapping. */
@@ -23,6 +24,7 @@ export class ProxyService {
     backtest: getEnv('BACKTEST_SERVICE_URL', 'http://localhost:3005'),
     autoTrader: getEnv('AUTO_TRADER_URL', 'http://localhost:3006'),
     notifications: getEnv('NOTIFICATION_SERVICE_URL', 'http://localhost:3007'),
+    traderAgent: getEnv('TRADER_AGENT_URL', 'http://localhost:3008'),
     mlEngine: getEnv('ML_ENGINE_URL', 'http://localhost:8000'),
   };
 

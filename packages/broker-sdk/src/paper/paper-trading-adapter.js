@@ -18,9 +18,9 @@ const uuid_1 = require('uuid');
 class PaperTradingAdapter {
   brokerAccountId = (0, uuid_1.v4)();
   authenticated = false;
-  cash = 1_000_000; // Default capital
-  _startOfDayEquity = 1_000_000;
-  _startOfWeekEquity = 1_000_000;
+  cash = 10_000_000; // Default capital
+  _startOfDayEquity = 10_000_000;
+  _startOfWeekEquity = 10_000_000;
   dailyDrawdownTripped = false;
   weeklyDrawdownTripped = false;
   positions = new Map();

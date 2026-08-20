@@ -50,7 +50,7 @@ describe('PaperTradingAdapter', () => {
     test('getFunds returns initial capital', async () => {
       await adapter.login();
       const funds = await adapter.getFunds();
-      expect(funds.availableCash).toBe(1_000_000);
+      expect(funds.availableCash).toBe(10_000_000);
       expect(funds.marginMultiplier).toBe(1);
     });
   });
@@ -295,7 +295,7 @@ describe('PaperTradingAdapter', () => {
 
     test('emits authenticated event on login', (done) => {
       const newAdapter = new PaperTradingAdapter();
-      newAdapter.on('authenticated', (data: any) => {
+      newAdapter.on('authenticated', (data: { brokerAccountId?: string }) => {
         expect(data.brokerAccountId).toBeDefined();
         done();
       });
@@ -303,7 +303,7 @@ describe('PaperTradingAdapter', () => {
     });
 
     test('emits order_placed event for pending orders', (done) => {
-      adapter.on('order_placed', (data: any) => {
+      adapter.on('order_placed', (data: { orderId?: string; symbol?: string }) => {
         expect(data.orderId).toBeDefined();
         expect(data.symbol).toBe('RELIANCE');
         done();
@@ -321,7 +321,7 @@ describe('PaperTradingAdapter', () => {
     });
 
     test('emits order_filled event for executed orders', (done) => {
-      adapter.on('order_filled', (data: any) => {
+      adapter.on('order_filled', (data: { orderId?: string; fillPrice?: number }) => {
         expect(data.orderId).toBeDefined();
         expect(data.fillPrice).toBeDefined();
         done();

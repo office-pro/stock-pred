@@ -82,9 +82,9 @@ interface VirtualTrade {
 export class PaperTradingAdapter implements BrokerAdapter {
   private brokerAccountId: string = uuid();
   private authenticated: boolean = false;
-  private cash: number = 1_000_000; // Default capital
-  private _startOfDayEquity: number = 1_000_000;
-  private _startOfWeekEquity: number = 1_000_000;
+  private cash: number = 10_000_000; // Default capital
+  private _startOfDayEquity: number = 10_000_000;
+  private _startOfWeekEquity: number = 10_000_000;
   private dailyDrawdownTripped: boolean = false;
   private weeklyDrawdownTripped: boolean = false;
   private positions = new Map<string, VirtualPosition>();
@@ -95,6 +95,11 @@ export class PaperTradingAdapter implements BrokerAdapter {
   constructor() {
     this.resetDaily();
     this.resetWeekly();
+  }
+
+  /** Keep virtual cash aligned with auto-trader's paper book (source of truth). */
+  setAvailableCash(amount: number): void {
+    this.cash = Math.max(0, amount);
   }
 
   // ===== SESSION LIFECYCLE =====
@@ -257,17 +262,8 @@ export class PaperTradingAdapter implements BrokerAdapter {
     const marketPrice = request.price || 100; // Fallback to 100 if no price provided
     const orderId = uuid();
 
-    // Check funds for BUY orders
-    if (request.side === 'BUY') {
-      const cost = request.quantity * marketPrice;
-      if (cost > this.cash) {
-        return {
-          orderId,
-          status: 'REJECTED',
-          error: `Insufficient cash: required ${cost}, available ${this.cash}`,
-        };
-      }
-    }
+    // Cash limits are enforced by auto-trader (source of truth). This adapter only
+    // mirrors fills — rejecting here desyncs the paper book after restarts.
 
     // Create order
     const order: VirtualOrder = {

@@ -50,6 +50,7 @@ import {
   getEnvNumber,
   round2,
   DEFAULT_PAPER_CAPITAL,
+  aggregateCandles,
 } from '@stockpred/shared-utils';
 import { CandleCache } from './candle-cache';
 import {
@@ -456,7 +457,41 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     if (timeframe === Timeframe.ONE_DAY) {
       return state.daily.slice(-limit);
     }
-    return state.intraday.slice(-limit);
+    const ones = this.intradayOnes(state);
+    if (timeframe === Timeframe.ONE_MINUTE) {
+      return ones.slice(-limit);
+    }
+    return aggregateCandles(ones, timeframe).slice(-limit);
+  }
+
+  /** 1m + aggregated 5m / 15m / 1h packs for short-horizon agent setups. */
+  async getMultiTimeframeCandles(
+    symbol: string,
+    limit: number,
+  ): Promise<{
+    symbol: string;
+    '1m': Candle[];
+    '5m': Candle[];
+    '15m': Candle[];
+    '1h': Candle[];
+  }> {
+    await this.ensureLoaded(symbol);
+    const state = this.requireSymbol(symbol);
+    const ones = this.intradayOnes(state);
+    const capped = Math.min(Math.max(limit, 1), 5000);
+    return {
+      symbol: state.info.symbol,
+      '1m': ones.slice(-capped),
+      '5m': aggregateCandles(ones, Timeframe.FIVE_MINUTES).slice(-capped),
+      '15m': aggregateCandles(ones, Timeframe.FIFTEEN_MINUTES).slice(-capped),
+      '1h': aggregateCandles(ones, Timeframe.ONE_HOUR).slice(-capped),
+    };
+  }
+
+  private intradayOnes(state: SymbolState): Candle[] {
+    const ones = state.intraday.slice();
+    if (state.currentMinute) ones.push(state.currentMinute);
+    return ones;
   }
 
   getDepth(symbol: string): MarketDepth {
@@ -1304,6 +1339,42 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       }
     }
     console.log(`[market-data] bhavcopy history merged (${extra} row updates)`);
+  }
+
+  /** Force-reload daily history, live print, and technical indicators for one symbol. */
+  async refreshTechnical(symbol: string): Promise<{
+    symbol: string;
+    candles: number;
+    indicators: boolean;
+    dataSource: string;
+  }> {
+    const state = this.requireSymbol(symbol);
+    this.hydrateTried.delete(symbol);
+    this.hydrateJobs.delete(symbol);
+    await this.bootstrapSymbol({
+      symbol: state.info.symbol,
+      name: state.info.name,
+      exchange: state.info.exchange,
+      sector: state.info.sector,
+      indices: state.info.indices,
+      basePrice: state.previousClose || 0,
+      isin: state.isin,
+      bseCode: state.bseCode,
+      yahooSymbol: state.yahooSymbol,
+    });
+    const refreshed = this.requireSymbol(symbol);
+    refreshed.lastLiveRefresh = undefined;
+    await this.refreshSymbolLive(refreshed);
+    const finalState = this.requireSymbol(symbol);
+    if (finalState.daily.length >= 2) {
+      finalState.indicators = computeIndicatorSnapshot(finalState.info.symbol, finalState.daily);
+    }
+    return {
+      symbol: finalState.info.symbol,
+      candles: finalState.daily.length,
+      indicators: finalState.indicators != null,
+      dataSource: finalState.dataSource,
+    };
   }
 
   private requireSymbol(symbol: string): SymbolState {

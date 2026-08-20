@@ -17,6 +17,8 @@ import {
   ManipulationSnapshot,
   MarketDepth,
   MarketIndex,
+  MultiTimeframeCandles,
+  PeerValuationView,
   RelativeComparison,
   StockQuote,
   Timeframe,
@@ -63,6 +65,16 @@ export class MarketController {
     return this.market.getQuote(symbol.toUpperCase());
   }
 
+  @Post('stocks/:symbol/technical/refresh')
+  refreshTechnical(@Param('symbol') symbol: string): Promise<{
+    symbol: string;
+    candles: number;
+    indicators: boolean;
+    dataSource: string;
+  }> {
+    return this.market.refreshTechnical(symbol.toUpperCase());
+  }
+
   @Get('stocks/:symbol/anomaly')
   getAnomaly(@Param('symbol') symbol: string): ManipulationSnapshot | null {
     return this.market.getManipulation(symbol.toUpperCase());
@@ -78,6 +90,14 @@ export class MarketController {
       throw new BadRequestException(`Unsupported timeframe: ${String(timeframe)}`);
     }
     return this.market.getCandles(symbol.toUpperCase(), timeframe, Math.min(limit, 5000));
+  }
+
+  @Get('stocks/:symbol/candles/mtf')
+  getMultiTimeframeCandles(
+    @Param('symbol') symbol: string,
+    @Query('limit', new DefaultValuePipe(120), ParseIntPipe) limit = 120,
+  ): Promise<MultiTimeframeCandles> {
+    return this.market.getMultiTimeframeCandles(symbol.toUpperCase(), Math.min(limit, 5000));
   }
 
   @Get('stocks/:symbol/depth')
@@ -102,6 +122,11 @@ export class MarketController {
     return this.fundamentals.latestView(symbol.toUpperCase());
   }
 
+  @Get('stocks/:symbol/peer-valuation')
+  getPeerValuation(@Param('symbol') symbol: string): Promise<PeerValuationView> {
+    return this.fundamentals.peerValuation(symbol.toUpperCase());
+  }
+
   @Post('stocks/:symbol/fundamentals/ingest')
   ingestOne(
     @Param('symbol') symbol: string,
@@ -124,6 +149,11 @@ export class MarketController {
   @Get('fundamentals/panel')
   getFundamentalsPanel(): ReturnType<FundamentalsStore['panel']> {
     return this.fundamentals.panel();
+  }
+
+  @Get('fundamentals/sector-medians')
+  getSectorMedians(): ReturnType<FundamentalsStore['sectorMedians']> {
+    return this.fundamentals.sectorMedians();
   }
 
   @Get('stocks/:symbol/alt-data')
@@ -152,8 +182,11 @@ export class MarketController {
   }
 
   @Post('alt-data/ingest/macro')
-  ingestMacro(@Query('full') full?: string) {
-    return this.altData.ingestMacro({ full: parseFullFlag(full) });
+  ingestMacro(@Query('full') full?: string, @Query('includeIndia') includeIndia?: string) {
+    return this.altData.ingestMacro({
+      full: parseFullFlag(full),
+      includeIndia: parseFullFlag(includeIndia),
+    });
   }
 
   @Post('alt-data/news/upsert')
