@@ -6,7 +6,7 @@ import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -234,6 +234,9 @@ async def get_predictions(symbol: str) -> Dict[str, object]:
             detail=missing_models_message(),
         )
     try:
+        from .predict import clear_model_cache
+
+        clear_model_cache()
         predictions: List[Dict[str, object]] = await asyncio.to_thread(
             predict_symbol, symbol.upper()
         )
@@ -276,6 +279,7 @@ async def get_manipulation(symbol: str) -> Dict[str, object]:
 class JobStartBody(BaseModel):
     kind: str
     universe: str = "all"
+    symbols: Optional[str] = None
 
 
 @app.get("/jobs/current")
@@ -286,7 +290,7 @@ def current_job() -> Dict[str, object]:
 @app.post("/jobs")
 def start_ml_job(body: JobStartBody) -> Dict[str, object]:
     try:
-        job = ml_jobs.start(body.kind, body.universe)
+        job = ml_jobs.start(body.kind, body.universe, body.symbols)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except RuntimeError as error:

@@ -1,13 +1,13 @@
 import { Alert, Box, Button, Card, CardContent, TextField, Typography } from '@mui/material';
 import { FormEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { authErrorMessage } from '../lib/auth-errors';
 import { useAppDispatch } from '../store';
 import { useLoginMutation } from '../store/api';
 import { setCredentials } from '../store/authSlice';
 
 export default function LoginPage(): JSX.Element {
-  const [email, setEmail] = useState('trader@stockpred.local');
+  const [email, setEmail] = useState('user@stockpred.local');
   const [password, setPassword] = useState('');
   const [login, { isLoading, error }] = useLoginMutation();
   const dispatch = useAppDispatch();
@@ -18,16 +18,23 @@ export default function LoginPage(): JSX.Element {
     const result = await login({ email, password });
     if ('data' in result && result.data) {
       dispatch(setCredentials(result.data));
+      if (result.data.user.accessExpired) {
+        navigate('/access-expired');
+        return;
+      }
       navigate('/');
     }
   };
 
   return (
     <Box sx={{ display: 'flex', justifyContent: 'center', mt: 6 }}>
-      <Card variant="outlined" sx={{ width: 380 }}>
+      <Card variant="outlined" sx={{ width: 420 }}>
         <CardContent>
           <Typography variant="h6" gutterBottom>
             Login
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Invite-only. Ask your admin for an account.
           </Typography>
           {Boolean(error) && (
             <Alert severity="error" sx={{ mb: 2 }} data-testid="login-error">
@@ -51,7 +58,7 @@ export default function LoginPage(): JSX.Element {
               margin="normal"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              helperText="Local paper: trader@stockpred.local / Trader@12345"
+              helperText="Local: superadmin@ / admin@ / user@ / viewer@stockpred.local"
               inputProps={{ 'data-testid': 'login-password' }}
             />
             <Button
@@ -65,9 +72,6 @@ export default function LoginPage(): JSX.Element {
               {isLoading ? 'Signing in...' : 'Sign In'}
             </Button>
           </Box>
-          <Typography variant="body2" sx={{ mt: 2 }}>
-            No account? <Link to="/register">Register</Link>
-          </Typography>
         </CardContent>
       </Card>
     </Box>

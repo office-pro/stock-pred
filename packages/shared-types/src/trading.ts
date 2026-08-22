@@ -62,6 +62,8 @@ export interface PaperHolding {
   /** Unrealized P&L as a percent of invested. */
   unrealizedPnlPercent?: number;
   openedAt?: number;
+  /** Sector for concentration checks (Phase 2). */
+  sector?: string | null;
 }
 
 /** Portfolio snapshot for the paper trading account. */
@@ -75,6 +77,10 @@ export interface PortfolioSnapshot {
   unrealizedPnl: number;
   circuitBreakerTripped: boolean;
   holdings: PaperHolding[];
+  /** Equity at local/UTC day open (Phase 2 DD anchors). */
+  dayStartEquity?: number;
+  /** Equity at ISO week open (Phase 2 DD anchors). */
+  weekStartEquity?: number;
 }
 
 /** Risk limits enforced by the auto trader (spec: 1% / 3% / 8%). */
@@ -89,3 +95,42 @@ export const DEFAULT_RISK_LIMITS: RiskLimits = {
   dailyDrawdownPercent: 3,
   weeklyDrawdownPercent: 8,
 };
+
+/** Agent desk risk/portfolio budgets (Phase 2). Confidence may only scale size down. */
+export interface AgentRiskBudgetConfig {
+  perTradeRiskPercent: number;
+  maxOpenPositions: number;
+  maxNameExposurePct: number;
+  maxSectorExposurePct: number;
+  cashReservePct: number;
+  /** Max allowed |livePrice - decision entry| / entry (e.g. 0.01 = 1%). */
+  maxPriceDeviationPct: number;
+}
+
+export const DEFAULT_AGENT_RISK_BUDGETS: AgentRiskBudgetConfig = {
+  perTradeRiskPercent: 1,
+  maxOpenPositions: 20,
+  maxNameExposurePct: 10,
+  maxSectorExposurePct: 30,
+  cashReservePct: 5,
+  maxPriceDeviationPct: 1,
+};
+
+/** Frozen at decision time for the ledger. */
+export interface DecisionBudgetSnapshot {
+  dayStartEquity: number;
+  weekStartEquity: number;
+  currentEquity: number;
+  cash: number;
+  perTradeRiskPercent: number;
+  maxRiskAmount: number;
+  confidence: number;
+  confidenceScale: number;
+  quantityBeforeConfidence: number;
+  quantityAfterConfidence: number;
+  symbolSector: string | null;
+  maxNameExposurePct: number;
+  maxSectorExposurePct: number;
+  maxOpenPositions: number;
+  cashReservePct: number;
+}

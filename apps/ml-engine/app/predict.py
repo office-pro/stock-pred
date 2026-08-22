@@ -52,6 +52,11 @@ class HorizonModels:
         }
 
 
+def clear_model_cache() -> None:
+    """Drop in-process HorizonModels so the next predict reloads disk artifacts."""
+    _cache.clear()
+
+
 def models_available() -> bool:
     return all(
         os.path.exists(os.path.join(settings.models_dir, horizon, "metadata.json"))

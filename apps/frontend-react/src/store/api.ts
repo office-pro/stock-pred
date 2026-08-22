@@ -1,10 +1,13 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type { BaseQueryFn, FetchArgs, FetchBaseQueryError } from '@reduxjs/toolkit/query';
 import type {
+  AccessExtensionRequestDto,
   ApiResponse,
+  AppView,
   AuthTokens,
   AuthUser,
   BacktestResult,
+  BrandSummary,
   Candle,
   FundamentalView,
   AltDataView,
@@ -18,6 +21,8 @@ import type {
   StockQuote,
   SupportResistance,
   SymbolPatternPayload,
+  UserRole,
+  UserStatus,
 } from '@stockpred/shared-types';
 import { API_BASE_URL } from '../config';
 import { logout, setTokens } from './authSlice';
@@ -218,14 +223,24 @@ export const api = createApi({
     'Stocks',
     'Signals',
     'Predictions',
+    'Patterns',
     'Portfolio',
     'Trades',
     'MlJobs',
     'AgentMode',
+    'AgentDecisions',
+    'AgentRiskBudgets',
+    'AgentWalkForward',
+    'AgentSoak',
+    'AgentOps',
     'AgentSuggestions',
     'AgentOpportunities',
     'Fundamentals',
     'AltData',
+    'AuthUser',
+    'Brands',
+    'AuthUsers',
+    'Extensions',
   ],
   endpoints: (builder) => ({
     getStocks: builder.query<
@@ -415,6 +430,7 @@ export const api = createApi({
     getSymbolPatterns: builder.query<SymbolPatternPayload, string>({
       query: (symbol) => `/patterns/${symbol}`,
       transformResponse: unwrap<SymbolPatternPayload>,
+      providesTags: (_r, _e, symbol) => [{ type: 'Patterns', id: symbol }],
     }),
     getAllPredictions: builder.query<
       {
@@ -456,14 +472,18 @@ export const api = createApi({
     getPredictions: builder.query<PredictionsPayload, string>({
       query: (symbol) => `/predictions/${symbol}`,
       transformResponse: unwrap<PredictionsPayload>,
+      providesTags: (_r, _e, symbol) => [{ type: 'Predictions', id: symbol }],
     }),
     getMlJob: builder.query<MlJobSnapshot, void>({
       query: () => '/ml/jobs/current',
       providesTags: ['MlJobs'],
     }),
-    startMlJob: builder.mutation<{ job: MlJobRow }, { kind: MlJobKind; universe?: MlUniverseId }>({
+    startMlJob: builder.mutation<
+      { job: MlJobRow },
+      { kind: MlJobKind; universe?: MlUniverseId; symbols?: string }
+    >({
       query: (body) => ({ url: '/ml/jobs', method: 'POST', body }),
-      invalidatesTags: ['MlJobs'],
+      invalidatesTags: ['MlJobs', 'Predictions'],
     }),
     cancelMlJob: builder.mutation<MlJobSnapshot, void>({
       query: () => ({ url: '/ml/jobs/current/cancel', method: 'POST' }),
@@ -511,11 +531,108 @@ export const api = createApi({
     >({
       query: (body) => ({ url: '/auth/login', method: 'POST', body }),
     }),
-    register: builder.mutation<
-      { user: AuthUser; tokens: AuthTokens },
-      { email: string; password: string; name: string }
+    getMe: builder.query<AuthUser, void>({
+      query: () => '/auth/me',
+      providesTags: ['AuthUser'],
+    }),
+    getBrands: builder.query<BrandSummary[], void>({
+      query: () => '/auth/brands',
+      providesTags: ['Brands'],
+    }),
+    getBrand: builder.query<BrandSummary, string>({
+      query: (id) => `/auth/brands/${id}`,
+      providesTags: ['Brands'],
+    }),
+    createBrand: builder.mutation<
+      BrandSummary,
+      {
+        name: string;
+        domain: string;
+        paperCapital: number;
+        adminEmail?: string;
+        adminName?: string;
+        adminPassword?: string;
+        contactEmail?: string;
+        notes?: string;
+      }
     >({
-      query: (body) => ({ url: '/auth/register', method: 'POST', body }),
+      query: (body) => ({ url: '/auth/brands', method: 'POST', body }),
+      invalidatesTags: ['Brands'],
+    }),
+    updateBrand: builder.mutation<
+      BrandSummary,
+      {
+        id: string;
+        name?: string;
+        domain?: string;
+        paperCapital?: number;
+        contactEmail?: string;
+        contactPhone?: string;
+        notes?: string;
+        status?: string;
+      }
+    >({
+      query: ({ id, ...body }) => ({ url: `/auth/brands/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['Brands'],
+    }),
+    getAuthUsers: builder.query<AuthUser[], string | void>({
+      query: (brandId) =>
+        brandId ? `/auth/users?brandId=${encodeURIComponent(brandId)}` : '/auth/users',
+      providesTags: ['AuthUsers'],
+    }),
+    createUser: builder.mutation<
+      AuthUser,
+      {
+        email: string;
+        name: string;
+        password: string;
+        role: UserRole;
+        brandId?: string;
+        allowedViews: AppView[];
+        accessExpiresAt?: string;
+      }
+    >({
+      query: (body) => ({ url: '/auth/users', method: 'POST', body }),
+      invalidatesTags: ['AuthUsers'],
+    }),
+    updateUser: builder.mutation<
+      AuthUser,
+      {
+        id: string;
+        name?: string;
+        allowedViews?: AppView[];
+        accessExpiresAt?: string | null;
+        status?: UserStatus | string;
+      }
+    >({
+      query: ({ id, ...body }) => ({ url: `/auth/users/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['AuthUsers'],
+    }),
+    deleteUser: builder.mutation<void, string>({
+      query: (id) => ({ url: `/auth/users/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['AuthUsers'],
+    }),
+    getExtensions: builder.query<AccessExtensionRequestDto[], void>({
+      query: () => '/auth/extensions',
+      providesTags: ['Extensions'],
+    }),
+    requestExtension: builder.mutation<
+      AccessExtensionRequestDto,
+      { requestedUntil?: string; days?: number; hours?: number; minutes?: number; notes?: string }
+    >({
+      query: (body) => ({ url: '/auth/extensions', method: 'POST', body }),
+      invalidatesTags: ['Extensions'],
+    }),
+    reviewExtension: builder.mutation<
+      AccessExtensionRequestDto,
+      { id: string; decision: 'APPROVED' | 'DENIED'; notes?: string }
+    >({
+      query: ({ id, ...body }) => ({
+        url: `/auth/extensions/${id}/review`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Extensions', 'AuthUsers'],
     }),
     getBrokerProfile: builder.query<BrokerProfile, void>({
       query: () => '/brokers/profile',
@@ -546,6 +663,7 @@ export const api = createApi({
       {
         tradingEnabled: boolean;
         mode: 'RESEARCH' | 'PAPER' | 'LIVE';
+        decisionMode: 'APPROVAL' | 'AUTONOMOUS';
         killSwitch: boolean;
         liveArming: {
           armed: boolean;
@@ -553,12 +671,101 @@ export const api = createApi({
           brokerConfigured: boolean;
           brokerTestOk: boolean;
         };
+        liveAutoArmed: boolean;
+        liveAutoEffective: boolean;
+        evidenceUnlock: {
+          unlocked: boolean;
+          overallDecision: 'GO' | 'NO-GO' | 'UNKNOWN';
+          reason: string;
+          reasonCode?: string;
+        };
+        breakers?: {
+          tripped: boolean;
+          activeBreakers: string[];
+          reasonCodes: string[];
+          reasons: string[];
+          lastTripAt: number | null;
+          lastTripReasonCodes?: string[];
+          lastTripReasons?: string[];
+          dailyAutoAcceptCount: number;
+          consecutiveVetoCount: number;
+        };
+        scale?: {
+          maxSymbolsScanned: number;
+          maxOpportunities: number;
+          maxAutonomousAcceptsPerCycle: number;
+          analysisConcurrency: number;
+          strategyTags: string[];
+        };
+        lastCycleMetrics?: {
+          scanMs: number;
+          analysisMs: number;
+          acceptMs: number;
+          symbolsScanned: number;
+          opportunitiesBuilt: number;
+          autonomousAttempted: number;
+          autonomousAccepted: number;
+        } | null;
         disclaimer: string;
+        riskBudgets?: {
+          perTradeRiskPercent: number;
+          maxOpenPositions: number;
+          maxNameExposurePct: number;
+          maxSectorExposurePct: number;
+          cashReservePct: number;
+          maxPriceDeviationPct: number;
+        };
       },
       void
     >({
       query: () => '/agent/mode',
       providesTags: ['AgentMode'],
+    }),
+    getAgentRiskBudgets: builder.query<
+      {
+        riskBudgets: {
+          perTradeRiskPercent: number;
+          maxOpenPositions: number;
+          maxNameExposurePct: number;
+          maxSectorExposurePct: number;
+          cashReservePct: number;
+          maxPriceDeviationPct: number;
+        };
+      },
+      void
+    >({
+      query: () => '/agent/risk-budgets',
+      providesTags: ['AgentRiskBudgets'],
+    }),
+    getAgentWalkForward: builder.query<
+      {
+        report: {
+          schemaVersion: string;
+          verdict: {
+            technical: 'PASS' | 'FAIL';
+            trading: 'STRONG' | 'ACCEPTABLE' | 'REVIEW' | 'FAIL';
+            notes: string[];
+          };
+          funnel: {
+            candidates: number;
+            autonomousEligible: number;
+            autoAccepted: number;
+            gatePass: number;
+            gateBlocked: number;
+            filled: number;
+            humanRequired: number;
+            riskBlocked: number;
+            portfolioBlocked: number;
+          };
+          grossPerformance: { grossPnl: number; tradeCount: number };
+          netPerformance: { netPnl: number; tradeCount: number; feesTotal: number };
+        } | null;
+        path: string | null;
+      },
+      void
+    >({
+      query: () => '/agent/walk-forward',
+      providesTags: ['AgentWalkForward'],
     }),
     setAgentTradingEnabled: builder.mutation<{ tradingEnabled: boolean }, { enabled: boolean }>({
       query: (body) => ({ url: '/agent/trading-enabled', method: 'POST', body }),
@@ -570,6 +777,279 @@ export const api = createApi({
     >({
       query: (body) => ({ url: '/agent/mode', method: 'POST', body }),
       invalidatesTags: ['AgentMode'],
+    }),
+    setAgentLiveAutoArm: builder.mutation<
+      {
+        liveAutoArmed: boolean;
+        liveAutoEffective: boolean;
+        evidence: {
+          unlocked: boolean;
+          overallDecision: string;
+          reason: string;
+          reasonCode?: string;
+        };
+      },
+      { armed: boolean; confirmLiveAuto?: string }
+    >({
+      query: (body) => ({ url: '/agent/live-auto-arm', method: 'POST', body }),
+      invalidatesTags: ['AgentMode'],
+    }),
+    setAgentDecisionMode: builder.mutation<
+      { decisionMode: 'APPROVAL' | 'AUTONOMOUS'; note: string },
+      { decisionMode: 'APPROVAL' | 'AUTONOMOUS' }
+    >({
+      query: (body) => ({ url: '/agent/decision-mode', method: 'POST', body }),
+      invalidatesTags: ['AgentMode', 'AgentDecisions'],
+    }),
+    getAgentDecisions: builder.query<
+      {
+        decisions: Array<{
+          decisionId: string;
+          opportunityId?: string;
+          timestamp: number;
+          symbol: string;
+          decisionMode: 'APPROVAL' | 'AUTONOMOUS';
+          state: string;
+          decision: string;
+          reasonCodes: string[];
+          decisionReasons: string[];
+          analysisSnapshot: {
+            score: number;
+            confidence: number;
+            eligibility: string;
+            thesis: string;
+            strategy: string;
+            regime: string;
+          };
+          riskVerdict: { allowed: boolean; reasons: string[]; quantity?: number };
+          portfolioVerdict: { allowed: boolean; reasons: string[] };
+          policy?: { outcome: string; reasons: string[] };
+          budgetSnapshot?: {
+            dayStartEquity: number;
+            weekStartEquity: number;
+            currentEquity: number;
+            cash: number;
+            perTradeRiskPercent: number;
+            maxRiskAmount: number;
+            confidence: number;
+            confidenceScale: number;
+            quantityBeforeConfidence: number;
+            quantityAfterConfidence: number;
+            symbolSector: string | null;
+            maxNameExposurePct: number;
+            maxSectorExposurePct: number;
+            maxOpenPositions: number;
+            cashReservePct: number;
+          };
+          execution?: {
+            quantity: number;
+            entryPrice?: number;
+            status?: string;
+            plannedRiskAmount?: number;
+          };
+          soakRunId?: string;
+          outcome?: {
+            outcomeId: string;
+            exitPrice: number;
+            pnl: number;
+            pnlPercent: number;
+            holdingPeriodMs: number;
+            exitReason: string;
+            closedAt: number;
+            realizedR: number;
+            plannedRiskAmount?: number;
+          };
+          intelligenceSnapshot?: {
+            schemaVersion: string;
+            engineVersion: string;
+            generatedAt: number;
+            sourceDataTimestamp?: number;
+            strategyTag?: string;
+            marketContext?: {
+              regime?: string;
+              volatilityRegime?: string;
+              breadth?: number | null;
+            };
+            thesis?: {
+              direction?: string;
+              setup?: string;
+              rationale?: string[];
+              thesisConfidence?: number;
+            };
+            expectedValue?: {
+              expectedValueR?: number;
+              rewardR?: number;
+              riskR?: number;
+            };
+            tradeQuality?: { overallScore?: number };
+            conflicts?: Array<{ code: string; severity: string; message: string }>;
+          };
+        }>;
+        decisionMode: 'APPROVAL' | 'AUTONOMOUS';
+      },
+      { limit?: number; decisionId?: string } | void
+    >({
+      query: (args) => {
+        const params = new URLSearchParams();
+        params.set('limit', String(args?.limit ?? 40));
+        if (args?.decisionId) params.set('decisionId', args.decisionId);
+        return `/agent/decisions?${params.toString()}`;
+      },
+      providesTags: ['AgentDecisions'],
+    }),
+    getAgentSoak: builder.query<
+      {
+        soak: {
+          soakRunId: string;
+          state: 'IDLE' | 'RUNNING' | 'PASSED' | 'KILLED' | 'WAIVED';
+          startedAt: number;
+          endedAt?: number;
+          targetDurationMs: number;
+          baseline: { equity: number; cash: number; openPositions: number };
+          killClass?: string;
+          killCode?: string;
+          killReason?: string;
+          waiveReason?: string;
+        } | null;
+      },
+      void
+    >({
+      query: () => '/agent/soak',
+      providesTags: ['AgentSoak'],
+    }),
+    startAgentSoak: builder.mutation<unknown, { targetDurationMs?: number } | void>({
+      query: (body) => ({ url: '/agent/soak/start', method: 'POST', body: body ?? {} }),
+      invalidatesTags: ['AgentSoak', 'AgentOps', 'AgentMode'],
+    }),
+    stopAgentSoak: builder.mutation<unknown, void>({
+      query: () => ({ url: '/agent/soak/stop', method: 'POST', body: {} }),
+      invalidatesTags: ['AgentSoak', 'AgentOps'],
+    }),
+    waiveAgentSoak: builder.mutation<unknown, { reason: string }>({
+      query: (body) => ({ url: '/agent/soak/waive', method: 'POST', body }),
+      invalidatesTags: ['AgentSoak', 'AgentOps'],
+    }),
+    getAgentOps: builder.query<
+      {
+        soakRunId: string | null;
+        candidates: number;
+        eligible: number;
+        riskVeto: number;
+        portfolioVeto: number;
+        gateVeto: number;
+        accepted: number;
+        filled: number;
+        acceptsPerDay: number;
+        circuitTrips: number;
+        avgHoldMs: number | null;
+        autoGrossPnl: number;
+        autoNetPnl: number;
+        avgR: number | null;
+        medianR: number | null;
+        latency: {
+          signalToDecisionMs: number | null;
+          decisionToSubmitMs: number | null;
+          submitToFillMs: number | null;
+          decisionToFillMs: number | null;
+        };
+        health: {
+          risk: string;
+          execution: string;
+          data: string;
+          decision: string;
+          portfolio: string;
+        };
+      },
+      { soakRunId?: string } | void
+    >({
+      query: (args) => {
+        const params = new URLSearchParams();
+        if (args?.soakRunId) params.set('soakRunId', args.soakRunId);
+        const q = params.toString();
+        return q ? `/agent/ops?${q}` : '/agent/ops';
+      },
+      providesTags: ['AgentOps'],
+    }),
+    getAgentCalibration: builder.query<
+      {
+        soakRunId: string | null;
+        disclaimer: string;
+        byScore: Array<{
+          band: string;
+          n: number;
+          hitRate: number | null;
+          avgR: number | null;
+          medianR: number | null;
+          profitFactor: number | null;
+          avgPnlPercent: number | null;
+        }>;
+        byConfidence: Array<{
+          band: string;
+          n: number;
+          hitRate: number | null;
+          avgR: number | null;
+          medianR: number | null;
+          profitFactor: number | null;
+          avgPnlPercent: number | null;
+        }>;
+      },
+      { soakRunId?: string } | void
+    >({
+      query: (args) => {
+        const params = new URLSearchParams();
+        if (args?.soakRunId) params.set('soakRunId', args.soakRunId);
+        const q = params.toString();
+        return q ? `/agent/calibration?${q}` : '/agent/calibration';
+      },
+      providesTags: ['AgentOps'],
+    }),
+    getAgentSoakCompare: builder.query<
+      {
+        soakRunId: string | null;
+        rows: Array<{
+          metric: string;
+          walkForward: number | null;
+          paperSoak: number | null;
+          delta: number | null;
+        }>;
+      },
+      { soakRunId?: string } | void
+    >({
+      query: (args) => {
+        const params = new URLSearchParams();
+        if (args?.soakRunId) params.set('soakRunId', args.soakRunId);
+        const q = params.toString();
+        return q ? `/agent/soak/compare?${q}` : '/agent/soak/compare';
+      },
+      providesTags: ['AgentOps', 'AgentWalkForward'],
+    }),
+    getAgentSoakReport: builder.query<
+      {
+        schemaVersion: string;
+        soakRunId: string;
+        phase4Status: 'PASSED' | 'KILLED' | 'WAIVED';
+        startedAt: number;
+        endedAt: number;
+        durationMs: number;
+        killCode?: string;
+        killReason?: string;
+        waiveReason?: string;
+        technicalChecklist: {
+          liveAutoNeverArmed: boolean;
+          killPathExercisedOrWaived: boolean;
+          riskPortfolioGateRespected: boolean;
+          outcomesComplete: boolean;
+        };
+        performance: {
+          grossPnl: number;
+          netPnl: number;
+          avgR: number | null;
+        };
+      } | null,
+      void
+    >({
+      query: () => '/agent/soak/report',
+      providesTags: ['AgentSoak', 'AgentOps'],
     }),
     setAgentKillSwitch: builder.mutation<unknown, { enabled: boolean; flatten?: boolean }>({
       query: (body) => ({ url: '/agent/kill-switch', method: 'POST', body }),
@@ -612,7 +1092,7 @@ export const api = createApi({
           whyNeeded: string;
           suggestedOwner: string;
           priority: string;
-          status: 'open' | 'acknowledged' | 'implementing' | 'completed' | 'failed';
+          status: 'open' | 'brief_ready' | 'acknowledged' | 'implementing' | 'completed' | 'failed';
           createdAt: number;
           updatedAt: number;
           acknowledgedAt?: number;
@@ -632,6 +1112,10 @@ export const api = createApi({
     }),
     ackAgentSuggestion: builder.mutation<unknown, { id: string }>({
       query: ({ id }) => ({ url: `/agent/suggestions/${id}/ack`, method: 'POST', body: {} }),
+      invalidatesTags: ['AgentSuggestions', 'MlJobs'],
+    }),
+    reopenAgentSuggestion: builder.mutation<unknown, { id: string }>({
+      query: ({ id }) => ({ url: `/agent/suggestions/${id}/reopen`, method: 'POST', body: {} }),
       invalidatesTags: ['AgentSuggestions', 'MlJobs'],
     }),
     implementAgentSuggestion: builder.mutation<
@@ -668,6 +1152,24 @@ export const api = createApi({
           recommendationId?: string;
           missingCapabilities: string[];
         }>;
+        added: Array<{
+          symbol: string;
+          decision: string;
+          currentPrice: number | null;
+          scores: { overall: number; fundamental: number | null; technical: number | null };
+          setup: {
+            positionSize: number;
+            entry: number | null;
+            stopLoss: number | null;
+            target1: number | null;
+          };
+          thesis: string;
+          recommendationId?: string;
+          missingCapabilities?: string[];
+          executedAt: number;
+          quantity: number;
+          status: 'APPROVED' | 'EXECUTED';
+        }>;
         capabilityRequests: Array<{
           id: string;
           title: string;
@@ -699,13 +1201,93 @@ export const api = createApi({
           unrealizedPnl: number;
           policy: string;
           policyNote: string;
+          bookKey?: string;
+          userId?: string | null;
+          brandId?: string | null;
+          exitMode?: 'AGENT_POLICY' | 'CLASSIC_STOP_TARGET';
+          monitored?: boolean;
         }>;
         killSwitch: boolean;
+        agentTradingEnabled: boolean;
       },
       void
     >({
       query: () => '/agent/positions',
       providesTags: ['Portfolio', 'AgentOpportunities'],
+    }),
+    getAgentTransactions: builder.query<
+      {
+        transactions: Array<{
+          id: string;
+          symbol: string;
+          side: 'BUY' | 'SELL';
+          quantity: number;
+          price: number;
+          entryPrice?: number | null;
+          exitPrice?: number | null;
+          pnl?: number | null;
+          status: string;
+          mode: string;
+          exitReason?: string | null;
+          reason: string;
+          explanation: string;
+          decision?: string | null;
+          stopLoss?: number | null;
+          target?: number | null;
+          recommendationId?: string | null;
+          timestamp: number;
+        }>;
+        disclaimer: string;
+      },
+      { limit?: number } | void
+    >({
+      query: (arg) => {
+        const limit = arg && 'limit' in arg ? arg.limit : 50;
+        return `/agent/transactions?limit=${limit ?? 50}`;
+      },
+      providesTags: ['Trades', 'AgentOpportunities'],
+    }),
+    getAgentMonitoringLogs: builder.query<
+      {
+        events: Array<{
+          id: string;
+          ts: number;
+          symbol: string;
+          bookKey: string;
+          userId: string | null;
+          mode: string;
+          action: string;
+          policy: string;
+          note: string;
+          price: number;
+          stopLoss: number;
+          target: number;
+          quantity?: number;
+          reason?: string;
+        }>;
+        meta: {
+          agentTradingEnabled: boolean;
+          tickSource: string;
+          expectedTickIntervalMs: number;
+          holdSampleIntervalMs: number;
+          lastTickAt: number | null;
+          ticksReceived: number;
+          ticksLastMinute: number;
+          checksLogged: number;
+          openLotsHint: number;
+        };
+        disclaimer: string;
+      },
+      { limit?: number; symbol?: string } | void
+    >({
+      query: (arg) => {
+        const limit = arg && 'limit' in arg ? arg.limit : 80;
+        const symbol = arg && 'symbol' in arg ? arg.symbol : undefined;
+        const params = new URLSearchParams({ limit: String(limit ?? 80) });
+        if (symbol) params.set('symbol', symbol);
+        return `/agent/monitoring-logs?${params.toString()}`;
+      },
+      providesTags: ['Portfolio'],
     }),
     approveAgentRecommendation: builder.mutation<unknown, { id: string; quantity?: number }>({
       query: ({ id, quantity }) => ({
@@ -714,6 +1296,31 @@ export const api = createApi({
         body: quantity != null ? { quantity } : {},
       }),
       invalidatesTags: ['Portfolio', 'Trades', 'AgentOpportunities'],
+    }),
+    waitAgentRecommendation: builder.mutation<unknown, { id: string; reason?: string }>({
+      query: ({ id, reason }) => ({
+        url: `/agent/recommendations/${id}/wait`,
+        method: 'POST',
+        body: reason ? { reason } : {},
+      }),
+      invalidatesTags: ['AgentOpportunities', 'AgentDecisions'],
+    }),
+    getAgentHumanIntelMetrics: builder.query<
+      {
+        metrics: {
+          reviewed: number;
+          agreementPct: number;
+          overridePct: number;
+          waitThenLaterCount: number;
+        };
+      },
+      { limit?: number } | void
+    >({
+      query: (arg) => {
+        const limit = arg && 'limit' in arg ? arg.limit : 500;
+        return `/agent/human-intel-metrics?limit=${limit ?? 500}`;
+      },
+      providesTags: ['AgentDecisions'],
     }),
     notifyAgentBrokerReady: builder.mutation<unknown, { configured: boolean; testOk?: boolean }>({
       query: (body) => ({ url: '/agent/broker-ready', method: 'POST', body }),
@@ -763,6 +1370,7 @@ export const {
   useGetPredictionAccuracyQuery,
   useGetPredictionsQuery,
   useGetMlJobQuery,
+  useLazyGetMlJobQuery,
   useStartMlJobMutation,
   useCancelMlJobMutation,
   useRunBacktestMutation,
@@ -771,7 +1379,18 @@ export const {
   useGetTradesQuery,
   useExecuteTradeMutation,
   useLoginMutation,
-  useRegisterMutation,
+  useGetMeQuery,
+  useGetBrandsQuery,
+  useGetBrandQuery,
+  useCreateBrandMutation,
+  useUpdateBrandMutation,
+  useGetAuthUsersQuery,
+  useCreateUserMutation,
+  useUpdateUserMutation,
+  useDeleteUserMutation,
+  useGetExtensionsQuery,
+  useRequestExtensionMutation,
+  useReviewExtensionMutation,
   useGetBrokerProfileQuery,
   useGetBrokerFundsQuery,
   useGetBrokerPositionsQuery,
@@ -780,17 +1399,35 @@ export const {
   useLoginToBrokerMutation,
   useLogoutFromBrokerMutation,
   useGetAgentModeQuery,
+  useGetAgentRiskBudgetsQuery,
+  useGetAgentWalkForwardQuery,
   useSetAgentTradingEnabledMutation,
   useSetAgentModeMutation,
+  useSetAgentLiveAutoArmMutation,
+  useSetAgentDecisionModeMutation,
+  useGetAgentDecisionsQuery,
+  useGetAgentSoakQuery,
+  useStartAgentSoakMutation,
+  useStopAgentSoakMutation,
+  useWaiveAgentSoakMutation,
+  useGetAgentOpsQuery,
+  useGetAgentCalibrationQuery,
+  useGetAgentSoakCompareQuery,
+  useGetAgentSoakReportQuery,
   useSetAgentKillSwitchMutation,
   useGetAgentCapabilitiesQuery,
   useAckAgentCapabilityMutation,
   useGetAgentSuggestionsQuery,
   useAckAgentSuggestionMutation,
+  useReopenAgentSuggestionMutation,
   useImplementAgentSuggestionMutation,
   useGetAgentOpportunitiesQuery,
   useGetAgentAnalysisQuery,
   useGetAgentPositionsQuery,
+  useGetAgentTransactionsQuery,
+  useGetAgentMonitoringLogsQuery,
   useApproveAgentRecommendationMutation,
+  useWaitAgentRecommendationMutation,
+  useGetAgentHumanIntelMetricsQuery,
   useNotifyAgentBrokerReadyMutation,
 } = api;

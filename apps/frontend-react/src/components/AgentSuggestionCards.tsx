@@ -15,6 +15,7 @@ import {
   useAckAgentSuggestionMutation,
   useGetAgentSuggestionsQuery,
   useImplementAgentSuggestionMutation,
+  useReopenAgentSuggestionMutation,
 } from '../store/api';
 
 const priorityColor = (priority: string): 'default' | 'warning' | 'error' | 'info' => {
@@ -28,6 +29,8 @@ const statusLabel = (status: string): string => {
   switch (status) {
     case 'open':
       return 'Open';
+    case 'brief_ready':
+      return 'Brief ready';
     case 'acknowledged':
       return 'Acknowledged';
     case 'implementing':
@@ -50,6 +53,7 @@ export default function AgentSuggestionCards({
     pollingInterval: 3_000,
   });
   const [ack, ackState] = useAckAgentSuggestionMutation();
+  const [reopen, reopenState] = useReopenAgentSuggestionMutation();
   const [implement, implementState] = useImplementAgentSuggestionMutation();
 
   const suggestions = data?.suggestions ?? [];
@@ -58,6 +62,22 @@ export default function AgentSuggestionCards({
   );
   const acknowledged = suggestions.filter((row) => row.status === 'acknowledged');
   const anyImplementing = active.some((row) => row.status === 'implementing');
+  const busy = implementState.isLoading || ackState.isLoading || reopenState.isLoading;
+
+  const runImplement = async (id: string, title: string) => {
+    try {
+      const result = await implement({ id }).unwrap();
+      onToast?.(
+        result.resultSummary ||
+          (result.taskBriefPath
+            ? `Implement started — brief at ${result.taskBriefPath}`
+            : `Implement started for ${title}`),
+      );
+      await refetch();
+    } catch (error) {
+      onToast?.(authErrorMessage(error, `Could not implement ${title}`));
+    }
+  };
 
   return (
     <Box sx={{ mb: 3 }} data-testid="agent-suggestion-cards">
@@ -77,15 +97,29 @@ export default function AgentSuggestionCards({
       </Stack>
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-        These cards are retained across restarts. <b>Implement</b> launches a Cursor agent on this
-        repo (full project context) when <code>CURSOR_API_KEY</code> is set. Live progress streams
-        into the card while the agent builds.
+        Gaps the agent detected in the app stack (not trade ideas). <b>Implement</b> launches a
+        Cursor agent on this repo when <code>CURSOR_API_KEY</code> is set; otherwise a task brief is
+        written under <code>.cursor/agent-tasks/</code>.
       </Typography>
 
       {data && !data.cursorSdk.configured && (
         <Alert severity="info" sx={{ mb: 2 }}>
           Set <code>CURSOR_API_KEY</code> in <code>.env</code> and restart trader-agent to run
-          Implement via Cursor SDK.
+          Implement via Cursor SDK. Without it, Implement still writes a retained task brief.
+        </Alert>
+      )}
+
+      {data?.cursorSdk.configured && !data.cursorSdk.installed && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          <code>CURSOR_API_KEY</code> is set but <code>@cursor/sdk</code> is not installed in
+          trader-agent. Run <code>npm install</code> in <code>apps/trader-agent</code> and restart.
+        </Alert>
+      )}
+
+      {active.some((row) => row.status === 'brief_ready') && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Implement wrote a task brief (no Cursor API key / SDK run). Open the brief path on the
+          card in Cursor Agent, or retry Implement after setting <code>CURSOR_API_KEY</code>.
         </Alert>
       )}
 
@@ -183,27 +217,20 @@ export default function AgentSuggestionCards({
               <Button
                 size="small"
                 variant="contained"
-                disabled={implementState.isLoading || card.status === 'implementing'}
-                onClick={async () => {
-                  try {
-                    const result = await implement({ id: card.id }).unwrap();
-                    onToast?.(
-                      result.resultSummary ||
-                        (result.taskBriefPath
-                          ? `Implement started — brief at ${result.taskBriefPath}`
-                          : `Implement started for ${card.title}`),
-                    );
-                    await refetch();
-                  } catch (error) {
-                    onToast?.(authErrorMessage(error, `Could not implement ${card.title}`));
-                  }
-                }}
+                disabled={busy || card.status === 'implementing'}
+                onClick={() => runImplement(card.id, card.title)}
               >
-                {card.status === 'implementing' ? 'Working…' : 'Implement'}
+                {card.status === 'implementing'
+                  ? 'Working…'
+                  : card.status === 'failed'
+                    ? 'Retry implement'
+                    : card.status === 'brief_ready'
+                      ? 'Re-run implement'
+                      : 'Implement'}
               </Button>
               <Button
                 size="small"
-                disabled={ackState.isLoading || card.status === 'implementing'}
+                disabled={busy || card.status === 'implementing'}
                 onClick={async () => {
                   try {
                     await ack({ id: card.id }).unwrap();
@@ -223,9 +250,55 @@ export default function AgentSuggestionCards({
 
       {acknowledged.length > 0 && (
         <Box sx={{ mt: 2 }}>
-          <Typography variant="caption" color="text.secondary">
-            Acknowledged ({acknowledged.length}) — retained, hidden from active queue
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+            Acknowledged ({acknowledged.length}) — reopen to work them again
           </Typography>
+          <Stack spacing={1}>
+            {acknowledged.map((card) => (
+              <Card key={`ack-${card.id}`} variant="outlined" sx={{ opacity: 0.9 }}>
+                <CardContent sx={{ py: 1.25, '&:last-child': { pb: 1.25 } }}>
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={1}
+                    alignItems={{ sm: 'center' }}
+                    justifyContent="space-between"
+                  >
+                    <Box>
+                      <Typography fontWeight={600}>{card.title}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {card.suggestedOwner} · {card.priority}
+                      </Typography>
+                    </Box>
+                    <Stack direction="row" spacing={1}>
+                      <Button
+                        size="small"
+                        disabled={busy}
+                        onClick={async () => {
+                          try {
+                            await reopen({ id: card.id }).unwrap();
+                            onToast?.(`Reopened: ${card.title}`);
+                            await refetch();
+                          } catch (error) {
+                            onToast?.(authErrorMessage(error, `Could not reopen ${card.title}`));
+                          }
+                        }}
+                      >
+                        Reopen
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        disabled={busy}
+                        onClick={() => runImplement(card.id, card.title)}
+                      >
+                        Implement
+                      </Button>
+                    </Stack>
+                  </Stack>
+                </CardContent>
+              </Card>
+            ))}
+          </Stack>
         </Box>
       )}
     </Box>

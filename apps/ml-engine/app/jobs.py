@@ -338,28 +338,41 @@ def _is_job_complete_line(kind: str, lowered: str) -> bool:
     return lowered.startswith("[run-all] done")
 
 
-def start(kind: str, universe: str = "all") -> Dict[str, object]:
+def start(kind: str, universe: str = "all", symbols: Optional[str] = None) -> Dict[str, object]:
     if kind not in JOB_SPECS:
         raise ValueError(f"Unknown job kind: {kind}")
     basket = normalize_universe(universe)
+    symbol_list = (
+        ",".join(s.strip().upper() for s in symbols.split(",") if s.strip())
+        if symbols
+        else ""
+    )
     label = UNIVERSE_META[basket]["label"]
+    if symbol_list:
+        label = f"{symbol_list} (scoped)"
     global _current, _process
     with _lock:
         if _current and _current.get("status") == "running":
             raise RuntimeError("A job is already running")
         spec = JOB_SPECS[kind]
         npm = npm_script(kind, basket)
+        if symbol_list:
+            npm = f"{npm} --symbols {symbol_list}"
         if kind == "predict_all" and not direction_models_ready():
             raise ValueError(missing_models_message(basket))
         if kind == "ml_backtest" and not direction_models_ready():
             raise ValueError(missing_models_message(basket))
         argv = [*spec["args"], "--universe", basket]
+        if symbol_list:
+            argv = [part for part in argv if part != "--all"]
+            argv.extend(["--symbols", symbol_list])
         job: Dict[str, object] = {
             "id": str(uuid.uuid4()),
             "kind": kind,
             "title": f"{spec['title']} · {label}",
             "npm": npm,
             "universe": basket,
+            "symbols": symbol_list or None,
             "status": "running",
             "percent": 1,
             "stage": "Starting",
@@ -433,6 +446,14 @@ def _pump(proc: subprocess.Popen, job: Dict[str, object]) -> None:
                     job["percent"] = 100
                     job["stage"] = "Complete"
                     _append_unlocked(job, f"[ml-lab] finished with exit code {code}")
+                    if job.get("kind") == "train_all":
+                        try:
+                            from .predict import clear_model_cache
+
+                            clear_model_cache()
+                            _append_unlocked(job, "[ml-lab] cleared in-process model cache")
+                        except Exception:  # noqa: BLE001
+                            pass
                 else:
                     job["status"] = "cancelled" if job.get("stage") == "Cancelling" else "failed"
                     if job["status"] == "cancelled":

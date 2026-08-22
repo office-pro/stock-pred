@@ -1,6 +1,6 @@
-import { ExecutionContext, ForbiddenException } from '@nestjs/common';
+import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { UserRole } from '@stockpred/shared-types';
+import { UserRole, UserStatus } from '@stockpred/shared-types';
 import { RolesGuard } from './roles.guard';
 
 function reflectorRequiring(roles: UserRole[] | undefined): Reflector {
@@ -12,7 +12,19 @@ function reflectorRequiring(roles: UserRole[] | undefined): Reflector {
 function contextWithUser(role?: UserRole): ExecutionContext {
   return {
     switchToHttp: () => ({
-      getRequest: () => ({ user: role ? { sub: 'u1', email: 'a@b.c', role } : undefined }),
+      getRequest: () => ({
+        user: role
+          ? {
+              sub: 'u1',
+              email: 'a@b.c',
+              role,
+              brandId: null,
+              views: [],
+              status: UserStatus.ACTIVE,
+              accessExpiresAt: null,
+            }
+          : undefined,
+      }),
     }),
     getHandler: () => jest.fn(),
     getClass: () => class {},
@@ -26,22 +38,27 @@ describe('RolesGuard (RBAC)', () => {
   });
 
   it('allows a user holding the required role', () => {
-    const guard = new RolesGuard(reflectorRequiring([UserRole.TRADER]));
-    expect(guard.canActivate(contextWithUser(UserRole.TRADER))).toBe(true);
+    const guard = new RolesGuard(reflectorRequiring([UserRole.USER]));
+    expect(guard.canActivate(contextWithUser(UserRole.USER))).toBe(true);
   });
 
-  it('lets ADMIN satisfy any requirement', () => {
-    const guard = new RolesGuard(reflectorRequiring([UserRole.TRADER]));
+  it('lets ADMIN satisfy non-superadmin requirements', () => {
+    const guard = new RolesGuard(reflectorRequiring([UserRole.USER]));
     expect(guard.canActivate(contextWithUser(UserRole.ADMIN))).toBe(true);
   });
 
+  it('lets SUPERADMIN satisfy any requirement', () => {
+    const guard = new RolesGuard(reflectorRequiring([UserRole.SUPERADMIN]));
+    expect(guard.canActivate(contextWithUser(UserRole.SUPERADMIN))).toBe(true);
+  });
+
   it('rejects a user without the required role', () => {
-    const guard = new RolesGuard(reflectorRequiring([UserRole.TRADER]));
+    const guard = new RolesGuard(reflectorRequiring([UserRole.USER]));
     expect(() => guard.canActivate(contextWithUser(UserRole.VIEWER))).toThrow(ForbiddenException);
   });
 
   it('rejects unauthenticated requests', () => {
-    const guard = new RolesGuard(reflectorRequiring([UserRole.TRADER]));
-    expect(() => guard.canActivate(contextWithUser(undefined))).toThrow(ForbiddenException);
+    const guard = new RolesGuard(reflectorRequiring([UserRole.USER]));
+    expect(() => guard.canActivate(contextWithUser(undefined))).toThrow(UnauthorizedException);
   });
 });

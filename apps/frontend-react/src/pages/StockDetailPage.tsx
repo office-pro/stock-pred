@@ -115,8 +115,13 @@ export default function StockDetailPage(): JSX.Element {
   });
   const { data: sr, refetch: refetchSr } = useGetSupportResistanceQuery(upper);
   const { data: signals } = useGetSymbolSignalsQuery(upper, { pollingInterval: 30_000 });
-  const { data: patterns } = useGetSymbolPatternsQuery(upper);
-  const { data: predictions, isError: predictionsUnavailable } = useGetPredictionsQuery(upper);
+  const { data: patterns, refetch: refetchPatterns } = useGetSymbolPatternsQuery(upper);
+  const {
+    data: predictions,
+    isError: predictionsError,
+    error: predictionsErrorDetail,
+    refetch: refetchPredictions,
+  } = useGetPredictionsQuery(upper);
   const { data: depth } = useGetDepthQuery(upper, { pollingInterval: 5_000 });
   const { data: comparison } = useGetCompareQuery(
     { symbol: upper, benchmark: BENCHMARK },
@@ -131,6 +136,23 @@ export default function StockDetailPage(): JSX.Element {
   const analog = patterns?.analog ?? null;
   const currentPattern = patterns?.current?.[0];
   const current = signals?.current;
+
+  const predictionsErrorMessage = useMemo(() => {
+    if (!predictionsError) return null;
+    const err = predictionsErrorDetail as {
+      status?: number;
+      data?: { message?: string | string[] };
+    };
+    const raw = err?.data?.message;
+    const detail = Array.isArray(raw) ? raw.join(' ') : raw;
+    if (err?.status === 422) {
+      return detail || `Not enough history to score ${upper} yet — ingest technical data first.`;
+    }
+    if (err?.status === 503) {
+      return detail || 'Models not trained yet — use Ingest & train on this page (or ML Lab).';
+    }
+    return detail || 'Could not load ML predictions for this symbol.';
+  }, [predictionsError, predictionsErrorDetail, upper]);
 
   const visibleCandles = useMemo(() => {
     if (!candles || candles.length === 0) return [];
@@ -497,6 +519,8 @@ export default function StockDetailPage(): JSX.Element {
               void refetchAltData();
               void refetchCandles();
               void refetchSr();
+              void refetchPatterns();
+              void refetchPredictions();
             }}
           />
         </Grid>
@@ -616,10 +640,15 @@ export default function StockDetailPage(): JSX.Element {
               <Typography variant="subtitle1" fontWeight={600} gutterBottom>
                 ML Predictions
               </Typography>
-              {predictionsUnavailable && (
-                <Alert severity="info">
-                  Models not trained yet - run <code>npm run train:ml</code>.
+              {predictionsErrorMessage && (
+                <Alert severity="info" sx={{ mb: 1 }}>
+                  {predictionsErrorMessage}
                 </Alert>
+              )}
+              {!predictionsErrorMessage && (predictions?.predictions?.length ?? 0) === 0 && (
+                <Typography variant="body2" color="text.secondary">
+                  No ML rows for {upper} yet. Run Ingest & train, then refresh.
+                </Typography>
               )}
               {predictions?.predictions.map((prediction) => (
                 <Stack

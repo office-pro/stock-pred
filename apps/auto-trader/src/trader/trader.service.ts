@@ -37,7 +37,10 @@ import {
   round2,
   evaluateExitPolicy,
 } from '@stockpred/shared-utils';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { dirname, resolve } from 'path';
 import { RiskManager } from './risk-manager';
+import { MonitoringLogStore } from './monitoring-log-store';
 
 interface OpenPosition {
   tradeId: string;
@@ -50,6 +53,27 @@ interface OpenPosition {
   openedAt: number;
   /** Soft thesis score from last agent/ML blend; null = unknown. */
   thesisScore?: number | null;
+  /** Sector for concentration checks (Phase 2). */
+  sector?: string | null;
+  /** Agent decision ledger id (Phase 4 outcome bridge). */
+  decisionId?: string;
+  /** ₹ planned risk at entry for realizedR. */
+  plannedRiskAmount?: number;
+  soakRunId?: string;
+}
+
+interface PaperBook {
+  key: string;
+  userId: string | null;
+  brandId: string | null;
+  cash: number;
+  initialCapital: number;
+  realizedPnl: number;
+  positions: Map<string, OpenPosition>;
+}
+
+function bookKey(brandId?: string | null, userId?: string | null): string {
+  return `${brandId ?? '_'}::${userId ?? '_system'}`;
 }
 
 /**
@@ -92,15 +116,25 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
   });
 
   private cash = getEnvNumber('PAPER_TRADING_CAPITAL', 10_000_000);
+  private readonly defaultCapital = this.cash;
   private readonly initialCapital = this.cash;
   private realizedPnl = 0;
   private selectedBroker = 'PAPER';
   /** When false, only hard target/stop exits run — agent trail/partial policy is off. */
   private agentTradingEnabled = false;
+  private readonly agentGatePath = resolve(__dirname, '../../data/agent-trading-enabled.json');
   private readonly positions = new Map<string, OpenPosition>();
   private readonly lastPrices = new Map<string, number>();
   private readonly tickets: ExecutedTrade[] = [];
   private readonly latestPatternConfidence = new Map<string, { confidence: number; at: number }>();
+  /** Per brand+user paper books (manual trading / portfolio UI). */
+  private readonly books = new Map<string, PaperBook>();
+  private readonly monitoringLog = new MonitoringLogStore();
+  /** Identity of the currently activated paper book (for persist scoping). */
+  private activeIdentity: { userId: string | null; brandId: string | null } = {
+    userId: null,
+    brandId: null,
+  };
 
   private stopping = false;
 
@@ -113,8 +147,34 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
       console.log('[auto-trader] PAPER trading mode (default)');
     }
     await this.restorePaperBook();
+    await this.restoreUserBooks();
+    this.loadAgentTradingGate();
     // Fire-and-forget: Kafka attaches async and retries if the cluster is not ready.
     void this.maintainKafka();
+  }
+
+  private loadAgentTradingGate(): void {
+    try {
+      if (!existsSync(this.agentGatePath)) return;
+      const raw = JSON.parse(readFileSync(this.agentGatePath, 'utf8')) as { enabled?: boolean };
+      this.agentTradingEnabled = Boolean(raw.enabled);
+      console.log(`[auto-trader] restored agentTradingEnabled=${this.agentTradingEnabled}`);
+    } catch {
+      /* ignore corrupt file */
+    }
+  }
+
+  private persistAgentTradingGate(): void {
+    try {
+      mkdirSync(dirname(this.agentGatePath), { recursive: true });
+      writeFileSync(
+        this.agentGatePath,
+        JSON.stringify({ enabled: this.agentTradingEnabled, updatedAt: Date.now() }, null, 2),
+        'utf8',
+      );
+    } catch (error) {
+      console.warn(`[auto-trader] could not persist agent gate: ${(error as Error).message}`);
+    }
   }
 
   private async maintainKafka(): Promise<void> {
@@ -175,11 +235,11 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     if (this.mode !== TradingMode.PAPER) return;
     try {
       const openRows = await this.prisma.trade.findMany({
-        where: { status: TradeStatus.OPEN, mode: this.mode },
+        where: { status: TradeStatus.OPEN, mode: this.mode, userId: null },
         orderBy: { executedAt: 'asc' },
       });
       const closedRows = await this.prisma.trade.findMany({
-        where: { status: TradeStatus.CLOSED, mode: this.mode },
+        where: { status: TradeStatus.CLOSED, mode: this.mode, userId: null },
         select: { pnl: true },
       });
       this.realizedPnl = closedRows.reduce((sum, row) => sum + (row.pnl ?? 0), 0);
@@ -218,21 +278,263 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  // ---------------------------------------------------------------- queries
-
-  async getPortfolio(): Promise<PortfolioSnapshot> {
-    await this.refreshHoldingQuotes();
-    return this.snapshotPortfolio();
+  /** Hydrate per-user paper books so agent exit monitoring covers approved lots. */
+  private async restoreUserBooks(): Promise<void> {
+    if (this.mode !== TradingMode.PAPER) return;
+    try {
+      const openRows = await this.prisma.trade.findMany({
+        where: {
+          status: TradeStatus.OPEN,
+          mode: this.mode,
+          userId: { not: null },
+        },
+        orderBy: { executedAt: 'asc' },
+      });
+      const byKey = new Map<string, typeof openRows>();
+      for (const row of openRows) {
+        if (!row.userId) continue;
+        const key = bookKey(row.brandId, row.userId);
+        const list = byKey.get(key) ?? [];
+        list.push(row);
+        byKey.set(key, list);
+      }
+      for (const [key, rows] of byKey) {
+        const userId = rows[0]?.userId;
+        const brandId = rows[0]?.brandId ?? null;
+        if (!userId) continue;
+        await this.ensureBook(userId, brandId);
+        const book = this.books.get(key);
+        if (!book) continue;
+        // ensureBook already loaded from DB — log for ops visibility
+        if (book.positions.size > 0) {
+          console.log(
+            `[auto-trader] monitoring user book ${key}: ${book.positions.size} open lot(s), cash ${book.cash}`,
+          );
+        }
+      }
+    } catch (error) {
+      console.warn(`[auto-trader] user book restore failed: ${(error as Error).message}`);
+    }
   }
 
-  async getHoldings(): Promise<{ holdings: PaperHolding[] }> {
-    const portfolio = await this.getPortfolio();
+  private async resolveBrandCapital(brandId?: string | null): Promise<number> {
+    if (!brandId) return this.defaultCapital;
+    try {
+      const brand = await this.prisma.brand.findUnique({ where: { id: brandId } });
+      if (brand && brand.paperCapital > 0) return brand.paperCapital;
+    } catch {
+      /* brand table may be mid-migrate */
+    }
+    return this.defaultCapital;
+  }
+
+  /** Load or create a tenant paper book for portfolio/manual trades. */
+  private async ensureBook(userId?: string | null, brandId?: string | null): Promise<PaperBook> {
+    if (!userId) {
+      return {
+        key: bookKey(null, null),
+        userId: null,
+        brandId: null,
+        cash: this.cash,
+        initialCapital: this.initialCapital,
+        realizedPnl: this.realizedPnl,
+        positions: this.positions,
+      };
+    }
+    const key = bookKey(brandId, userId);
+    const existing = this.books.get(key);
+    if (existing) return existing;
+
+    const initialCapital = await this.resolveBrandCapital(brandId);
+    const openRows = await this.prisma.trade.findMany({
+      where: {
+        status: TradeStatus.OPEN,
+        mode: this.mode,
+        userId,
+        ...(brandId ? { brandId } : {}),
+      },
+      orderBy: { executedAt: 'asc' },
+    });
+    const closedRows = await this.prisma.trade.findMany({
+      where: {
+        status: TradeStatus.CLOSED,
+        mode: this.mode,
+        userId,
+        ...(brandId ? { brandId } : {}),
+      },
+      select: { pnl: true },
+    });
+    const realizedPnl = closedRows.reduce((sum, row) => sum + (row.pnl ?? 0), 0);
+    const positions = new Map<string, OpenPosition>();
+    let invested = 0;
+    for (const row of openRows) {
+      invested += row.quantity * row.price;
+      const prior = positions.get(row.symbol);
+      if (prior) {
+        const totalQty = prior.quantity + row.quantity;
+        prior.entryPrice =
+          (prior.quantity * prior.entryPrice + row.quantity * row.price) / totalQty;
+        prior.quantity = totalQty;
+      } else {
+        positions.set(row.symbol, {
+          tradeId: row.id,
+          symbol: row.symbol,
+          quantity: row.quantity,
+          entryPrice: row.price,
+          target: row.target && row.target > 0 ? row.target : row.price * 1.05,
+          stopLoss: row.stopLoss && row.stopLoss > 0 ? row.stopLoss : row.price * 0.97,
+          openedAt: row.executedAt.getTime(),
+        });
+      }
+    }
+    const book: PaperBook = {
+      key,
+      userId,
+      brandId: brandId ?? null,
+      initialCapital,
+      realizedPnl,
+      cash: round2(initialCapital + realizedPnl - invested),
+      positions,
+    };
+    this.books.set(key, book);
+    return book;
+  }
+
+  private activateBook(
+    book: PaperBook,
+  ): { cash: number; realizedPnl: number; positions: Map<string, OpenPosition> } | null {
+    if (!book.userId) return null;
+    const saved = {
+      cash: this.cash,
+      realizedPnl: this.realizedPnl,
+      positions: new Map([...this.positions.entries()].map(([k, v]) => [k, { ...v }])),
+    };
+    this.activeIdentity = { userId: book.userId, brandId: book.brandId };
+    this.cash = book.cash;
+    this.realizedPnl = book.realizedPnl;
+    this.positions.clear();
+    for (const [symbol, pos] of book.positions) this.positions.set(symbol, { ...pos });
+    return saved;
+  }
+
+  private restoreSystemBook(
+    saved: { cash: number; realizedPnl: number; positions: Map<string, OpenPosition> } | null,
+  ): void {
+    if (!saved) return;
+    this.activeIdentity = { userId: null, brandId: null };
+    this.cash = saved.cash;
+    this.realizedPnl = saved.realizedPnl;
+    this.positions.clear();
+    for (const [symbol, pos] of saved.positions) this.positions.set(symbol, { ...pos });
+  }
+
+  private syncActiveBook(book: PaperBook): void {
+    if (!book.userId) return;
+    book.cash = this.cash;
+    book.realizedPnl = this.realizedPnl;
+    book.positions = new Map([...this.positions.entries()].map(([k, v]) => [k, { ...v }]));
+    this.books.set(book.key, book);
+  }
+
+  // ---------------------------------------------------------------- queries
+
+  async getPortfolio(userId?: string, brandId?: string): Promise<PortfolioSnapshot> {
+    const book = await this.ensureBook(userId, brandId);
+    const saved = this.activateBook(book);
+    try {
+      await this.refreshHoldingQuotes();
+      const snap = await this.snapshotPortfolio();
+      this.syncActiveBook(book);
+      return { ...snap, capital: book.initialCapital };
+    } finally {
+      this.restoreSystemBook(saved);
+    }
+  }
+
+  async getHoldings(userId?: string, brandId?: string): Promise<{ holdings: PaperHolding[] }> {
+    const portfolio = await this.getPortfolio(userId, brandId);
     return { holdings: portfolio.holdings };
   }
 
-  private snapshotPortfolio(): PortfolioSnapshot {
+  /** Flatten every open lot the tick loop will evaluate (system + user books). */
+  async getMonitoredPositions(): Promise<{
+    agentTradingEnabled: boolean;
+    positions: Array<{
+      symbol: string;
+      quantity: number;
+      entryPrice: number;
+      currentPrice: number;
+      target: number;
+      stopLoss: number;
+      unrealizedPnl: number;
+      openedAt: number;
+      bookKey: string;
+      userId: string | null;
+      brandId: string | null;
+      exitMode: 'AGENT_POLICY' | 'CLASSIC_STOP_TARGET';
+      monitored: boolean;
+    }>;
+  }> {
+    await this.restoreUserBooks();
+    const exitMode = this.agentTradingEnabled ? 'AGENT_POLICY' : 'CLASSIC_STOP_TARGET';
+    const rows: Array<{
+      symbol: string;
+      quantity: number;
+      entryPrice: number;
+      currentPrice: number;
+      target: number;
+      stopLoss: number;
+      unrealizedPnl: number;
+      openedAt: number;
+      bookKey: string;
+      userId: string | null;
+      brandId: string | null;
+      exitMode: 'AGENT_POLICY' | 'CLASSIC_STOP_TARGET';
+      monitored: boolean;
+    }> = [];
+
+    const pushBook = (
+      bookKey: string,
+      userId: string | null,
+      brandId: string | null,
+      positions: Map<string, OpenPosition>,
+    ): void => {
+      for (const position of positions.values()) {
+        const price = this.lastPrices.get(position.symbol) ?? position.entryPrice;
+        const invested = position.quantity * position.entryPrice;
+        const lotPnl = price * position.quantity - invested;
+        rows.push({
+          symbol: position.symbol,
+          quantity: position.quantity,
+          entryPrice: round2(position.entryPrice),
+          currentPrice: round2(price),
+          target: round2(position.target),
+          stopLoss: round2(position.stopLoss),
+          unrealizedPnl: round2(lotPnl),
+          openedAt: position.openedAt,
+          bookKey,
+          userId,
+          brandId,
+          exitMode,
+          monitored: true,
+        });
+      }
+    };
+
+    pushBook(bookKey(null, null), null, null, this.positions);
+    for (const book of this.books.values()) {
+      pushBook(book.key, book.userId, book.brandId, book.positions);
+    }
+
+    rows.sort((a, b) => a.symbol.localeCompare(b.symbol));
+    return { agentTradingEnabled: this.agentTradingEnabled, positions: rows };
+  }
+
+  private async snapshotPortfolio(): Promise<PortfolioSnapshot> {
     let unrealized = 0;
     let marketValue = 0;
+    const symbols = [...this.positions.keys()];
+    const sectorBySymbol = await this.lookupSectors(symbols);
     const holdings: PaperHolding[] = [];
     for (const position of this.positions.values()) {
       const price = this.lastPrices.get(position.symbol) ?? position.entryPrice;
@@ -241,6 +543,8 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
       const lotPnl = lotValue - invested;
       unrealized += lotPnl;
       marketValue += lotValue;
+      const sector = position.sector ?? sectorBySymbol.get(position.symbol.toUpperCase()) ?? null;
+      if (sector && !position.sector) position.sector = sector;
       holdings.push({
         symbol: position.symbol,
         quantity: position.quantity,
@@ -253,25 +557,54 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
         unrealizedPnl: round2(lotPnl),
         unrealizedPnlPercent: invested > 0 ? round2((lotPnl / invested) * 100) : 0,
         openedAt: position.openedAt,
+        sector,
       });
     }
     holdings.sort((a, b) => a.symbol.localeCompare(b.symbol));
+    const equity = round2(this.cash + marketValue);
+    // Refresh day/week anchors before exposing them on the snapshot.
+    this.riskManager.evaluate(equity, new Date());
     return {
       mode: this.mode,
       capital: this.initialCapital,
-      equity: round2(this.cash + marketValue),
+      equity,
       cash: round2(this.cash),
       openPositions: this.positions.size,
       realizedPnl: round2(this.realizedPnl),
       unrealizedPnl: round2(unrealized),
       circuitBreakerTripped: this.riskManager.isTripped,
       holdings,
+      dayStartEquity: this.riskManager.dayStartEquity ?? equity,
+      weekStartEquity: this.riskManager.weekStartEquity ?? equity,
     };
   }
 
-  async getTrades(limit: number): Promise<unknown[]> {
+  private async lookupSectors(symbols: string[]): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    if (symbols.length === 0) return map;
+    try {
+      const rows = await this.prisma.stock.findMany({
+        where: { symbol: { in: symbols.map((s) => s.toUpperCase()) } },
+        select: { symbol: true, sector: true },
+      });
+      for (const row of rows) {
+        if (row.sector && row.sector !== 'Unknown') {
+          map.set(row.symbol.toUpperCase(), row.sector);
+        }
+      }
+    } catch {
+      /* sector lookup is best-effort */
+    }
+    return map;
+  }
+
+  async getTrades(limit: number, userId?: string, brandId?: string): Promise<unknown[]> {
     try {
       const rows = await this.prisma.trade.findMany({
+        where: {
+          ...(userId ? { userId } : {}),
+          ...(brandId ? { brandId } : {}),
+        },
         orderBy: { executedAt: 'desc' },
         take: limit,
       });
@@ -292,32 +625,67 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     target?: number;
     stopLoss?: number;
     userId?: string;
+    brandId?: string;
+    decisionId?: string;
+    plannedRiskAmount?: number;
+    soakRunId?: string;
   }): Promise<ExecutedTrade> {
-    const symbol = input.symbol.toUpperCase();
-    const price = await this.resolvePrice(symbol, input.price);
-    if (input.side === TradeSide.BUY) {
-      if (this.riskManager.isTripped) {
-        throw new ForbiddenException(`Circuit breaker active: ${this.riskManager.reason}`);
+    const book = await this.ensureBook(input.userId, input.brandId);
+    const saved = this.activateBook(book);
+    try {
+      const symbol = input.symbol.toUpperCase();
+      const price = await this.resolvePrice(symbol, input.price);
+      let result: ExecutedTrade;
+      if (input.side === TradeSide.BUY) {
+        if (this.riskManager.isTripped) {
+          throw new ForbiddenException(`Circuit breaker active: ${this.riskManager.reason}`);
+        }
+        const cost = price * input.quantity;
+        if (cost > this.cash) {
+          throw new BadRequestException('Insufficient paper-trading cash for this order');
+        }
+        if (this.positions.has(symbol)) {
+          result = await this.addToPosition(
+            symbol,
+            input.quantity,
+            price,
+            input.userId,
+            input.brandId,
+          );
+        } else {
+          const target = input.target && input.target > 0 ? input.target : price * 1.05;
+          const stopLoss = input.stopLoss && input.stopLoss > 0 ? input.stopLoss : price * 0.97;
+          result = await this.openPosition(
+            symbol,
+            input.quantity,
+            price,
+            target,
+            stopLoss,
+            input.userId,
+            input.brandId,
+            {
+              decisionId: input.decisionId,
+              plannedRiskAmount: input.plannedRiskAmount,
+              soakRunId: input.soakRunId,
+            },
+          );
+        }
+      } else {
+        const position = this.positions.get(symbol);
+        if (!position) {
+          throw new BadRequestException(`No open position in ${symbol} to sell`);
+        }
+        if (input.quantity < position.quantity) {
+          result = await this.reducePosition(position, input.quantity, price);
+        } else {
+          result = await this.closePosition(position, price, TradeExitReason.MANUAL);
+        }
       }
-      const cost = price * input.quantity;
-      if (cost > this.cash) {
-        throw new BadRequestException('Insufficient paper-trading cash for this order');
-      }
-      if (this.positions.has(symbol)) {
-        return this.addToPosition(symbol, input.quantity, price, input.userId);
-      }
-      const target = input.target && input.target > 0 ? input.target : price * 1.05;
-      const stopLoss = input.stopLoss && input.stopLoss > 0 ? input.stopLoss : price * 0.97;
-      return this.openPosition(symbol, input.quantity, price, target, stopLoss, input.userId);
+      this.syncActiveBook(book);
+      return result;
+    } finally {
+      this.restoreSystemBook(saved);
     }
-    const position = this.positions.get(symbol);
-    if (!position) {
-      throw new BadRequestException(`No open position in ${symbol} to sell`);
-    }
-    if (input.quantity < position.quantity) {
-      return this.reducePosition(position, input.quantity, price);
-    }
-    return this.closePosition(position, price, TradeExitReason.MANUAL);
   }
 
   private async resolvePrice(symbol: string, quoted?: number): Promise<number> {
@@ -402,6 +770,8 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
 
   setAgentTradingEnabled(enabled: boolean): { agentTradingEnabled: boolean } {
     this.agentTradingEnabled = enabled;
+    this.persistAgentTradingGate();
+    console.log(`[auto-trader] agentTradingEnabled=${enabled}`);
     return { agentTradingEnabled: this.agentTradingEnabled };
   }
 
@@ -413,54 +783,195 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
 
   private async onTick(tick: MarketTickEvent): Promise<void> {
     this.lastPrices.set(tick.symbol, tick.price);
-    const position = this.positions.get(tick.symbol);
-    if (position) {
-      if (this.agentTradingEnabled) {
-        const atr = Math.max(tick.price * 0.008, 0.05);
-        const action = evaluateExitPolicy(
-          {
-            symbol: position.symbol,
-            entryPrice: position.entryPrice,
-            quantity: position.quantity,
-            target: position.target,
-            target2: position.target2,
-            stopLoss: position.stopLoss,
-          },
-          {
-            price: tick.price,
-            thesisScore: position.thesisScore,
-            thesisIntact: position.thesisScore == null || position.thesisScore >= 58,
-            atr,
-          },
-        );
-        if (action.type === 'UPDATE_LEVELS') {
-          position.stopLoss = action.stopLoss;
-          position.target = action.target;
-          if (action.target2 != null) position.target2 = action.target2;
-        } else if (action.type === 'PARTIAL_EXIT') {
-          position.stopLoss = action.stopLoss;
-          position.target = action.target;
-          await this.reducePosition(position, action.quantity, tick.price, action.reason);
-        } else if (action.type === 'FULL_EXIT') {
-          await this.closePosition(position, tick.price, action.reason);
-        }
-      } else {
-        // Classic exits only — agent policy does not run until enabled.
-        if (tick.price <= position.stopLoss) {
-          await this.closePosition(position, tick.price, TradeExitReason.STOP_LOSS_HIT);
-        } else if (tick.price >= position.target) {
-          await this.closePosition(position, tick.price, TradeExitReason.TARGET_HIT);
-        }
+    this.monitoringLog.recordTick();
+
+    // System (legacy/auto) book
+    await this.applyExitForPosition(this.positions.get(tick.symbol), tick.price, null);
+
+    // Per-user paper books (agent-approved / manual UI lots)
+    for (const book of this.books.values()) {
+      const position = book.positions.get(tick.symbol);
+      if (!position) continue;
+      const saved = this.activateBook(book);
+      try {
+        await this.applyExitForPosition(this.positions.get(tick.symbol), tick.price, book);
+        this.syncActiveBook(book);
+      } finally {
+        this.restoreSystemBook(saved);
       }
     }
-    // Re-evaluate the breaker on the equity mark.
-    const snapshot = this.snapshotPortfolio();
+
+    // Re-evaluate the breaker on the equity mark (system book).
+    const snapshot = await this.snapshotPortfolio();
     const before = this.riskManager.isTripped;
     const check = this.riskManager.evaluate(snapshot.equity, new Date());
     if (check.tripped && !before) {
       console.warn(`[auto-trader] CIRCUIT BREAKER TRIPPED: ${check.reason}`);
       await this.audit('CIRCUIT_BREAKER_TRIPPED', 'auto-trader', { reason: check.reason });
     }
+  }
+
+  /** Run agent exit policy (when enabled) or classic stop/target on one lot. */
+  private async applyExitForPosition(
+    position: OpenPosition | undefined,
+    price: number,
+    book: PaperBook | null,
+  ): Promise<void> {
+    if (!position) return;
+    const lotBookKey = book?.key ?? bookKey(null, null);
+    const userId = book?.userId ?? null;
+    if (this.agentTradingEnabled) {
+      const atr = Math.max(price * 0.008, 0.05);
+      const action = evaluateExitPolicy(
+        {
+          symbol: position.symbol,
+          entryPrice: position.entryPrice,
+          quantity: position.quantity,
+          target: position.target,
+          target2: position.target2,
+          stopLoss: position.stopLoss,
+        },
+        {
+          price,
+          thesisScore: position.thesisScore,
+          thesisIntact: position.thesisScore == null || position.thesisScore >= 58,
+          atr,
+        },
+      );
+      if (action.type === 'NONE') {
+        this.monitoringLog.push({
+          symbol: position.symbol,
+          bookKey: lotBookKey,
+          userId,
+          mode: 'AGENT_POLICY',
+          action: 'HOLD',
+          policy: action.policy,
+          note: action.note,
+          price,
+          stopLoss: action.stopLoss,
+          target: action.target,
+          quantity: position.quantity,
+        });
+      } else if (action.type === 'UPDATE_LEVELS') {
+        this.monitoringLog.push({
+          symbol: position.symbol,
+          bookKey: lotBookKey,
+          userId,
+          mode: 'AGENT_POLICY',
+          action: action.policy === 'TRAIL' ? 'TRAIL' : 'UPDATE_LEVELS',
+          policy: action.policy,
+          note: action.note,
+          price,
+          stopLoss: action.stopLoss,
+          target: action.target,
+          quantity: position.quantity,
+          force: true,
+        });
+        position.stopLoss = action.stopLoss;
+        position.target = action.target;
+        if (action.target2 != null) position.target2 = action.target2;
+      } else if (action.type === 'PARTIAL_EXIT') {
+        this.monitoringLog.push({
+          symbol: position.symbol,
+          bookKey: lotBookKey,
+          userId,
+          mode: 'AGENT_POLICY',
+          action: 'PARTIAL_EXIT',
+          policy: action.policy,
+          note: action.note,
+          price,
+          stopLoss: action.stopLoss,
+          target: action.target,
+          quantity: action.quantity,
+          reason: action.reason,
+          force: true,
+        });
+        position.stopLoss = action.stopLoss;
+        position.target = action.target;
+        await this.reducePosition(position, action.quantity, price, action.reason);
+      } else if (action.type === 'FULL_EXIT') {
+        this.monitoringLog.push({
+          symbol: position.symbol,
+          bookKey: lotBookKey,
+          userId,
+          mode: 'AGENT_POLICY',
+          action: 'FULL_EXIT',
+          policy: action.policy,
+          note: action.note,
+          price,
+          stopLoss: action.stopLoss,
+          target: action.target,
+          quantity: position.quantity,
+          reason: action.reason,
+          force: true,
+        });
+        await this.closePosition(position, price, action.reason);
+      }
+    } else {
+      if (price <= position.stopLoss) {
+        this.monitoringLog.push({
+          symbol: position.symbol,
+          bookKey: lotBookKey,
+          userId,
+          mode: 'CLASSIC_STOP_TARGET',
+          action: 'CLASSIC_STOP',
+          policy: 'HARD_STOP',
+          note: 'Classic stop-loss hit (agent trading off).',
+          price,
+          stopLoss: position.stopLoss,
+          target: position.target,
+          quantity: position.quantity,
+          reason: TradeExitReason.STOP_LOSS_HIT,
+          force: true,
+        });
+        await this.closePosition(position, price, TradeExitReason.STOP_LOSS_HIT);
+      } else if (price >= position.target) {
+        this.monitoringLog.push({
+          symbol: position.symbol,
+          bookKey: lotBookKey,
+          userId,
+          mode: 'CLASSIC_STOP_TARGET',
+          action: 'CLASSIC_TARGET',
+          policy: 'EXIT_PENDING',
+          note: 'Classic target hit (agent trading off).',
+          price,
+          stopLoss: position.stopLoss,
+          target: position.target,
+          quantity: position.quantity,
+          reason: TradeExitReason.TARGET_HIT,
+          force: true,
+        });
+        await this.closePosition(position, price, TradeExitReason.TARGET_HIT);
+      } else {
+        this.monitoringLog.push({
+          symbol: position.symbol,
+          bookKey: lotBookKey,
+          userId,
+          mode: 'CLASSIC_STOP_TARGET',
+          action: 'HOLD',
+          policy: 'HOLD',
+          note: 'Classic monitoring vs stop/target (enable AI agent trading for exit policy).',
+          price,
+          stopLoss: position.stopLoss,
+          target: position.target,
+          quantity: position.quantity,
+        });
+      }
+    }
+  }
+
+  getMonitoringLogs(
+    limit = 100,
+    symbol?: string,
+  ): {
+    events: import('./monitoring-log-store').MonitoringLogEvent[];
+    meta: import('./monitoring-log-store').MonitoringLogMeta;
+  } {
+    const monitored = this.getMonitoredPositions();
+    return {
+      events: this.monitoringLog.list(limit, symbol),
+      meta: this.monitoringLog.meta(this.agentTradingEnabled, monitored.positions.length),
+    };
   }
 
   private onPattern(pattern: PatternDetectedEvent): void {
@@ -533,6 +1044,12 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     target: number,
     stopLoss: number,
     userId?: string,
+    brandId?: string,
+    agentLink?: {
+      decisionId?: string;
+      plannedRiskAmount?: number;
+      soakRunId?: string;
+    },
   ): Promise<ExecutedTrade> {
     // Risk checks (before broker call)
     if (this.riskManager.isTripped) {
@@ -572,7 +1089,13 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     this.cash -= quantity * price;
 
     let tradeId = externalOrderId;
+    let sector: string | null = null;
     try {
+      const existing = await this.prisma.stock.findUnique({
+        where: { symbol },
+        select: { sector: true },
+      });
+      if (existing?.sector && existing.sector !== 'Unknown') sector = existing.sector;
       await this.prisma.stock.upsert({
         where: { symbol },
         update: {},
@@ -589,6 +1112,7 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
           target: round2(target),
           stopLoss: round2(stopLoss),
           userId,
+          brandId,
           brokerOrderId: orderResponse.brokerOrderId || orderResponse.orderId,
         },
       });
@@ -606,6 +1130,10 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
       target2: round2(price + (target - price) * 1.6),
       stopLoss,
       openedAt: Date.now(),
+      sector,
+      decisionId: agentLink?.decisionId,
+      plannedRiskAmount: agentLink?.plannedRiskAmount,
+      soakRunId: agentLink?.soakRunId,
     };
     this.positions.set(symbol, position);
 
@@ -637,6 +1165,7 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     quantity: number,
     price: number,
     userId?: string,
+    _brandId?: string,
   ): Promise<ExecutedTrade> {
     const position = this.positions.get(symbol);
     if (!position) {
@@ -724,6 +1253,8 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
           exitReason: reason,
           pnl,
           closedAt: new Date(),
+          userId: this.activeIdentity.userId ?? undefined,
+          brandId: this.activeIdentity.brandId ?? undefined,
         },
       });
     } catch (error) {
@@ -820,7 +1351,14 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     this.realizedPnl += pnl;
     try {
       await this.prisma.trade.updateMany({
-        where: { symbol: position.symbol, status: TradeStatus.OPEN, mode: this.mode },
+        where: {
+          symbol: position.symbol,
+          status: TradeStatus.OPEN,
+          mode: this.mode,
+          ...(this.activeIdentity.userId
+            ? { userId: this.activeIdentity.userId }
+            : { userId: null }),
+        },
         data: {
           status: TradeStatus.CLOSED,
           exitPrice: round2(exitPrice),
@@ -860,10 +1398,55 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     await this.producer
       .publish<TradeExecutedEvent>(KAFKA_TOPICS.TRADE_EXECUTED, executed, position.symbol)
       .catch(() => undefined);
+    await this.notifyAgentOutcome(position, executed, reason);
     console.log(
       `[auto-trader] CLOSE ${position.symbol} x${position.quantity} @ ${round2(exitPrice)} pnl ${pnl} (${reason})`,
     );
     return executed;
+  }
+
+  /** Best-effort bridge: push closed-trade outcome to trader-agent ledger (idempotent). */
+  private async notifyAgentOutcome(
+    position: OpenPosition,
+    executed: ExecutedTrade,
+    reason: TradeExitReason,
+  ): Promise<void> {
+    if (!position.decisionId && !position.tradeId) return;
+    const agentUrl = process.env.TRADER_AGENT_URL || 'http://localhost:3010';
+    const pnl = executed.pnl ?? 0;
+    const exitPrice = executed.exitPrice ?? 0;
+    const holdingPeriodMs =
+      executed.closedAt && position.openedAt
+        ? Math.max(0, executed.closedAt - position.openedAt)
+        : 0;
+    const notional = position.entryPrice * position.quantity;
+    const pnlPercent = notional > 0 ? (pnl / notional) * 100 : 0;
+    try {
+      const res = await fetch(`${agentUrl}/agent/decisions/outcome`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          decisionId: position.decisionId,
+          tradeId: position.tradeId,
+          orderId: position.tradeId,
+          symbol: position.symbol,
+          exitPrice,
+          pnl,
+          pnlPercent,
+          holdingPeriodMs,
+          exitReason: String(reason),
+          closedAt: executed.closedAt ?? Date.now(),
+          plannedRiskAmount: position.plannedRiskAmount,
+          soakRunId: position.soakRunId,
+        }),
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (!res.ok) {
+        console.warn(`[auto-trader] agent outcome notify HTTP ${res.status}`);
+      }
+    } catch (error) {
+      console.warn(`[auto-trader] agent outcome notify failed: ${(error as Error).message}`);
+    }
   }
 
   private async audit(

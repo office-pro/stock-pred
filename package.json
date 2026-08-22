@@ -63,6 +63,7 @@
     "walkforward:nifty100": "python ml/walkforward.py --days 1500 --universe nifty100",
     "walkforward:nifty500": "python ml/walkforward.py --days 1500 --universe nifty500",
     "walkforward:smallcap": "python ml/walkforward.py --days 1500 --universe smallcap",
+    "walkforward:agent": "npm run build -w @stockpred/shared-types -w @stockpred/shared-utils -w @stockpred/trader-agent && node apps/trader-agent/dist/walk-forward-cli.js",
     "backtest:ml": "python ml/ml_backtest.py --days 1500",
     "backtest:ml:nifty50": "python ml/ml_backtest.py --days 1500 --universe nifty50",
     "backtest:ml:nifty100": "python ml/ml_backtest.py --days 1500 --universe nifty100",

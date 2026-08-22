@@ -307,10 +307,20 @@ def main() -> None:
         if args.symbols
         else load_universe(basket)
     )
+    # Single-symbol desk train: mix in Nifty 50 so trees have enough samples to write artifacts.
+    scoped = bool(args.symbols)
+    if scoped:
+        support = load_universe("nifty50")
+        symbols = list(dict.fromkeys([*symbols, *support]))
+        print(
+            f"[train] scoped train: primary={args.symbols} + {len(support)} nifty50 support names "
+            f"({len(symbols)} total)",
+            flush=True,
+        )
     if args.full and not args.synthetic:
         wipe_feature_cache()
         print("[train] --full: wiped feature cache", flush=True)
-    elif not args.synthetic:
+    elif not args.synthetic and not scoped:
         from .incremental import has_new_feature_bars, live_models_ready
 
         if live_models_ready() and not has_new_feature_bars(symbols):

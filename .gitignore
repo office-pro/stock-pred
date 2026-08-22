@@ -50,4 +50,5 @@ packages/database/prisma/dev.db
 
 # Trader-agent retained suggestion cards / Cursor task briefs
 apps/trader-agent/data/
+apps/auto-trader/data/
 .cursor/agent-tasks/

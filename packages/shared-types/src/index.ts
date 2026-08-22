@@ -8,3 +8,7 @@ export * from './api';
 export * from './scanner';
 export * from './manipulation';
 export * from './agent';
+export * from './walk-forward';
+export * from './soak';
+export * from './trade-intelligence';
+export * from './phase5';

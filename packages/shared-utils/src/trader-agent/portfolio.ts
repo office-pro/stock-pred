@@ -8,17 +8,24 @@ function isFiniteNumber(value: unknown): value is number {
 function isPaperHolding(value: unknown): value is PaperHolding {
   if (!value || typeof value !== 'object') return false;
   const row = value as Record<string, unknown>;
-  return (
-    typeof row.symbol === 'string' &&
-    row.symbol.length > 0 &&
-    isFiniteNumber(row.quantity) &&
-    row.quantity > 0 &&
-    isFiniteNumber(row.entryPrice) &&
-    isFiniteNumber(row.currentPrice) &&
-    isFiniteNumber(row.target) &&
-    isFiniteNumber(row.stopLoss) &&
-    isFiniteNumber(row.unrealizedPnl)
-  );
+  if (
+    typeof row.symbol !== 'string' ||
+    row.symbol.length === 0 ||
+    !isFiniteNumber(row.quantity) ||
+    row.quantity <= 0 ||
+    !isFiniteNumber(row.entryPrice) ||
+    !isFiniteNumber(row.currentPrice) ||
+    !isFiniteNumber(row.target) ||
+    !isFiniteNumber(row.stopLoss) ||
+    !isFiniteNumber(row.unrealizedPnl)
+  ) {
+    return false;
+  }
+  // Optional Phase 2 field — if present must be a string (or null).
+  if (row.sector !== undefined && row.sector !== null && typeof row.sector !== 'string') {
+    return false;
+  }
+  return true;
 }
 
 /** Runtime guard for auto-trader GET /portfolio responses. */
@@ -44,6 +51,9 @@ export function isPortfolioSnapshot(value: unknown): value is PortfolioSnapshot 
   if (!Array.isArray(row.holdings)) return false;
   if (!row.holdings.every(isPaperHolding)) return false;
   if (row.openPositions !== row.holdings.length) return false;
+  // Optional Phase 2 DD anchors — if present must be finite numbers.
+  if (row.dayStartEquity !== undefined && !isFiniteNumber(row.dayStartEquity)) return false;
+  if (row.weekStartEquity !== undefined && !isFiniteNumber(row.weekStartEquity)) return false;
   return true;
 }
 

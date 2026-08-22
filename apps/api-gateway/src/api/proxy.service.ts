@@ -41,6 +41,19 @@ export class ProxyService {
     return this.request<T>(service, { ...config, method: 'POST', url: path, data: body });
   }
 
+  async patch<T>(
+    service: ServiceName,
+    path: string,
+    body?: unknown,
+    config?: AxiosRequestConfig,
+  ): Promise<T> {
+    return this.request<T>(service, { ...config, method: 'PATCH', url: path, data: body });
+  }
+
+  async delete<T>(service: ServiceName, path: string, config?: AxiosRequestConfig): Promise<T> {
+    return this.request<T>(service, { ...config, method: 'DELETE', url: path });
+  }
+
   private async request<T>(service: ServiceName, config: AxiosRequestConfig): Promise<T> {
     try {
       const response = await axios.request<T>({

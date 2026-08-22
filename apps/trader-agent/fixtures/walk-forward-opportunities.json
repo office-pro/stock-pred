@@ -1,0 +1,71 @@
+{
+  "config": {
+    "initialCash": 1000000,
+    "slippageBps": 5,
+    "confidenceSweep": [70, 100],
+    "riskBudgets": {
+      "maxPriceDeviationPct": 2
+    }
+  },
+  "opportunities": [
+    {
+      "opportunityId": "fixture-tcs-1",
+      "timestamp": 1704196800000,
+      "symbol": "TCS",
+      "sector": "IT",
+      "quote": { "price": 3500, "timestamp": 1704196800000 },
+      "regimeSnapshot": {
+        "marketRegime": "RISK_ON",
+        "trend": "BULL",
+        "volatility": "MID",
+        "trendVolKey": "BULL|MID"
+      },
+      "analysis": {
+        "symbol": "TCS",
+        "currentPrice": 3500,
+        "decision": "BUY",
+        "scores": {
+          "fundamental": 70,
+          "technical": 80,
+          "sentiment": 60,
+          "quant": 65,
+          "macro": 55,
+          "sector": 60,
+          "risk": 70,
+          "overall": 78
+        },
+        "setup": {
+          "instrument": "TCS",
+          "direction": "LONG",
+          "entry": 3500,
+          "stopLoss": 3400,
+          "target1": 3700,
+          "target2": null,
+          "target3": null,
+          "riskReward": 2,
+          "positionSize": 10,
+          "expectedHoldingPeriod": "1-5d",
+          "confidence": 80,
+          "invalidation": "Close below stop"
+        },
+        "marketRegime": "RISK_ON",
+        "thesis": "Fixture breakout",
+        "counterThesis": "Risk-off",
+        "invalidation": "Close below stop",
+        "risks": [],
+        "action": "Propose long",
+        "usedCapabilities": ["quotes"],
+        "missingCapabilities": [],
+        "capabilityRequests": [],
+        "generatedAt": 1704196800000,
+        "disclaimer": "Fixture"
+      },
+      "bars": [
+        { "timestamp": 1704196800000, "open": 3490, "high": 3510, "low": 3480, "close": 3500 },
+        { "timestamp": 1704283200000, "open": 3500, "high": 3550, "low": 3485, "close": 3520 },
+        { "timestamp": 1704369600000, "open": 3520, "high": 3720, "low": 3510, "close": 3710 }
+      ],
+      "horizonBars": 5
+    }
+  ]
+}

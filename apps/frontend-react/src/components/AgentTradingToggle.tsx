@@ -71,7 +71,8 @@ export default function AgentTradingToggle({ compact = false }: Props): JSX.Elem
           <Box>
             <Typography fontWeight={700}>Enable AI agent trading</Typography>
             <Typography variant="caption" color="text.secondary" display="block">
-              Off by default. Turn on only when you want the agent to approve buys and manage exits.{' '}
+              Off by default. When on, the agent can approve buys and auto-trader monitors open
+              paper lots (stops/targets + exit policy). Preference is saved across restarts.{' '}
               <Typography
                 component={RouterLink}
                 to="/agent"

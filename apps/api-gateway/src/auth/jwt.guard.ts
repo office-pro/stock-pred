@@ -20,7 +20,14 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Missing bearer token');
     }
     try {
-      request.user = jwt.verify(header.slice('Bearer '.length), this.secret) as JwtPayload;
+      const verified = jwt.verify(header.slice('Bearer '.length), this.secret) as JwtPayload;
+      request.user = {
+        ...verified,
+        brandId: verified.brandId ?? null,
+        views: verified.views ?? [],
+        status: verified.status ?? ('ACTIVE' as JwtPayload['status']),
+        accessExpiresAt: verified.accessExpiresAt ?? null,
+      };
     } catch {
       throw new UnauthorizedException('Invalid or expired access token');
     }

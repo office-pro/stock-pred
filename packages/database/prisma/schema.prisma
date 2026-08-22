@@ -124,33 +124,110 @@ model Trade {
   exitReason    String?   @map("exit_reason")
   pnl           Float?
   userId        String?   @map("user_id")
+  brandId       String?   @map("brand_id")
   brokerOrderId String?   @unique @map("broker_order_id")
   executedAt    DateTime  @default(now()) @map("executed_at")
   closedAt      DateTime? @map("closed_at")
 
-  stock Stock @relation(fields: [symbol], references: [symbol])
-  user  User? @relation(fields: [userId], references: [id])
+  stock Stock  @relation(fields: [symbol], references: [symbol])
+  user  User?  @relation(fields: [userId], references: [id])
+  brand Brand? @relation(fields: [brandId], references: [id])
 
   @@index([symbol, status])
   @@index([status, executedAt])
+  @@index([brandId, userId])
   @@map("trades")
 }
 
-model User {
+/** Per-user agent desk suggestions (New = PENDING, Added = APPROVED/EXECUTED). */
+model AgentOpportunity {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  brandId    String?   @map("brand_id")
+  symbol     String
+  status     String    @default("PENDING")
+  analysis   Json
+  quantity   Int?
+  expiresAt  DateTime? @map("expires_at")
+  executedAt DateTime? @map("executed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brand Brand? @relation(fields: [brandId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([userId, symbol, status])
+  @@index([expiresAt])
+  @@map("agent_opportunities")
+}
+
+model Brand {
   id           String   @id @default(uuid())
-  email        String   @unique
-  name         String
-  passwordHash String   @map("password_hash")
-  role         String   @default("VIEWER")
+  name         String   @unique
+  domain       String   @unique
+  paperCapital Float    @default(10000000) @map("paper_capital")
+  status       String   @default("ACTIVE")
+  contactEmail String?  @map("contact_email")
+  contactPhone String?  @map("contact_phone")
+  logoUrl      String?  @map("logo_url")
+  notes        String?
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  refreshTokens RefreshToken[]
-  brokers       Broker[]
-  trades        Trade[]
-  auditLogs     AuditLog[]
+  users              User[]
+  trades             Trade[]
+  extensionRequests  AccessExtensionRequest[]
+  agentOpportunities AgentOpportunity[]
 
+  @@map("brands")
+}
+
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  name            String
+  passwordHash    String    @map("password_hash")
+  role            String    @default("VIEWER")
+  status          String    @default("ACTIVE")
+  brandId         String?   @map("brand_id")
+  allowedViews    String[]  @default([]) @map("allowed_views")
+  accessExpiresAt DateTime? @map("access_expires_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  brand                   Brand?                   @relation(fields: [brandId], references: [id])
+  refreshTokens           RefreshToken[]
+  brokers                 Broker[]
+  trades                  Trade[]
+  auditLogs               AuditLog[]
+  extensionRequests       AccessExtensionRequest[] @relation("ViewerExtensions")
+  reviewedExtensions      AccessExtensionRequest[] @relation("ExtensionReviewer")
+  agentOpportunities      AgentOpportunity[]
+
+  @@index([brandId, role])
+  @@index([status])
   @@map("users")
+}
+
+model AccessExtensionRequest {
+  id             String   @id @default(uuid())
+  viewerId       String   @map("viewer_id")
+  brandId        String   @map("brand_id")
+  requestedUntil DateTime @map("requested_until")
+  status         String   @default("PENDING")
+  notes          String?
+  reviewerId     String?  @map("reviewer_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  viewer   User  @relation("ViewerExtensions", fields: [viewerId], references: [id], onDelete: Cascade)
+  brand    Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  reviewer User? @relation("ExtensionReviewer", fields: [reviewerId], references: [id])
+
+  @@index([brandId, status])
+  @@index([viewerId, status])
+  @@map("access_extension_requests")
 }
 
 model RefreshToken {

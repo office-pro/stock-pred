@@ -40,6 +40,16 @@ export class RiskManager {
     return this.trippedReason;
   }
 
+  /** Equity at start of the current UTC day (null until first evaluate). */
+  get dayStartEquity(): number | null {
+    return this.dayAnchor?.equity ?? null;
+  }
+
+  /** Equity at start of the current ISO week (null until first evaluate). */
+  get weekStartEquity(): number | null {
+    return this.weekAnchor?.equity ?? null;
+  }
+
   /** Feed the latest portfolio equity; returns the current breaker state. */
   evaluate(equity: number, now: Date): RiskCheck {
     const dk = dayKey(now);

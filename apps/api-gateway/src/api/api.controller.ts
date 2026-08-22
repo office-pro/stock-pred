@@ -22,9 +22,9 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { ApiResponse, TradeSide, UserRole, withDisclaimer } from '@stockpred/shared-types';
-import { AuthenticatedRequest, JwtAuthGuard, OptionalJwtAuthGuard } from '../auth/jwt.guard';
-import { Roles, RolesGuard } from '../auth/roles.guard';
+import { ApiResponse, AppView, TradeSide, UserRole, withDisclaimer } from '@stockpred/shared-types';
+import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt.guard';
+import { identityHeaders, Roles, RolesGuard, Views, ViewsGuard } from '../auth/roles.guard';
 import { ProxyService } from './proxy.service';
 
 export class BacktestRequestDto {
@@ -97,6 +97,12 @@ export class MlJobStartDto {
   @IsOptional()
   @IsIn(['nifty50', 'nifty100', 'nifty500', 'smallcap', 'all'])
   universe?: string;
+
+  /** Optional comma-separated symbols to scope train/predict (stock detail ingest). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  symbols?: string;
 }
 
 export class BrokerConfigDto {
@@ -113,12 +119,15 @@ export class BrokerTestDto {
 }
 
 @Controller('api')
+@UseGuards(JwtAuthGuard)
 export class ApiController {
   constructor(private readonly proxy: ProxyService) {}
 
   // ------------------------------------------------------------ market data
 
   @Get('stocks')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.DASHBOARD, AppView.SCANNER, AppView.STOCK_DETAIL)
   getStocks(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50,
@@ -186,7 +195,7 @@ export class ApiController {
   }
 
   @Post('stocks/:symbol/fundamentals/ingest')
-  @UseGuards(OptionalJwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   ingestFundamentals(
     @Param('symbol') symbol: string,
     @Query('full') full?: string,
@@ -200,7 +209,7 @@ export class ApiController {
   }
 
   @Post('stocks/:symbol/technical/refresh')
-  @UseGuards(OptionalJwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   refreshTechnical(@Param('symbol') symbol: string): Promise<unknown> {
     return this.proxy.post(
       'marketData',
@@ -221,7 +230,7 @@ export class ApiController {
   }
 
   @Post('stocks/:symbol/alt-data/news/ingest')
-  @UseGuards(OptionalJwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   ingestNews(@Param('symbol') symbol: string, @Query('full') full?: string): Promise<unknown> {
     return this.proxy.post(
       'marketData',
@@ -232,7 +241,7 @@ export class ApiController {
   }
 
   @Post('stocks/:symbol/alt-data/social/ingest')
-  @UseGuards(OptionalJwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   ingestSocial(@Param('symbol') symbol: string, @Query('full') full?: string): Promise<unknown> {
     return this.proxy.post(
       'marketData',
@@ -243,7 +252,7 @@ export class ApiController {
   }
 
   @Post('alt-data/ingest/macro')
-  @UseGuards(OptionalJwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   ingestMacro(
     @Query('full') full?: string,
     @Query('includeIndia') includeIndia?: string,
@@ -445,94 +454,254 @@ export class ApiController {
   // ----------------------------------------------------------------- trading
 
   @Post('trade/execute')
-  @UseGuards(OptionalJwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   executeTrade(
     @Body() dto: ExecuteTradeRequestDto,
     @Req() request: AuthenticatedRequest,
   ): Promise<unknown> {
     return this.proxy.post('autoTrader', '/trade/execute', dto, {
-      headers: request.user?.sub ? { 'x-user-id': request.user.sub } : undefined,
+      headers: identityHeaders(request.user),
     });
   }
 
   @Get('portfolio')
-  getPortfolio(): Promise<unknown> {
-    return this.proxy.get('autoTrader', '/portfolio');
+  @UseGuards(ViewsGuard)
+  @Views(AppView.PORTFOLIO)
+  getPortfolio(@Req() request: AuthenticatedRequest): Promise<unknown> {
+    return this.proxy.get('autoTrader', '/portfolio', {
+      headers: identityHeaders(request.user),
+    });
   }
 
   @Get('holdings')
-  getHoldings(): Promise<unknown> {
-    return this.proxy.get('autoTrader', '/holdings');
+  @UseGuards(ViewsGuard)
+  @Views(AppView.PORTFOLIO)
+  getHoldings(@Req() request: AuthenticatedRequest): Promise<unknown> {
+    return this.proxy.get('autoTrader', '/holdings', {
+      headers: identityHeaders(request.user),
+    });
   }
 
   @Get('trades')
-  getTrades(@Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50): Promise<unknown> {
-    return this.proxy.get('autoTrader', '/trades', { params: { limit } });
+  @UseGuards(ViewsGuard)
+  @Views(AppView.PORTFOLIO)
+  getTrades(
+    @Req() request: AuthenticatedRequest,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50,
+  ): Promise<unknown> {
+    return this.proxy.get('autoTrader', '/trades', {
+      params: { limit },
+      headers: identityHeaders(request.user),
+    });
   }
 
   @Post('circuit-breaker/reset')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
   resetCircuitBreaker(@Req() request: AuthenticatedRequest): Promise<unknown> {
     return this.proxy.post('autoTrader', '/circuit-breaker/reset', undefined, {
-      headers: { 'x-user-id': request.user?.sub ?? 'unknown-admin' },
+      headers: identityHeaders(request.user),
     });
   }
 
   // ----------------------------------------------------------- trader agent
 
   @Get('agent/mode')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
   agentMode(): Promise<unknown> {
     return this.proxy.get('traderAgent', '/agent/mode');
   }
 
+  @Get('agent/human-intel-metrics')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentHumanIntelMetrics(@Query('limit') limit?: string): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/human-intel-metrics', {
+      params: { limit: limit ?? '500' },
+    });
+  }
+
+  @Get('agent/risk-budgets')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentRiskBudgets(): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/risk-budgets');
+  }
+
+  @Get('agent/walk-forward')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentWalkForward(): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/walk-forward');
+  }
+
   @Post('agent/trading-enabled')
-  @UseGuards(OptionalJwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   setAgentTradingEnabled(@Body() body: unknown): Promise<unknown> {
     return this.proxy.post('traderAgent', '/agent/trading-enabled', body);
   }
 
   @Post('agent/mode')
-  @UseGuards(OptionalJwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   setAgentMode(@Body() body: unknown): Promise<unknown> {
     return this.proxy.post('traderAgent', '/agent/mode', body);
   }
 
+  @Post('agent/live-auto-arm')
+  @UseGuards(JwtAuthGuard)
+  setAgentLiveAutoArm(@Body() body: unknown): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/live-auto-arm', body);
+  }
+
+  @Get('agent/p5-evidence-unlock')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentP5EvidenceUnlock(): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/p5-evidence-unlock');
+  }
+
+  @Post('agent/decision-mode')
+  @UseGuards(JwtAuthGuard)
+  setAgentDecisionMode(@Body() body: unknown): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/decision-mode', body);
+  }
+
+  @Get('agent/decisions')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentDecisions(
+    @Query('limit') limit?: string,
+    @Query('decisionId') decisionId?: string,
+  ): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/decisions', {
+      params: {
+        limit: limit ?? 50,
+        ...(decisionId ? { decisionId } : {}),
+      },
+    });
+  }
+
+  @Post('agent/decisions/outcome')
+  @UseGuards(JwtAuthGuard)
+  agentDecisionOutcome(@Body() body: unknown): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/decisions/outcome', body);
+  }
+
+  @Get('agent/soak')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentSoak(): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/soak');
+  }
+
+  @Post('agent/soak/start')
+  @UseGuards(JwtAuthGuard)
+  agentSoakStart(@Body() body: unknown): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/soak/start', body);
+  }
+
+  @Post('agent/soak/stop')
+  @UseGuards(JwtAuthGuard)
+  agentSoakStop(): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/soak/stop', {});
+  }
+
+  @Post('agent/soak/waive')
+  @UseGuards(JwtAuthGuard)
+  agentSoakWaive(@Body() body: unknown): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/soak/waive', body);
+  }
+
+  @Get('agent/ops')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentOps(@Query('soakRunId') soakRunId?: string): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/ops', {
+      params: { ...(soakRunId ? { soakRunId } : {}) },
+    });
+  }
+
+  @Get('agent/calibration')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentCalibration(@Query('soakRunId') soakRunId?: string): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/calibration', {
+      params: { ...(soakRunId ? { soakRunId } : {}) },
+    });
+  }
+
+  @Get('agent/soak/compare')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentSoakCompare(@Query('soakRunId') soakRunId?: string): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/soak/compare', {
+      params: { ...(soakRunId ? { soakRunId } : {}) },
+    });
+  }
+
+  @Get('agent/soak/report')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentSoakReport(): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/soak/report');
+  }
+
   @Post('agent/kill-switch')
-  @UseGuards(OptionalJwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   agentKillSwitch(@Body() body: unknown): Promise<unknown> {
     return this.proxy.post('traderAgent', '/agent/kill-switch', body);
   }
 
   @Get('agent/capabilities')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
   agentCapabilities(): Promise<unknown> {
     return this.proxy.get('traderAgent', '/agent/capabilities');
   }
 
   @Get('agent/capability-requests')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
   agentCapabilityRequests(): Promise<unknown> {
     return this.proxy.get('traderAgent', '/agent/capability-requests');
   }
 
   @Post('agent/capability-requests/ack')
-  @UseGuards(OptionalJwtAuthGuard)
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
   ackCapability(@Body() body: unknown): Promise<unknown> {
     return this.proxy.post('traderAgent', '/agent/capability-requests/ack', body);
   }
 
   @Get('agent/suggestions')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
   agentSuggestions(): Promise<unknown> {
     return this.proxy.get('traderAgent', '/agent/suggestions');
   }
 
   @Post('agent/suggestions/:id/ack')
-  @UseGuards(OptionalJwtAuthGuard)
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
   ackAgentSuggestion(@Param('id') id: string): Promise<unknown> {
     return this.proxy.post('traderAgent', `/agent/suggestions/${encodeURIComponent(id)}/ack`, {});
   }
 
+  @Post('agent/suggestions/:id/reopen')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  reopenAgentSuggestion(@Param('id') id: string): Promise<unknown> {
+    return this.proxy.post(
+      'traderAgent',
+      `/agent/suggestions/${encodeURIComponent(id)}/reopen`,
+      {},
+    );
+  }
+
   @Post('agent/suggestions/:id/implement')
-  @UseGuards(OptionalJwtAuthGuard)
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
   implementAgentSuggestion(@Param('id') id: string): Promise<unknown> {
     return this.proxy.post(
       'traderAgent',
@@ -542,29 +711,73 @@ export class ApiController {
   }
 
   @Get('agent/opportunities')
-  agentOpportunities(@Query('limit') limit?: string): Promise<unknown> {
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentOpportunities(
+    @Query('limit') limit?: string,
+    @Req() request?: AuthenticatedRequest,
+  ): Promise<unknown> {
     return this.proxy.get('traderAgent', '/agent/opportunities', {
       params: { limit: limit ?? 20 },
+      headers: identityHeaders(request?.user),
     });
   }
 
   @Get('agent/analysis/:symbol')
-  agentAnalysis(@Param('symbol') symbol: string): Promise<unknown> {
-    return this.proxy.get('traderAgent', `/agent/analysis/${encodeURIComponent(symbol)}`);
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentAnalysis(
+    @Param('symbol') symbol: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.get('traderAgent', `/agent/analysis/${encodeURIComponent(symbol)}`, {
+      headers: identityHeaders(request.user),
+    });
   }
 
   @Get('agent/positions')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
   agentPositions(): Promise<unknown> {
     return this.proxy.get('traderAgent', '/agent/positions');
   }
 
+  @Get('agent/monitoring-logs')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentMonitoringLogs(
+    @Query('limit') limit?: string,
+    @Query('symbol') symbol?: string,
+  ): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/monitoring-logs', {
+      params: { limit: limit ?? 80, ...(symbol ? { symbol } : {}) },
+    });
+  }
+
   @Get('agent/portfolio')
-  agentPortfolio(): Promise<unknown> {
-    return this.proxy.get('traderAgent', '/agent/portfolio');
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentPortfolio(@Req() request: AuthenticatedRequest): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/portfolio', {
+      headers: identityHeaders(request.user),
+    });
+  }
+
+  @Get('agent/transactions')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentTransactions(
+    @Query('limit') limit?: string,
+    @Req() request?: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/transactions', {
+      params: { limit: limit ?? 50 },
+      headers: identityHeaders(request?.user),
+    });
   }
 
   @Post('agent/recommendations/:id/approve')
-  @UseGuards(OptionalJwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   approveAgentRecommendation(
     @Param('id') id: string,
     @Body() body: unknown,
@@ -575,13 +788,30 @@ export class ApiController {
       `/agent/recommendations/${encodeURIComponent(id)}/approve`,
       body,
       {
-        headers: request.user?.sub ? { 'x-user-id': request.user.sub } : undefined,
+        headers: identityHeaders(request.user),
+      },
+    );
+  }
+
+  @Post('agent/recommendations/:id/wait')
+  @UseGuards(JwtAuthGuard)
+  waitAgentRecommendation(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post(
+      'traderAgent',
+      `/agent/recommendations/${encodeURIComponent(id)}/wait`,
+      body,
+      {
+        headers: identityHeaders(request.user),
       },
     );
   }
 
   @Post('agent/broker-ready')
-  @UseGuards(OptionalJwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   agentBrokerReady(@Body() body: unknown): Promise<unknown> {
     return this.proxy.post('traderAgent', '/agent/broker-ready', body);
   }
@@ -598,12 +828,26 @@ export class ApiController {
   // ------------------------------------------------------------ broker configuration
 
   @Post('brokers/config')
-  async configureBroker(@Body() dto: BrokerConfigDto): Promise<unknown> {
-    return this.proxy.post('autoTrader', '/brokers/config', dto);
+  @UseGuards(ViewsGuard)
+  @Views(AppView.BROKER_CONFIG)
+  async configureBroker(
+    @Body() dto: BrokerConfigDto,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post('autoTrader', '/brokers/config', dto, {
+      headers: identityHeaders(request.user),
+    });
   }
 
   @Post('brokers/test')
-  async testBrokerConnection(@Body() dto: BrokerTestDto): Promise<unknown> {
-    return this.proxy.post('autoTrader', '/brokers/test', dto);
+  @UseGuards(ViewsGuard)
+  @Views(AppView.BROKER_CONFIG)
+  async testBrokerConnection(
+    @Body() dto: BrokerTestDto,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post('autoTrader', '/brokers/test', dto, {
+      headers: identityHeaders(request.user),
+    });
   }
 }

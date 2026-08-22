@@ -5,7 +5,7 @@ import { ApiController } from './api/api.controller';
 import { AuthProxyController } from './api/auth-proxy.controller';
 import { ProxyService } from './api/proxy.service';
 import { JwtAuthGuard } from './auth/jwt.guard';
-import { RolesGuard } from './auth/roles.guard';
+import { RolesGuard, ViewsGuard } from './auth/roles.guard';
 import { EventsGateway } from './events/events.gateway';
 import { KafkaBridgeService } from './events/kafka-bridge.service';
 import { HealthController } from './health.controller';
@@ -22,6 +22,7 @@ import { HealthController } from './health.controller';
     KafkaBridgeService,
     JwtAuthGuard,
     RolesGuard,
+    ViewsGuard,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })

@@ -4,30 +4,70 @@ import {
   HttpException,
   Injectable,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import {
   AGENT_DISCLAIMER,
   AgentAnalysis,
   AgentCapabilityRequest,
   AgentCapabilityStatus,
+  AgentDecisionMode,
+  AgentDecisionState,
   AgentLiveArming,
   AgentManagedPosition,
   AgentMode,
   AgentRecommendation,
+  AgentRecommendationAction,
+  AgentRiskBudgetConfig,
   AgentSuggestion,
+  AgentWalkForwardReport,
   AltDataView,
+  DecisionBudgetSnapshot,
+  DecisionLedgerEntry,
+  DecisionPolicyResult,
+  DecisionReasonCode,
+  DEFAULT_AGENT_RISK_BUDGETS,
+  DEFAULT_LIVE_CAPS,
   DEFAULT_RISK_LIMITS,
   FundamentalView,
+  GateResultSnapshot,
+  HumanDecisionAction,
+  HumanIntelMetrics,
+  HumanReasonCode,
   PortfolioSnapshot,
+  PortfolioVerdict,
+  RiskVerdict,
   StockQuote,
+  TradeDecision,
   TradeSide,
 } from '@stockpred/shared-types';
 import {
   AGENT_CAPABILITY_DEFS,
+  applyDecisionPolicy,
+  isLiveAutoEffectivelyArmed,
+  readP5EvidenceUnlock,
+  DEFAULT_BREAKER_CONFIG,
+  emptyBreakerMetrics,
+  evaluateBreakers,
+  loadScaleConfig,
+  mapPool,
+  TenantBreakerStore,
+  applyWait,
+  checkLiveCaps,
+  computeHumanIntelMetrics,
+  computeOpenNotional,
+  deriveAgentRecommendation,
+  isWaitExpired,
+  rankOpportunitiesForDisplay,
   buildCapabilityStatuses,
+  buildIntelligenceSnapshot,
   capabilityRequestsFromStatuses,
   composeAgentAnalysis,
+  confidenceToScale,
   evaluateExitPolicy,
+  evaluatePortfolio,
+  evaluateRisk,
+  evaluateTrade,
   getEnv,
   getEnvNumber,
   isPortfolioSnapshot,
@@ -35,6 +75,12 @@ import {
 } from '@stockpred/shared-utils';
 import axios from 'axios';
 import { randomUUID } from 'crypto';
+import { existsSync, readFileSync } from 'fs';
+import { resolve } from 'path';
+import { AgentStateStore } from './agent-state-store';
+import { DecisionLedgerStore } from './decision-ledger-store';
+import { OpportunityRepository } from './opportunity-repository';
+import { AgentTransactionAuditor } from './transaction-auditor';
 import {
   cursorSdkConfigured,
   cursorSdkInstalled,
@@ -43,23 +89,77 @@ import {
   writeTaskBrief,
 } from './implement-runner';
 import { SuggestionStore } from './suggestion-store';
+import { SoakController } from './soak-controller';
+
+const EXEC_FAIL_CIRCUIT = 3;
+const DUPLICATE_ORDER_WINDOW_MS = 60_000;
 
 @Injectable()
-export class AgentService {
-  /** Master gate — agent trading is off until the user enables it. */
+export class AgentService implements OnModuleInit {
+  /** Master gate — agent trading is off until the user enables it (persisted). */
   private tradingEnabled = false;
   private mode: AgentMode = 'PAPER';
+  private decisionMode: AgentDecisionMode = 'APPROVAL';
   private killSwitch = false;
   private liveArmed = false;
   private liveUserConfirmed = false;
+  /** Operator ARM LIVE AUTONOMOUS latch (default false). Effective only with P5 GO. */
+  private liveAutoArmed = false;
   private brokerConfigured = false;
   private brokerTestOk = false;
+  private execFailStreak = 0;
+  /** Phase 7 breaker runtime counters (stop-only; never authorize). */
+  private breakerDayKey = '';
+  private dailyAutoAcceptCount = 0;
+  private consecutiveVetoCount = 0;
+  private autoPnlDrawdownPct = 0;
+  private lastQuoteAgeMs: number | null = 0;
+  private lastScoreAbsZ: number | null = null;
+  private lastSlippageAbsBps: number | null = null;
+  private qualityBandScore: number | null = null;
+  private qualityHistAvgR: number | null = null;
+  private qualityLiveAvgR: number | null = null;
+  private evHistAvgR: number | null = null;
+  private evLiveAvgR: number | null = null;
+  private calibrationDrift: number | null = null;
+  private regimeMismatchRate: number | null = null;
+  private executionDeterioration: number | null = null;
+  private lastBreakerTripAt: number | null = null;
+  private lastBreakerReasonCodes: DecisionReasonCode[] = [];
+  private lastBreakerReasons: string[] = [];
+
+  /** Phase 8 throughput knobs (analysis parallel; accept sequential). */
+  private readonly scaleConfig = loadScaleConfig();
+  private readonly tenantBreakers = new TenantBreakerStore();
+  private lastCycleMetrics: {
+    scanMs: number;
+    analysisMs: number;
+    acceptMs: number;
+    symbolsScanned: number;
+    opportunitiesBuilt: number;
+    autonomousAttempted: number;
+    autonomousAccepted: number;
+  } | null = null;
+  private riskBudgets: AgentRiskBudgetConfig = { ...DEFAULT_AGENT_RISK_BUDGETS };
+  /** Cached portfolio anchors for soak baselines (updated on portfolio fetch). */
+  private lastPortfolioEquity = 0;
+  private lastPortfolioCash = 0;
+  private lastOpenPositions = 0;
+  private lastDayStartEquity = 0;
+  private lastWeekStartEquity = 0;
+  private soakController: SoakController | null = null;
+  /** Symbol → last order-submit attempt (DUPLICATE_ORDER gate). */
+  private readonly recentSubmits = new Map<string, number>();
   private readonly recommendations = new Map<string, AgentRecommendation>();
   private readonly positionNotes = new Map<
     string,
     { policy: AgentManagedPosition['policy']; note: string; target2?: number }
   >();
   private readonly suggestions = new SuggestionStore();
+  private readonly stateStore = new AgentStateStore();
+  private readonly ledger = new DecisionLedgerStore();
+  private readonly opportunitiesDb = new OpportunityRepository();
+  private readonly transactionAuditor = new AgentTransactionAuditor();
 
   private readonly marketDataUrl = getEnv('MARKET_DATA_SERVICE_URL', 'http://localhost:3002');
   private readonly signalUrl = getEnv('SIGNAL_ENGINE_URL', 'http://localhost:3003');
@@ -71,20 +171,286 @@ export class AgentService {
     DEFAULT_RISK_LIMITS.perTradeRiskPercent,
   );
 
+  async onModuleInit(): Promise<void> {
+    const saved = this.stateStore.load();
+    this.tradingEnabled = saved.tradingEnabled;
+    this.mode = saved.mode === 'LIVE' ? 'PAPER' : saved.mode; // never auto-arm LIVE on boot
+    this.decisionMode = saved.decisionMode === 'AUTONOMOUS' ? 'AUTONOMOUS' : 'APPROVAL';
+    this.killSwitch = saved.killSwitch;
+    this.riskBudgets = { ...saved.riskBudgets };
+    this.liveArmed = false;
+    this.liveUserConfirmed = false;
+    // Never restore effective LIVE auto on boot — require re-ARM after evidence check.
+    this.liveAutoArmed = false;
+    this.soakController = new SoakController();
+    this.soakController.bindAgent(this);
+    console.log(
+      `[trader-agent] restored tradingEnabled=${this.tradingEnabled} mode=${this.mode} decisionMode=${this.decisionMode} killSwitch=${this.killSwitch}`,
+    );
+    await this.syncAutoTraderAgentGate(this.tradingEnabled);
+  }
+
+  getSoakController(): SoakController {
+    if (!this.soakController) {
+      this.soakController = new SoakController();
+      this.soakController.bindAgent(this);
+    }
+    return this.soakController;
+  }
+
+  private persistState(): void {
+    this.stateStore.save({
+      tradingEnabled: this.tradingEnabled,
+      mode: this.mode,
+      decisionMode: this.decisionMode,
+      killSwitch: this.killSwitch,
+      liveAutoArmed: this.liveAutoArmed,
+      riskBudgets: this.riskBudgets,
+    });
+  }
+
+  private evidencePath(): string {
+    return (
+      process.env.P5_EVIDENCE_REVIEW_PATH ||
+      resolve(__dirname, '../../data/p5-evidence-review-latest.json')
+    );
+  }
+
+  /** Operator latch AND P5 evidence GO. */
+  private liveAutoEffective(): boolean {
+    return isLiveAutoEffectivelyArmed(this.liveAutoArmed, this.evidencePath());
+  }
+
+  getP5EvidenceUnlock(): ReturnType<typeof readP5EvidenceUnlock> {
+    return readP5EvidenceUnlock(this.evidencePath());
+  }
+
+  /**
+   * ARM / DISARM LIVE AUTONOMOUS (authorization latch).
+   * ARM requires confirmLiveAuto === 'ARM LIVE AUTONOMOUS' and P5 evidence OVERALL=GO.
+   * Evidence GO never auto-arms; DISARM always clears the latch.
+   */
+  setLiveAutoArmed(
+    armed: boolean,
+    confirmLiveAuto?: string,
+  ): {
+    liveAutoArmed: boolean;
+    liveAutoEffective: boolean;
+    evidence: ReturnType<typeof readP5EvidenceUnlock>;
+  } {
+    if (!armed) {
+      this.liveAutoArmed = false;
+      this.persistState();
+      console.log('[trader-agent] LIVE AUTONOMOUS disarmed');
+      const evidence = this.getP5EvidenceUnlock();
+      return {
+        liveAutoArmed: false,
+        liveAutoEffective: false,
+        evidence,
+      };
+    }
+
+    if (!this.tradingEnabled) {
+      throw new ForbiddenException('Enable AI agent trading first');
+    }
+    if (this.killSwitch) {
+      throw new ForbiddenException('Kill switch is active — cannot ARM LIVE AUTONOMOUS');
+    }
+    if (confirmLiveAuto !== 'ARM LIVE AUTONOMOUS') {
+      throw new ForbiddenException(
+        'LIVE autonomous requires confirmLiveAuto exactly equal to "ARM LIVE AUTONOMOUS"',
+      );
+    }
+    const evidence = this.getP5EvidenceUnlock();
+    if (!evidence.unlocked) {
+      throw new ForbiddenException({
+        message: evidence.reason,
+        reasonCode: evidence.reasonCode ?? 'P5_EVIDENCE_GATE_NOT_PASSED',
+        evidence,
+      });
+    }
+    this.liveAutoArmed = true;
+    this.persistState();
+    console.log('[trader-agent] LIVE AUTONOMOUS armed (evidence unlock GO)');
+    return {
+      liveAutoArmed: true,
+      liveAutoEffective: this.liveAutoEffective(),
+      evidence,
+    };
+  }
+
   getMode(): {
     tradingEnabled: boolean;
     mode: AgentMode;
+    decisionMode: AgentDecisionMode;
     killSwitch: boolean;
     liveArming: AgentLiveArming;
+    /** Operator latch (may be true while still ineffective if evidence NO-GO). */
+    liveAutoArmed: boolean;
+    /** Effective LIVE auto authorization (armed AND evidence GO). */
+    liveAutoEffective: boolean;
+    evidenceUnlock: ReturnType<typeof readP5EvidenceUnlock>;
+    breakers: ReturnType<AgentService['getBreakerStatus']>;
+    scale: ReturnType<typeof loadScaleConfig>;
+    lastCycleMetrics: AgentService['lastCycleMetrics'];
     disclaimer: string;
+    riskBudgets: AgentRiskBudgetConfig;
   } {
+    const evidenceUnlock = this.getP5EvidenceUnlock();
     return {
       tradingEnabled: this.tradingEnabled,
       mode: this.mode,
+      decisionMode: this.decisionMode,
       killSwitch: this.killSwitch,
       liveArming: this.liveArmingStatus(),
+      liveAutoArmed: this.liveAutoArmed,
+      liveAutoEffective: this.liveAutoEffective(),
+      evidenceUnlock,
+      breakers: this.getBreakerStatus(),
+      scale: this.scaleConfig,
+      lastCycleMetrics: this.lastCycleMetrics,
       disclaimer: AGENT_DISCLAIMER,
+      riskBudgets: { ...this.riskBudgets },
     };
+  }
+
+  /** Phase 5 multi-signal human-intelligence metrics (not LIVE P&L alone). */
+  getHumanIntelMetrics(limit = 500): { metrics: HumanIntelMetrics } {
+    const entries = this.ledger.list(limit);
+    return { metrics: computeHumanIntelMetrics(entries) };
+  }
+
+  /**
+   * Phase 5 WAIT — records human WAIT evidence; never submits to Gate.
+   * PENDING/WAITING → WAITING with TTL.
+   */
+  async waitRecommendation(
+    id: string,
+    userId?: string,
+    reason?: string,
+  ): Promise<{ recommendation: AgentRecommendation; decision: DecisionLedgerEntry }> {
+    if (!userId) {
+      throw new BadRequestException('x-user-id is required');
+    }
+    const persisted = await this.opportunitiesDb.findForUser(id, userId);
+    const rec =
+      persisted != null
+        ? this.opportunitiesDb.toRecommendation(persisted)
+        : this.recommendations.get(id);
+    if (!rec) throw new NotFoundException('Recommendation not found');
+    if (rec.status !== 'PENDING' && rec.status !== 'WAITING') {
+      throw new BadRequestException(`Recommendation is ${rec.status}`);
+    }
+    if (rec.wait && isWaitExpired(rec.wait, Date.now())) {
+      rec.status = 'EXPIRED';
+      this.recommendations.set(id, rec);
+      throw new BadRequestException('WAIT TTL expired');
+    }
+
+    const wait = applyWait({
+      now: Date.now(),
+      reason,
+      previous: rec.wait ?? null,
+    });
+    rec.status = 'WAITING';
+    rec.wait = wait;
+    this.recommendations.set(id, rec);
+
+    const portfolio = await this.fetchPortfolio(userId);
+    if (!portfolio) {
+      throw new BadRequestException('Portfolio unavailable — cannot record WAIT');
+    }
+    const pipeline = this.runDecisionPipeline(rec.analysis, portfolio, {
+      opportunityId: id,
+      decisionId: id,
+    });
+
+    const decision = this.recordLedger(
+      pipeline,
+      'WAITING',
+      'WAIT',
+      undefined,
+      [],
+      reason ? [`Human WAIT: ${reason}`] : ['Human WAIT'],
+      {
+        agentRecommendation: deriveAgentRecommendation({ decision: String(rec.analysis.decision) }),
+        humanDecision: 'HUMAN_WAIT',
+        humanReasonCode: reason,
+      },
+    );
+
+    return { recommendation: rec, decision };
+  }
+
+  /** Read-only Phase 2 risk/portfolio budgets. */
+  getRiskBudgets(): { riskBudgets: AgentRiskBudgetConfig } {
+    return { riskBudgets: { ...this.riskBudgets } };
+  }
+
+  /** Read-only Phase 3 walk-forward report if present on disk. */
+  getWalkForwardReport(): {
+    report: AgentWalkForwardReport | null;
+    path: string | null;
+  } {
+    const candidates = [
+      resolve(__dirname, '../../data/agent-walkforward.json'),
+      resolve(process.cwd(), 'data/agent-walkforward.json'),
+      resolve(process.cwd(), 'apps/trader-agent/data/agent-walkforward.json'),
+    ];
+    for (const path of candidates) {
+      if (!existsSync(path)) continue;
+      try {
+        const raw = JSON.parse(readFileSync(path, 'utf8')) as AgentWalkForwardReport;
+        if (raw?.schemaVersion !== 'agent-walkforward.v1') continue;
+        return { report: raw, path };
+      } catch {
+        continue;
+      }
+    }
+    return { report: null, path: null };
+  }
+
+  setDecisionMode(decisionMode: AgentDecisionMode): {
+    decisionMode: AgentDecisionMode;
+    note: string;
+  } {
+    if (!this.tradingEnabled) {
+      throw new ForbiddenException('Enable AI agent trading first');
+    }
+    this.decisionMode = decisionMode;
+    if (decisionMode === 'APPROVAL') {
+      this.execFailStreak = 0;
+    }
+    this.persistState();
+    return {
+      decisionMode: this.decisionMode,
+      note:
+        decisionMode === 'AUTONOMOUS'
+          ? 'PAPER only in Phase 1: AUTO_ACCEPTED after risk + portfolio + policy. LIVE stays human-required.'
+          : 'Human must approve each trade (pipeline still revalidates).',
+    };
+  }
+
+  getDecisions(
+    limit = 50,
+    decisionId?: string,
+  ): {
+    decisions: DecisionLedgerEntry[];
+    decisionMode: AgentDecisionMode;
+  } {
+    if (decisionId) {
+      const one = this.ledger.get(decisionId) ?? this.ledger.getByOpportunity(decisionId);
+      return {
+        decisions: one ? [one] : [],
+        decisionMode: this.decisionMode,
+      };
+    }
+    return { decisions: this.ledger.list(limit), decisionMode: this.decisionMode };
+  }
+
+  /** Raw ledger stream for soak metrics (decisions + outcome events). */
+  listLedgerRecords(limit = 5_000): import('@stockpred/shared-types').DecisionLedgerRecord[] {
+    return this.ledger.listRaw(limit);
   }
 
   async setTradingEnabled(enabled: boolean): Promise<{ tradingEnabled: boolean }> {
@@ -92,8 +458,10 @@ export class AgentService {
     if (!enabled) {
       this.liveArmed = false;
       this.liveUserConfirmed = false;
+      this.liveAutoArmed = false;
       if (this.mode === 'LIVE') this.mode = 'PAPER';
     }
+    this.persistState();
     await this.syncAutoTraderAgentGate(enabled);
     return { tradingEnabled: this.tradingEnabled };
   }
@@ -124,14 +492,20 @@ export class AgentService {
       this.liveArmed = false;
       this.liveUserConfirmed = false;
     }
+    this.persistState();
     return { mode: this.mode, liveArming: this.liveArmingStatus() };
   }
 
   setKillSwitch(enabled: boolean, flatten?: boolean): { killSwitch: boolean; flatten: boolean } {
     this.killSwitch = enabled;
-    if (enabled && this.liveArmed) {
-      this.liveArmed = false;
+    if (enabled) {
+      if (this.liveArmed) this.liveArmed = false;
+      if (this.liveAutoArmed) {
+        this.liveAutoArmed = false;
+        console.log('[trader-agent] LIVE AUTONOMOUS disarmed (kill switch)');
+      }
     }
+    this.persistState();
     return { killSwitch: this.killSwitch, flatten: Boolean(flatten) };
   }
 
@@ -179,6 +553,26 @@ export class AgentService {
       });
     }
     return { id, acknowledged: true };
+  }
+
+  reopenSuggestion(id: string): { id: string; status: 'open' } {
+    if (!AGENT_CAPABILITY_DEFS.some((row) => row.id === id)) {
+      throw new NotFoundException(`Unknown capability ${id}`);
+    }
+    const existing = this.suggestions.get(id);
+    if (!existing) {
+      throw new NotFoundException(`Suggestion ${id} not found`);
+    }
+    if (existing.status === 'implementing') {
+      throw new BadRequestException('Cannot reopen while implementation is in progress');
+    }
+    this.suggestions.patch(id, {
+      status: 'open',
+      acknowledgedAt: undefined,
+      lastError: undefined,
+      resultSummary: existing.status === 'failed' ? undefined : existing.resultSummary,
+    });
+    return { id, status: 'open' };
   }
 
   async listSuggestions(): Promise<{
@@ -229,7 +623,7 @@ export class AgentService {
     if (launch.mode === 'task-brief' || !launch.followProgress) {
       return (
         this.suggestions.patch(id, {
-          status: 'open',
+          status: 'brief_ready',
           taskBriefPath: launch.taskBriefPath,
           resultSummary: launch.summary,
           progressLog: appendProgressLine(started?.progressLog, launch.summary),
@@ -313,7 +707,11 @@ export class AgentService {
         continue;
       }
       // Refresh copy while keeping user progress (ack / implement).
-      if (existing.status === 'open' || existing.status === 'acknowledged') {
+      if (
+        existing.status === 'open' ||
+        existing.status === 'brief_ready' ||
+        existing.status === 'acknowledged'
+      ) {
         this.suggestions.patch(request.id, {
           title: request.title,
           whyNeeded: request.whyNeeded,
@@ -324,31 +722,64 @@ export class AgentService {
     }
   }
 
-  async getOpportunities(limit = 20): Promise<{
+  async getOpportunities(
+    limit = 20,
+    userId?: string,
+    brandId?: string,
+  ): Promise<{
     mode: AgentMode;
+    decisionMode: AgentDecisionMode;
     opportunities: AgentAnalysis[];
+    ranked: ReturnType<typeof rankOpportunitiesForDisplay>;
+    added: Array<AgentAnalysis & { executedAt: number; quantity: number; status: 'APPROVED' }>;
     capabilityRequests: AgentCapabilityRequest[];
     disclaimer: string;
+    autonomous?: { attempted: number; accepted: number; skipped: number };
   }> {
+    if (!userId) {
+      throw new BadRequestException('x-user-id is required for per-user opportunities');
+    }
+
+    await this.opportunitiesDb.expireStale(userId);
     const statuses = await this.probeCapabilities();
     const requests = capabilityRequestsFromStatuses(statuses);
-    const portfolio = await this.fetchPortfolio();
+    const portfolio = await this.fetchPortfolio(userId, brandId);
     const held = new Set((portfolio?.holdings ?? []).map((lot) => lot.symbol.toUpperCase()));
+    const alreadyAdded = await this.opportunitiesDb.addedSymbols(userId);
     const cash = portfolio?.cash ?? 0;
     const quotes = await this.fetchActionableQuotes();
-    const opportunities: AgentAnalysis[] = [];
+    const pendingBatch: Array<{ id: string; analysis: AgentAnalysis; expiresAt: Date }> = [];
+    const cycleStarted = Date.now();
+    const scanCap = Math.min(this.scaleConfig.maxSymbolsScanned, Math.max(limit * 3, 20));
+    const candidates = quotes.slice(0, scanCap).filter((quote) => {
+      const sym = quote.symbol.toUpperCase();
+      // Hide names already approved or already held for this user.
+      return !held.has(sym) && !alreadyAdded.has(sym);
+    });
 
-    for (const quote of quotes.slice(0, Math.min(80, Math.max(limit * 3, 20)))) {
-      if (held.has(quote.symbol.toUpperCase())) continue;
+    // P8: parallel ANALYSIS / opportunity prep only — never parallel authorize/execute.
+    const analysisStarted = Date.now();
+    const analyzed = await mapPool(
+      candidates,
+      this.scaleConfig.analysisConcurrency,
+      async (quote) => {
+        const analysis = await this.analyzeSymbol(quote.symbol, {
+          quote,
+          portfolio,
+          statuses,
+          requests,
+        });
+        if (this.scaleConfig.strategyTags.length > 0) {
+          (analysis as AgentAnalysis & { strategyTags?: string[] }).strategyTags = [
+            ...this.scaleConfig.strategyTags,
+          ];
+        }
+        return analysis;
+      },
+    );
+    const analysisMs = Date.now() - analysisStarted;
 
-      const analysis = await this.analyzeSymbol(quote.symbol, {
-        quote,
-        portfolio,
-        statuses,
-        requests,
-      });
-
-      // Don't re-list buys we already executed this session (or that cash cannot fund).
+    for (const analysis of analyzed) {
       if (analysis.decision.includes('BUY')) {
         const entry = analysis.setup.entry ?? 0;
         const affordable = entry > 0 ? Math.floor(cash / entry) : 0;
@@ -366,46 +797,106 @@ export class AgentService {
       ) {
         const id = randomUUID();
         analysis.recommendationId = id;
-        this.recommendations.set(id, {
-          id,
-          analysis,
-          status: 'PENDING',
-          expiresAt: Date.now() + 30 * 60_000,
-        });
-        opportunities.push(analysis);
+        const expiresAt = new Date(Date.now() + 30 * 60_000);
+        pendingBatch.push({ id, analysis, expiresAt });
       }
     }
 
-    opportunities.sort((a, b) => b.scores.overall - a.scores.overall);
+    pendingBatch.sort((a, b) => b.analysis.scores.overall - a.analysis.scores.overall);
+    const limited = pendingBatch.slice(0, Math.min(limit, this.scaleConfig.maxOpportunities));
+    const scanMs = Date.now() - cycleStarted;
+    const acceptStarted = Date.now();
+    const synced = await this.opportunitiesDb.syncPending(userId, brandId, limited);
+    for (const row of synced) {
+      this.recommendations.set(row.id, {
+        id: row.id,
+        analysis: row.analysis,
+        status: 'PENDING',
+        expiresAt: Date.now() + 30 * 60_000,
+      });
+    }
+
+    const addedRows = await this.opportunitiesDb.listAdded(userId);
+    const added = addedRows.map((row) => ({
+      ...row.analysis,
+      recommendationId: row.id,
+      executedAt: row.executedAt?.getTime() ?? Date.now(),
+      quantity: row.quantity ?? row.analysis.setup.positionSize ?? 0,
+      status: 'APPROVED' as const,
+    }));
+
+    let autonomous: { attempted: number; accepted: number; skipped: number } | undefined;
+    if (
+      this.decisionMode === 'AUTONOMOUS' &&
+      this.mode === 'PAPER' &&
+      this.tradingEnabled &&
+      !this.killSwitch &&
+      !this.enforceBreakers('autonomous-cycle', userId, brandId)
+    ) {
+      autonomous = await this.runAutonomousCycle(
+        userId,
+        brandId,
+        synced.map((row) => row.id),
+      );
+    }
+
+    this.lastCycleMetrics = {
+      scanMs,
+      analysisMs,
+      acceptMs: Date.now() - acceptStarted,
+      symbolsScanned: candidates.length,
+      opportunitiesBuilt: limited.length,
+      autonomousAttempted: autonomous?.attempted ?? 0,
+      autonomousAccepted: autonomous?.accepted ?? 0,
+    };
+
     return {
       mode: this.mode,
-      opportunities: opportunities.slice(0, limit),
+      decisionMode: this.decisionMode,
+      opportunities: synced.map((row) => row.analysis),
+      ranked: rankOpportunitiesForDisplay(
+        synced.map((row) => ({
+          opportunityId: row.id,
+          symbol: row.analysis.symbol,
+          quality: row.analysis.scores.overall ?? 0,
+          expectedValueR: 0,
+          signalScore: row.analysis.scores.overall ?? 0,
+          quantity: row.analysis.setup.positionSize ?? 0,
+          portfolioFit: 'GOOD' as const,
+        })),
+      ),
+      added,
       capabilityRequests: requests.filter(
         (row) => this.suggestions.get(row.id)?.status !== 'acknowledged',
       ),
       disclaimer: AGENT_DISCLAIMER,
+      autonomous,
     };
   }
 
-  async getAnalysis(symbol: string): Promise<AgentAnalysis> {
+  async getAnalysis(symbol: string, userId?: string, brandId?: string): Promise<AgentAnalysis> {
     const upper = symbol.toUpperCase();
     const statuses = await this.probeCapabilities();
     const requests = capabilityRequestsFromStatuses(statuses);
-    const portfolio = await this.fetchPortfolio();
+    const portfolio = await this.fetchPortfolio(userId, brandId);
     const analysis = await this.analyzeSymbol(upper, { portfolio, statuses, requests });
     const id = randomUUID();
     analysis.recommendationId = id;
+    const expiresAt = new Date(Date.now() + 30 * 60_000);
     this.recommendations.set(id, {
       id,
       analysis,
       status: 'PENDING',
-      expiresAt: Date.now() + 30 * 60_000,
+      expiresAt: expiresAt.getTime(),
     });
+    if (userId) {
+      await this.opportunitiesDb.upsertPending(userId, brandId, id, analysis, expiresAt);
+    }
     return analysis;
   }
 
-  async getPortfolio(): Promise<PortfolioSnapshot> {
-    const portfolio = await this.fetchPortfolio();
+  async getPortfolio(userId?: string, brandId?: string): Promise<PortfolioSnapshot> {
+    const portfolio = await this.fetchPortfolio(userId, brandId);
     if (!portfolio || !isPortfolioSnapshot(portfolio)) {
       throw new HttpException(
         {
@@ -418,9 +909,13 @@ export class AgentService {
     return portfolio;
   }
 
-  async getPositions(): Promise<{ positions: AgentManagedPosition[]; killSwitch: boolean }> {
-    const portfolio = await this.fetchPortfolio();
-    const positions: AgentManagedPosition[] = (portfolio?.holdings ?? []).map((lot) => {
+  async getPositions(): Promise<{
+    positions: AgentManagedPosition[];
+    killSwitch: boolean;
+    agentTradingEnabled: boolean;
+  }> {
+    const monitored = await this.fetchMonitoredPositions();
+    const positions: AgentManagedPosition[] = (monitored?.positions ?? []).map((lot) => {
       const note = this.positionNotes.get(lot.symbol);
       const policyEval = evaluateExitPolicy(
         {
@@ -433,6 +928,8 @@ export class AgentService {
         },
         { price: lot.currentPrice, thesisIntact: true },
       );
+      const exitMode =
+        lot.exitMode ?? (this.tradingEnabled ? 'AGENT_POLICY' : 'CLASSIC_STOP_TARGET');
       return {
         symbol: lot.symbol,
         quantity: lot.quantity,
@@ -443,18 +940,175 @@ export class AgentService {
         stopLoss: policyEval.stopLoss,
         unrealizedPnl: lot.unrealizedPnl,
         policy: note?.policy ?? policyEval.policy,
-        policyNote: note?.note ?? policyEval.note,
+        policyNote:
+          note?.note ??
+          (exitMode === 'AGENT_POLICY'
+            ? policyEval.note
+            : 'Classic stop/target monitoring (enable AI agent trading for exit policy).'),
         openedAt: lot.openedAt ?? Date.now(),
+        bookKey: lot.bookKey,
+        userId: lot.userId,
+        brandId: lot.brandId,
+        exitMode,
+        monitored: lot.monitored ?? true,
       };
     });
-    return { positions, killSwitch: this.killSwitch };
+    return {
+      positions,
+      killSwitch: this.killSwitch,
+      agentTradingEnabled: monitored?.agentTradingEnabled ?? this.tradingEnabled,
+    };
+  }
+
+  async getTransactions(
+    limit = 50,
+    userId?: string,
+    brandId?: string,
+  ): Promise<{
+    transactions: import('./transaction-auditor').AgentTransactionAudit[];
+    disclaimer: string;
+  }> {
+    if (!userId) {
+      throw new BadRequestException('x-user-id is required for transaction audit');
+    }
+    const transactions = await this.transactionAuditor.listForUser(
+      userId,
+      brandId,
+      Math.min(limit, 100),
+    );
+    return { transactions, disclaimer: AGENT_DISCLAIMER };
+  }
+
+  async getMonitoringLogs(
+    limit = 80,
+    symbol?: string,
+  ): Promise<{
+    events: Array<{
+      id: string;
+      ts: number;
+      symbol: string;
+      bookKey: string;
+      userId: string | null;
+      mode: string;
+      action: string;
+      policy: string;
+      note: string;
+      price: number;
+      stopLoss: number;
+      target: number;
+      quantity?: number;
+      reason?: string;
+    }>;
+    meta: {
+      agentTradingEnabled: boolean;
+      tickSource: string;
+      expectedTickIntervalMs: number;
+      holdSampleIntervalMs: number;
+      lastTickAt: number | null;
+      ticksReceived: number;
+      ticksLastMinute: number;
+      checksLogged: number;
+      openLotsHint: number;
+    };
+    disclaimer: string;
+  }> {
+    try {
+      const { data } = await axios.get(`${this.autoTraderUrl}/monitoring-logs`, {
+        params: { limit: Math.min(limit, 200), ...(symbol ? { symbol } : {}) },
+        timeout: 8_000,
+        validateStatus: (status) => status >= 200 && status < 300,
+      });
+      return {
+        events: Array.isArray(data?.events) ? data.events : [],
+        meta: data?.meta ?? {
+          agentTradingEnabled: this.tradingEnabled,
+          tickSource: 'Kafka market.ticks',
+          expectedTickIntervalMs: 1000,
+          holdSampleIntervalMs: 15_000,
+          lastTickAt: null,
+          ticksReceived: 0,
+          ticksLastMinute: 0,
+          checksLogged: 0,
+          openLotsHint: 0,
+        },
+        disclaimer: AGENT_DISCLAIMER,
+      };
+    } catch {
+      return {
+        events: [],
+        meta: {
+          agentTradingEnabled: this.tradingEnabled,
+          tickSource: 'Kafka market.ticks (auto-trader unreachable)',
+          expectedTickIntervalMs: 1000,
+          holdSampleIntervalMs: 15_000,
+          lastTickAt: null,
+          ticksReceived: 0,
+          ticksLastMinute: 0,
+          checksLogged: 0,
+          openLotsHint: 0,
+        },
+        disclaimer: AGENT_DISCLAIMER,
+      };
+    }
+  }
+
+  private async fetchMonitoredPositions(): Promise<{
+    agentTradingEnabled: boolean;
+    positions: Array<{
+      symbol: string;
+      quantity: number;
+      entryPrice: number;
+      currentPrice: number;
+      target: number;
+      stopLoss: number;
+      unrealizedPnl: number;
+      openedAt: number;
+      bookKey: string;
+      userId: string | null;
+      brandId: string | null;
+      exitMode: 'AGENT_POLICY' | 'CLASSIC_STOP_TARGET';
+      monitored: boolean;
+    }>;
+  } | null> {
+    try {
+      const { data } = await axios.get(`${this.autoTraderUrl}/monitored-positions`, {
+        timeout: 10_000,
+        validateStatus: (status) => status >= 200 && status < 300,
+      });
+      return data as {
+        agentTradingEnabled: boolean;
+        positions: Array<{
+          symbol: string;
+          quantity: number;
+          entryPrice: number;
+          currentPrice: number;
+          target: number;
+          stopLoss: number;
+          unrealizedPnl: number;
+          openedAt: number;
+          bookKey: string;
+          userId: string | null;
+          brandId: string | null;
+          exitMode: 'AGENT_POLICY' | 'CLASSIC_STOP_TARGET';
+          monitored: boolean;
+        }>;
+      };
+    } catch {
+      return null;
+    }
   }
 
   async approveRecommendation(
     id: string,
     userId?: string,
     quantityOverride?: number,
-  ): Promise<{ recommendation: AgentRecommendation; trade: unknown }> {
+    brandId?: string,
+    opts?: { autonomous?: boolean },
+  ): Promise<{
+    recommendation: AgentRecommendation;
+    trade: unknown;
+    decision?: DecisionLedgerEntry;
+  }> {
     if (!this.tradingEnabled) {
       throw new ForbiddenException('AI agent trading is disabled — turn it on first');
     }
@@ -467,8 +1121,19 @@ export class AgentService {
     if (this.mode === 'LIVE' && !this.liveArmed) {
       throw new ForbiddenException('LIVE is not armed');
     }
-    const rec = this.recommendations.get(id);
+    if (!userId) {
+      throw new BadRequestException('x-user-id is required to approve a suggestion');
+    }
+
+    const persisted = await this.opportunitiesDb.findForUser(id, userId);
+    const rec =
+      persisted != null
+        ? this.opportunitiesDb.toRecommendation(persisted)
+        : this.recommendations.get(id);
     if (!rec) throw new NotFoundException('Recommendation not found');
+    if (persisted && persisted.status !== 'PENDING') {
+      throw new BadRequestException(`Recommendation is ${persisted.status}`);
+    }
     if (rec.expiresAt < Date.now()) {
       rec.status = 'EXPIRED';
       throw new BadRequestException('Recommendation expired');
@@ -505,35 +1170,171 @@ export class AgentService {
       }
     }
 
-    const quantityRaw =
-      quantityOverride != null && quantityOverride >= 1
-        ? Math.round(quantityOverride)
-        : setup.positionSize;
+    const analysis: AgentAnalysis = {
+      ...rec.analysis,
+      setup: { ...setup },
+      recommendationId: id,
+    };
 
-    // Honor quantity override even when risk sizing floored to 0 at scan time.
-    if (
-      !setup.entry ||
-      setup.entry <= 0 ||
-      !setup.stopLoss ||
-      setup.stopLoss <= 0 ||
-      quantityRaw < 1
-    ) {
+    const portfolio = await this.fetchPortfolio(userId, brandId);
+    if (!portfolio) {
+      throw new BadRequestException('Portfolio unavailable — cannot revalidate');
+    }
+
+    const quote = await this.fetchQuote(symbol);
+    let fundamentals: FundamentalView | null = null;
+    const symbolSectorHint =
+      (typeof quote?.sector === 'string' && quote.sector.trim() ? quote.sector.trim() : null) ??
+      portfolio.holdings.find((h) => h.symbol.toUpperCase() === symbol.toUpperCase())?.sector ??
+      null;
+    if (!symbolSectorHint) {
+      fundamentals = await this.fetchFundamentals(symbol);
+    }
+    const symbolSector = this.resolveSymbolSector(symbol, portfolio, quote, fundamentals);
+
+    const pipeline = this.runDecisionPipeline(analysis, portfolio, {
+      opportunityId: id,
+      decisionId: id,
+      quoteTimestamp: quote?.updatedAt,
+      quantityOverride,
+      symbolSector,
+    });
+
+    const policyOutcome = pipeline.policy.outcome;
+    if (opts?.autonomous) {
+      if (policyOutcome !== 'AUTO_ACCEPTED') {
+        this.recordLedger(
+          pipeline,
+          'HUMAN_REQUIRED',
+          policyOutcome === 'REJECT' ? 'REJECT' : 'HUMAN_REQUIRED',
+        );
+        throw new ForbiddenException(
+          `Autonomous skipped: policy=${policyOutcome} (${pipeline.policy.reasons.join('; ')})`,
+        );
+      }
+    } else if (policyOutcome === 'REJECT') {
+      this.recordLedger(pipeline, 'REJECTED', 'REJECT');
       throw new BadRequestException(
-        `Setup missing entry/stop/size for ${symbol} (entry=${setup.entry ?? '—'}, stop=${setup.stopLoss ?? '—'}, qty=${quantityRaw})`,
+        `Decision rejected by policy: ${pipeline.policy.reasons.join('; ')}`,
       );
     }
 
-    const portfolio = await this.fetchPortfolio();
-    const cash = portfolio?.cash ?? 0;
-    const maxAffordable = Math.floor(cash / setup.entry);
-    if (maxAffordable < 1) {
+    const quantity = pipeline.risk.allowed ? pipeline.risk.quantity : 0;
+    if (quantity < 1) {
+      this.recordLedger(pipeline, 'RISK_BLOCKED', 'BLOCKED');
+      throw new BadRequestException('Risk engine sized 0 quantity');
+    }
+
+    const tradedSymbol = (setup.instrument || symbol).toUpperCase();
+    const entryPrice = setup.entry ?? 0;
+    const tradeNotional = entryPrice * quantity;
+    const openNotional = computeOpenNotional(portfolio.holdings ?? []);
+    const openPositions = portfolio.openPositions ?? portfolio.holdings?.length ?? 0;
+    const earlyCaps = checkLiveCaps({
+      mode: this.mode,
+      tradeNotional,
+      openNotional,
+      openPositions,
+      caps: DEFAULT_LIVE_CAPS,
+    });
+    if (!earlyCaps.passed) {
+      this.recordLedger(
+        pipeline,
+        'RISK_BLOCKED',
+        'BLOCKED',
+        undefined,
+        earlyCaps.reasonCodes,
+        earlyCaps.reasons,
+        {
+          agentRecommendation: deriveAgentRecommendation({ decision: analysis.decision }),
+          humanDecision: opts?.autonomous ? undefined : 'HUMAN_APPROVE',
+        },
+      );
+      throw new BadRequestException(earlyCaps.reasons.join('; ') || 'LIVE caps blocked');
+    }
+
+    const livePrice = quote?.price != null && quote.price > 0 ? quote.price : null;
+    if (entryPrice > 0 && livePrice != null) {
+      const deviationPct = (Math.abs(livePrice - entryPrice) / entryPrice) * 100;
+      if (deviationPct > this.riskBudgets.maxPriceDeviationPct) {
+        this.recordLedger(
+          pipeline,
+          'RISK_BLOCKED',
+          'BLOCKED',
+          undefined,
+          ['PRICE_DEVIATION'],
+          [
+            `Live ₹${livePrice} vs entry ₹${entryPrice} deviation ${deviationPct.toFixed(2)}% exceeds max ${this.riskBudgets.maxPriceDeviationPct}%`,
+          ],
+        );
+        throw new BadRequestException(
+          `Price deviation ${deviationPct.toFixed(2)}% exceeds max ${this.riskBudgets.maxPriceDeviationPct}%`,
+        );
+      }
+    }
+
+    const lastSubmit = this.recentSubmits.get(tradedSymbol);
+    if (lastSubmit != null && Date.now() - lastSubmit < DUPLICATE_ORDER_WINDOW_MS) {
+      this.recordLedger(
+        pipeline,
+        'RISK_BLOCKED',
+        'BLOCKED',
+        undefined,
+        ['DUPLICATE_ORDER'],
+        [`Recent submit for ${tradedSymbol} within ${DUPLICATE_ORDER_WINDOW_MS / 1000}s`],
+      );
       throw new BadRequestException(
-        `Insufficient paper cash to buy ${symbol} (cash ₹${cash.toFixed(2)}, entry ₹${setup.entry})`,
+        `Duplicate order: ${tradedSymbol} was submitted within the last ${DUPLICATE_ORDER_WINDOW_MS / 1000}s`,
       );
     }
-    const quantity = Math.min(quantityRaw, maxAffordable);
+
+    this.recentSubmits.set(tradedSymbol, Date.now());
+
+    // Final Gate revalidation (incl. LIVE caps against fresh portfolio).
+    const freshPortfolio = await this.fetchPortfolio(userId, brandId);
+    if (!freshPortfolio) {
+      throw new BadRequestException('Portfolio unavailable — cannot revalidate at Gate');
+    }
+    const gateOpenNotional = computeOpenNotional(freshPortfolio.holdings ?? []);
+    const gateOpenPositions = freshPortfolio.openPositions ?? freshPortfolio.holdings?.length ?? 0;
+    const gateCaps = checkLiveCaps({
+      mode: this.mode,
+      tradeNotional,
+      openNotional: gateOpenNotional,
+      openPositions: gateOpenPositions,
+      caps: DEFAULT_LIVE_CAPS,
+    });
+    const gateResult: GateResultSnapshot = {
+      passed: gateCaps.passed,
+      reasonCodes: gateCaps.reasonCodes,
+      reasons: gateCaps.reasons,
+      checkedAt: Date.now(),
+    };
+    if (!gateCaps.passed) {
+      this.recordLedger(
+        pipeline,
+        'RISK_BLOCKED',
+        'BLOCKED',
+        undefined,
+        gateCaps.reasonCodes,
+        gateCaps.reasons,
+        {
+          agentRecommendation: deriveAgentRecommendation({ decision: analysis.decision }),
+          humanDecision: opts?.autonomous ? undefined : 'HUMAN_APPROVE',
+          gateResult,
+        },
+      );
+      throw new BadRequestException(
+        gateCaps.reasons.join('; ') || 'Gate LIVE caps blocked (stale portfolio)',
+      );
+    }
 
     try {
+      const decisionId = pipeline.decision.decisionId;
+      const plannedRiskAmount =
+        pipeline.risk.allowed === true
+          ? pipeline.risk.riskAmount
+          : Math.abs((setup.entry ?? 0) - (setup.stopLoss ?? 0)) * quantity;
       const trade = await axios.post(
         `${this.autoTraderUrl}/trade/execute`,
         {
@@ -543,21 +1344,35 @@ export class AgentService {
           price: setup.entry,
           target: setup.target1 ?? undefined,
           stopLoss: setup.stopLoss,
+          decisionId,
+          plannedRiskAmount,
+          soakRunId: this.soakController?.getActiveRunId(),
         },
         {
-          headers: userId ? { 'x-user-id': userId } : undefined,
+          headers: {
+            ...(userId ? { 'x-user-id': userId } : {}),
+            ...(brandId ? { 'x-brand-id': brandId } : {}),
+          },
           timeout: 30_000,
         },
       );
 
-      rec.status = 'EXECUTED';
-      const tradedSymbol = (setup.instrument || symbol).toUpperCase();
+      this.execFailStreak = 0;
+      rec.status = 'APPROVED';
+      const executedAnalysis: AgentAnalysis = {
+        ...analysis,
+        setup: { ...setup, positionSize: quantity },
+        recommendationId: id,
+      };
+      await this.opportunitiesDb.markApproved(id, userId, brandId, quantity, executedAnalysis);
+      this.recommendations.set(id, { ...rec, analysis: executedAnalysis, status: 'APPROVED' });
       this.positionNotes.set(tradedSymbol, {
         policy: 'HOLD',
-        note: 'Agent-approved lot — monitoring stop/target with exit policy.',
+        note: opts?.autonomous
+          ? 'Autonomous PAPER fill — monitoring stop/target with exit policy.'
+          : 'Agent-approved lot — monitoring stop/target with exit policy.',
         target2: setup.target2 ?? undefined,
       });
-      // Drop any other pending recs for this symbol so they cannot be re-approved as ghosts.
       for (const [recId, pending] of this.recommendations) {
         if (
           recId !== id &&
@@ -567,8 +1382,71 @@ export class AgentService {
           pending.status = 'REJECTED';
         }
       }
-      return { recommendation: rec, trade: trade.data };
+
+      const ledger = this.recordLedger(
+        pipeline,
+        opts?.autonomous ? 'AUTO_ACCEPTED' : 'APPROVED',
+        opts?.autonomous ? 'AUTO_ACCEPT' : 'APPROVED',
+        {
+          quantity,
+          entryPrice: setup.entry ?? undefined,
+          orderId: (trade.data as { id?: string })?.id,
+          status: 'EXECUTED',
+          plannedRiskAmount,
+        },
+        [],
+        [],
+        {
+          agentRecommendation: deriveAgentRecommendation({ decision: analysis.decision }),
+          humanDecision: opts?.autonomous ? undefined : 'HUMAN_APPROVE',
+          gateResult,
+        },
+      );
+
+      if (opts?.autonomous) {
+        this.rollBreakerDayIfNeeded();
+        this.dailyAutoAcceptCount += 1;
+        this.consecutiveVetoCount = 0;
+      }
+      return {
+        recommendation: { ...rec, analysis: executedAnalysis, status: 'APPROVED' },
+        trade: trade.data,
+        decision: ledger,
+      };
     } catch (error) {
+      this.execFailStreak += 1;
+      if (this.execFailStreak >= EXEC_FAIL_CIRCUIT && this.decisionMode === 'AUTONOMOUS') {
+        this.decisionMode = 'APPROVAL';
+        this.persistState();
+        this.ledger.append({
+          decisionId: randomUUID(),
+          opportunityId: id,
+          timestamp: Date.now(),
+          symbol: symbol.toUpperCase(),
+          direction: 'BUY',
+          operatingMode: this.mode,
+          decisionMode: 'APPROVAL',
+          state: 'REJECTED',
+          analysisSnapshot: {
+            score: analysis.scores.overall,
+            confidence: analysis.setup.confidence ?? analysis.scores.overall,
+            scores: analysis.scores,
+            regime: analysis.marketRegime,
+            thesis: analysis.thesis,
+            strategy: 'COMPOSITE_DESK',
+            eligibility: pipeline.decision.eligibility,
+          },
+          riskVerdict: pipeline.risk,
+          portfolioVerdict: pipeline.portfolio,
+          policy: pipeline.policy,
+          budgetSnapshot: pipeline.budgetSnapshot,
+          decision: 'BLOCKED',
+          reasonCodes: ['EXECUTION_FAILURE_CIRCUIT_BREAKER'],
+          decisionReasons: [
+            `${EXEC_FAIL_CIRCUIT} consecutive execution failures — forced APPROVAL mode`,
+          ],
+        });
+      }
       if (axios.isAxiosError(error) && error.response) {
         const status = error.response.status;
         const data = error.response.data as { message?: string | string[] };
@@ -581,6 +1459,242 @@ export class AgentService {
         error instanceof Error ? error.message : 'Trade execution failed',
       );
     }
+  }
+
+  private async runAutonomousCycle(
+    userId: string,
+    brandId: string | undefined,
+    recommendationIds: string[],
+  ): Promise<{ attempted: number; accepted: number; skipped: number }> {
+    let attempted = 0;
+    let accepted = 0;
+    let skipped = 0;
+    // Sequential / single-flight accept loop — do not parallelize authorization.
+    for (const id of recommendationIds.slice(0, this.scaleConfig.maxAutonomousAcceptsPerCycle)) {
+      if (this.enforceBreakers('autonomous-accept', userId, brandId)) {
+        skipped += 1;
+        break;
+      }
+      attempted += 1;
+      try {
+        await this.approveRecommendation(id, userId, undefined, brandId, { autonomous: true });
+        accepted += 1;
+        this.tenantBreakers.recordAutoAccept(userId, brandId);
+        this.dailyAutoAcceptCount += 1;
+      } catch {
+        skipped += 1;
+        this.tenantBreakers.recordVeto(userId, brandId);
+        this.consecutiveVetoCount += 1;
+      }
+    }
+    return { attempted, accepted, skipped };
+  }
+
+  private resolveSymbolSector(
+    symbol: string,
+    portfolio: PortfolioSnapshot,
+    quote?: StockQuote | null,
+    fundamentals?: FundamentalView | null,
+  ): string | null {
+    const fromQuote =
+      typeof quote?.sector === 'string' && quote.sector.trim() ? quote.sector.trim() : null;
+    if (fromQuote) return fromQuote;
+    const fromFund =
+      typeof fundamentals?.sector === 'string' && fundamentals.sector.trim()
+        ? fundamentals.sector.trim()
+        : null;
+    if (fromFund) return fromFund;
+    const held = portfolio.holdings.find((h) => h.symbol.toUpperCase() === symbol.toUpperCase());
+    const fromHolding =
+      typeof held?.sector === 'string' && held.sector.trim() ? held.sector.trim() : null;
+    return fromHolding;
+  }
+
+  private runDecisionPipeline(
+    analysis: AgentAnalysis,
+    portfolio: PortfolioSnapshot,
+    opts: {
+      opportunityId?: string;
+      decisionId?: string;
+      quoteTimestamp?: number;
+      quantityOverride?: number;
+      symbolSector?: string | null;
+    },
+  ): {
+    decision: TradeDecision;
+    risk: RiskVerdict;
+    portfolio: PortfolioVerdict;
+    policy: DecisionPolicyResult;
+    budgetSnapshot: DecisionBudgetSnapshot;
+    /** Observe-only — never passed into Risk / Portfolio / Policy / Gate. */
+    intelligenceSnapshot: import('@stockpred/shared-types').IntelligenceSnapshot;
+  } {
+    const decision = evaluateTrade({
+      analysis,
+      opportunityId: opts.opportunityId,
+      decisionId: opts.decisionId,
+      quoteTimestamp: opts.quoteTimestamp,
+    });
+
+    // P4: capture intelligence for the ledger only — not fed into engines below.
+    const intelligenceSnapshot = buildIntelligenceSnapshot({
+      analysis,
+      decision,
+      sourceDataTimestamp: opts.quoteTimestamp ?? analysis.generatedAt,
+    });
+
+    const currentEquity = portfolio.equity || portfolio.capital;
+    const dayStartEquity = portfolio.dayStartEquity ?? portfolio.equity ?? portfolio.capital;
+    const weekStartEquity = portfolio.weekStartEquity ?? portfolio.equity ?? portfolio.capital;
+    const riskPerTradePercent = this.riskBudgets.perTradeRiskPercent || this.riskPct;
+    const confidence = decision.confidence;
+    const symbolSector = opts.symbolSector ?? null;
+
+    let risk = evaluateRisk({
+      decision,
+      capital: currentEquity,
+      cash: portfolio.cash,
+      riskPerTradePercent,
+      confidence,
+      tradingEnabled: this.tradingEnabled,
+      killSwitch: this.killSwitch,
+      dayStartEquity,
+      weekStartEquity,
+    });
+
+    if (risk.allowed && opts.quantityOverride != null && opts.quantityOverride >= 1) {
+      const entry = decision.setup.entry ?? 0;
+      const maxByCash = entry > 0 ? Math.floor(portfolio.cash / entry) : 0;
+      const qty = Math.min(Math.round(opts.quantityOverride), risk.quantity, maxByCash);
+      if (qty >= 1) {
+        const perShare = Math.abs((decision.setup.entry ?? 0) - (decision.setup.stopLoss ?? 0));
+        risk = {
+          ...risk,
+          quantity: qty,
+          riskAmount: qty * perShare,
+          maxLoss: qty * perShare,
+        };
+      }
+    }
+
+    const portVerdict = evaluatePortfolio({
+      decision,
+      risk,
+      portfolio,
+      maxOpenPositions: this.riskBudgets.maxOpenPositions,
+      maxNameExposurePct: this.riskBudgets.maxNameExposurePct,
+      maxSectorExposurePct: this.riskBudgets.maxSectorExposurePct,
+      cashReservePct: this.riskBudgets.cashReservePct,
+      symbolSector,
+    });
+
+    const policy = applyDecisionPolicy({
+      operatingMode: this.mode,
+      decisionMode: this.decisionMode,
+      eligibility: decision.eligibility,
+      risk,
+      portfolio: portVerdict,
+      liveAutoArmed: this.liveAutoEffective(),
+    });
+
+    const quantityBeforeConfidence = risk.allowed
+      ? (risk.quantityBeforeConfidence ?? risk.quantity)
+      : 0;
+    const quantityAfterConfidence = risk.allowed ? risk.quantity : 0;
+    const confidenceScale = risk.allowed
+      ? (risk.confidenceScale ?? confidenceToScale(confidence))
+      : confidenceToScale(confidence);
+    const maxRiskAmount = currentEquity > 0 ? (currentEquity * riskPerTradePercent) / 100 : 0;
+
+    const budgetSnapshot: DecisionBudgetSnapshot = {
+      dayStartEquity,
+      weekStartEquity,
+      currentEquity,
+      cash: portfolio.cash,
+      perTradeRiskPercent: riskPerTradePercent,
+      maxRiskAmount,
+      confidence,
+      confidenceScale,
+      quantityBeforeConfidence,
+      quantityAfterConfidence,
+      symbolSector,
+      maxNameExposurePct: this.riskBudgets.maxNameExposurePct,
+      maxSectorExposurePct: this.riskBudgets.maxSectorExposurePct,
+      maxOpenPositions: this.riskBudgets.maxOpenPositions,
+      cashReservePct: this.riskBudgets.cashReservePct,
+    };
+
+    return { decision, risk, portfolio: portVerdict, policy, budgetSnapshot, intelligenceSnapshot };
+  }
+
+  private recordLedger(
+    pipeline: {
+      decision: TradeDecision;
+      risk: RiskVerdict;
+      portfolio: PortfolioVerdict;
+      policy: DecisionPolicyResult;
+      budgetSnapshot: DecisionBudgetSnapshot;
+      intelligenceSnapshot?: import('@stockpred/shared-types').IntelligenceSnapshot;
+    },
+    state: AgentDecisionState,
+    decisionLabel: DecisionLedgerEntry['decision'],
+    execution?: DecisionLedgerEntry['execution'],
+    extraReasonCodes: DecisionReasonCode[] = [],
+    extraReasons: string[] = [],
+    evidence?: {
+      agentRecommendation?: AgentRecommendationAction;
+      humanDecision?: HumanDecisionAction;
+      humanReasonCode?: HumanReasonCode | string;
+      gateResult?: GateResultSnapshot;
+    },
+  ): DecisionLedgerEntry {
+    const { decision, risk, portfolio, policy, budgetSnapshot, intelligenceSnapshot } = pipeline;
+    return this.ledger.append({
+      decisionId: decision.decisionId,
+      opportunityId: decision.opportunityId,
+      timestamp: Date.now(),
+      symbol: decision.symbol,
+      direction: 'BUY',
+      operatingMode: this.mode,
+      decisionMode: this.decisionMode,
+      state,
+      analysisSnapshot: {
+        score: decision.signalScore,
+        confidence: decision.confidence,
+        scores: decision.scores,
+        regime: decision.marketRegime,
+        thesis: decision.thesis,
+        strategy: decision.strategy,
+        eligibility: decision.eligibility,
+        quoteTimestamp: decision.quoteTimestamp,
+      },
+      riskVerdict: risk,
+      portfolioVerdict: portfolio,
+      policy,
+      budgetSnapshot,
+      decision: decisionLabel,
+      reasonCodes: [
+        ...decision.reasonCodes,
+        ...risk.reasonCodes,
+        ...portfolio.reasonCodes,
+        ...policy.reasonCodes,
+        ...extraReasonCodes,
+      ],
+      decisionReasons: [
+        ...decision.reasons,
+        ...risk.reasons,
+        ...portfolio.reasons,
+        ...policy.reasons,
+        ...extraReasons,
+      ],
+      execution,
+      soakRunId: this.soakController?.getActiveRunId(),
+      intelligenceSnapshot,
+      agentRecommendation: evidence?.agentRecommendation,
+      humanDecision: evidence?.humanDecision,
+      humanReasonCode: evidence?.humanReasonCode,
+      gateResult: evidence?.gateResult,
+    });
   }
 
   private async syncAutoTraderAgentGate(enabled: boolean): Promise<void> {
@@ -640,11 +1754,35 @@ export class AgentService {
               const ok = await this.ping(`${this.marketDataUrl}/fundamentals/panel`);
               return { id: def.id, available: ok };
             }
-            case 'alt-news':
-            case 'alt-social':
+            case 'alt-news': {
+              const ok = await this.ping(`${this.marketDataUrl}/alt-data/panel/news`);
+              return {
+                id: def.id,
+                available: ok,
+                detail: ok
+                  ? 'GET /alt-data/panel/news'
+                  : 'market-data news alt-data panel unreachable',
+              };
+            }
+            case 'alt-social': {
+              const ok = await this.ping(`${this.marketDataUrl}/alt-data/panel/social`);
+              return {
+                id: def.id,
+                available: ok,
+                detail: ok
+                  ? 'GET /alt-data/panel/social'
+                  : 'market-data social alt-data panel unreachable',
+              };
+            }
             case 'alt-macro': {
-              // Optional: availability probed per-symbol during analyze.
-              return { id: def.id, available: true, detail: 'probed per symbol' };
+              const ok = await this.ping(`${this.marketDataUrl}/alt-data/panel/macro`);
+              return {
+                id: def.id,
+                available: ok,
+                detail: ok
+                  ? 'GET /alt-data/panel/macro'
+                  : 'market-data macro alt-data panel unreachable',
+              };
             }
             case 'scanner':
             case 'manipulation': {
@@ -662,8 +1800,17 @@ export class AgentService {
                   : 'auto-trader GET /portfolio unreachable or invalid',
               };
             }
-            case 'broker-orders':
-              return { id: def.id, available: true, detail: 'BrokerRouter path in auto-trader' };
+            case 'broker-orders': {
+              // Paper + live both route through auto-trader BrokerRouter.
+              const ok = await this.ping(`${this.autoTraderUrl}/portfolio`);
+              return {
+                id: def.id,
+                available: ok,
+                detail: ok
+                  ? 'auto-trader BrokerRouter reachable'
+                  : 'auto-trader unreachable — cannot place/cancel orders',
+              };
+            }
             case 'intraday-mtf': {
               const ok = await this.ping(`${this.marketDataUrl}/stocks/INFY/candles/mtf?limit=2`);
               return {
@@ -796,13 +1943,30 @@ export class AgentService {
     }
   }
 
-  private async fetchPortfolio(): Promise<PortfolioSnapshot | null> {
+  private async fetchPortfolio(
+    userId?: string,
+    brandId?: string,
+  ): Promise<PortfolioSnapshot | null> {
     try {
-      const { data } = await axios.get<PortfolioSnapshot>(`${this.autoTraderUrl}/portfolio`, {
-        timeout: 10_000,
-        validateStatus: (status) => status >= 200 && status < 300,
-      });
-      return isPortfolioSnapshot(data) ? data : null;
+      const data = await axios
+        .get<PortfolioSnapshot>(`${this.autoTraderUrl}/portfolio`, {
+          timeout: 10_000,
+          headers: {
+            ...(userId ? { 'x-user-id': userId } : {}),
+            ...(brandId ? { 'x-brand-id': brandId } : {}),
+          },
+          validateStatus: (status) => status >= 200 && status < 300,
+        })
+        .then((r) => r.data);
+      if (isPortfolioSnapshot(data)) {
+        this.lastPortfolioEquity = data.equity || data.capital || 0;
+        this.lastPortfolioCash = data.cash || 0;
+        this.lastOpenPositions = data.openPositions ?? data.holdings?.length ?? 0;
+        this.lastDayStartEquity = data.dayStartEquity ?? this.lastPortfolioEquity;
+        this.lastWeekStartEquity = data.weekStartEquity ?? this.lastPortfolioEquity;
+        return data;
+      }
+      return null;
     } catch {
       return null;
     }
@@ -815,5 +1979,170 @@ export class AgentService {
     } catch {
       return false;
     }
+  }
+
+  /** Snapshot anchors for soak baseline (best-effort; zeros if portfolio unavailable). */
+  peekPortfolioAnchors(): {
+    equity: number;
+    cash: number;
+    openPositions: number;
+    dayStartEquity: number;
+    weekStartEquity: number;
+  } {
+    return {
+      equity: this.lastPortfolioEquity,
+      cash: this.lastPortfolioCash,
+      openPositions: this.lastOpenPositions,
+      dayStartEquity: this.lastDayStartEquity || this.lastPortfolioEquity,
+      weekStartEquity: this.lastWeekStartEquity || this.lastPortfolioEquity,
+    };
+  }
+
+  /** Phase 7 desk/API snapshot � stop status only; never authorizes. */
+  getBreakerStatus(): {
+    tripped: boolean;
+    activeBreakers: string[];
+    reasonCodes: DecisionReasonCode[];
+    reasons: string[];
+    lastTripAt: number | null;
+    lastTripReasonCodes: DecisionReasonCode[];
+    lastTripReasons: string[];
+    dailyAutoAcceptCount: number;
+    consecutiveVetoCount: number;
+  } {
+    this.rollBreakerDayIfNeeded();
+    const evaluation = evaluateBreakers(this.collectBreakerMetrics());
+    return {
+      tripped: evaluation.tripped,
+      activeBreakers: evaluation.trips.map((t) => t.breakerId),
+      reasonCodes: evaluation.reasonCodes,
+      reasons: evaluation.reasons,
+      lastTripAt: this.lastBreakerTripAt,
+      lastTripReasonCodes: this.lastBreakerReasonCodes,
+      lastTripReasons: this.lastBreakerReasons,
+      dailyAutoAcceptCount: this.dailyAutoAcceptCount,
+      consecutiveVetoCount: this.consecutiveVetoCount,
+    };
+  }
+
+  private rollBreakerDayIfNeeded(): void {
+    const key = new Date().toISOString().slice(0, 10);
+    if (this.breakerDayKey !== key) {
+      this.breakerDayKey = key;
+      this.dailyAutoAcceptCount = 0;
+    }
+  }
+
+  private collectBreakerMetrics(userId?: string, brandId?: string | null) {
+    this.rollBreakerDayIfNeeded();
+    const tenant = userId ? this.tenantBreakers.get(userId, brandId) : null;
+    const brokerConnected = this.mode !== 'LIVE' || this.brokerTestOk;
+    return emptyBreakerMetrics({
+      dailyAutoAcceptCount: tenant?.dailyAutoAcceptCount ?? this.dailyAutoAcceptCount,
+      autoPnlDrawdownPct: tenant?.autoPnlDrawdownPct ?? this.autoPnlDrawdownPct,
+      consecutiveVetoCount: tenant?.consecutiveVetoCount ?? this.consecutiveVetoCount,
+      quoteAgeMs: this.lastQuoteAgeMs,
+      brokerConnected,
+      scoreAbsZ: this.lastScoreAbsZ,
+      lastSlippageAbsBps: this.lastSlippageAbsBps,
+      qualityBandScore: this.qualityBandScore,
+      qualityHistAvgR: this.qualityHistAvgR,
+      qualityLiveAvgR: this.qualityLiveAvgR,
+      evHistAvgR: this.evHistAvgR,
+      evLiveAvgR: this.evLiveAvgR,
+      calibrationDrift: this.calibrationDrift,
+      regimeMismatchRate: this.regimeMismatchRate,
+      executionDeterioration: this.executionDeterioration,
+    });
+  }
+
+  /**
+   * Phase 7 stop enforcement: if any breaker trips, force APPROVAL and ledger codes.
+   * Never sets liveAutoArmed and never returns AUTO_ACCEPTED.
+   */
+  private enforceBreakers(context: string, userId?: string, brandId?: string | null): boolean {
+    const evaluation = evaluateBreakers(
+      this.collectBreakerMetrics(userId, brandId),
+      DEFAULT_BREAKER_CONFIG,
+    );
+    if (!evaluation.tripped) {
+      return false;
+    }
+    this.lastBreakerTripAt = Date.now();
+    this.lastBreakerReasonCodes = evaluation.reasonCodes;
+    this.lastBreakerReasons = evaluation.reasons;
+    if (this.decisionMode === 'AUTONOMOUS') {
+      this.decisionMode = 'APPROVAL';
+      this.persistState();
+      console.warn(
+        `[trader-agent] Phase 7 breaker trip (${context}): ${evaluation.reasonCodes.join(',')} → APPROVAL`,
+      );
+    }
+    return true;
+  }
+
+  /** Soak kill path — force APPROVAL only; never authorizes. */
+  forceApprovalFromSoak(killCode: string, killReason: string): void {
+    if (this.decisionMode === 'AUTONOMOUS') {
+      this.decisionMode = 'APPROVAL';
+      this.persistState();
+    }
+    console.warn(`[trader-agent] soak kill ${killCode}: ${killReason} → APPROVAL`);
+  }
+
+  /**
+   * Append-only trade outcome (idempotent). Does not mutate the original decision row.
+   */
+  recordTradeOutcome(input: {
+    decisionId?: string;
+    tradeId?: string;
+    orderId?: string;
+    positionId?: string;
+    symbol?: string;
+    exitPrice: number;
+    pnl: number;
+    pnlPercent?: number;
+    holdingPeriodMs?: number;
+    exitReason: string;
+    closedAt?: number;
+  }): { recorded: boolean; duplicate: boolean; decisionId?: string } {
+    const decision =
+      (input.decisionId ? this.ledger.get(input.decisionId) : null) ??
+      (input.tradeId ? this.ledger.getByTradeId(input.tradeId) : null) ??
+      (input.orderId ? this.ledger.getByTradeId(input.orderId) : null);
+    if (!decision) {
+      return { recorded: false, duplicate: false };
+    }
+    const plannedRisk =
+      decision.execution?.plannedRiskAmount ??
+      (decision.riskVerdict && 'riskAmount' in decision.riskVerdict
+        ? decision.riskVerdict.riskAmount
+        : undefined);
+    const pnl = input.pnl;
+    const realizedR = plannedRisk != null && plannedRisk > 0 ? pnl / plannedRisk : 0;
+    const entry = decision.execution?.entryPrice;
+    const qty = decision.execution?.quantity;
+    const pnlPercent =
+      input.pnlPercent ??
+      (entry != null && entry > 0 && qty != null && qty > 0 ? (pnl / (entry * qty)) * 100 : 0);
+    const { duplicate } = this.ledger.appendOutcome({
+      outcomeId: randomUUID(),
+      decisionId: decision.decisionId,
+      soakRunId: decision.soakRunId ?? this.soakController?.getActiveRunId(),
+      positionId: input.positionId,
+      orderId: input.orderId ?? decision.execution?.orderId,
+      tradeId: input.tradeId ?? decision.tradeId,
+      symbol: input.symbol ?? decision.symbol,
+      exitPrice: input.exitPrice,
+      pnl,
+      pnlPercent,
+      holdingPeriodMs:
+        input.holdingPeriodMs ?? (decision.timestamp ? Date.now() - decision.timestamp : 0),
+      exitReason: input.exitReason,
+      closedAt: input.closedAt ?? Date.now(),
+      realizedR,
+      plannedRiskAmount: plannedRisk,
+    });
+    return { recorded: !duplicate, duplicate, decisionId: decision.decisionId };
   }
 }
