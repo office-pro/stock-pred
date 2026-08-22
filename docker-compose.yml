@@ -22,6 +22,7 @@ x-node-env: &node-env
   PATTERN_ENGINE_URL: http://pattern-engine:3004
   BACKTEST_SERVICE_URL: http://backtest-service:3005
   AUTO_TRADER_URL: http://auto-trader:3006
+  TRADER_AGENT_URL: http://trader-agent:3008
   NOTIFICATION_SERVICE_URL: http://notification-service:3007
   ML_ENGINE_URL: http://ml-engine:8000
   TRADING_MODE: ${TRADING_MODE:-PAPER}
@@ -187,7 +188,7 @@ services:
     environment:
       <<: *node-env
       AUTO_TRADER_PORT: '3006'
-      PAPER_TRADING_CAPITAL: ${PAPER_TRADING_CAPITAL:-1000000}
+      PAPER_TRADING_CAPITAL: ${PAPER_TRADING_CAPITAL:-10000000}
       RISK_PER_TRADE_PCT: ${RISK_PER_TRADE_PCT:-1}
       DAILY_DRAWDOWN_PCT: ${DAILY_DRAWDOWN_PCT:-3}
       WEEKLY_DRAWDOWN_PCT: ${WEEKLY_DRAWDOWN_PCT:-8}
@@ -195,6 +196,27 @@ services:
     depends_on:
       kafka: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
+
+  trader-agent:
+    profiles: ['apps']
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args: { APP: trader-agent }
+    environment:
+      <<: *node-env
+      TRADER_AGENT_PORT: '3008'
+      # Optional: enable Agent desk "Implement" via Cursor SDK inside the container.
+      CURSOR_API_KEY: ${CURSOR_API_KEY:-}
+      CURSOR_AGENT_MODEL: ${CURSOR_AGENT_MODEL:-composer-2.5}
+      REPO_ROOT: ${REPO_ROOT:-/workspace}
+    volumes:
+      # Mount monorepo so Cursor SDK local agents can edit the host checkout.
+      - .:/workspace
+    ports: ['3008:3008']
+    depends_on:
+      auto-trader: { condition: service_started }
+      market-data-service: { condition: service_started }
 
   notification-service:
     profiles: ['apps']
@@ -223,6 +245,8 @@ services:
     depends_on:
       auth-service: { condition: service_started }
       market-data-service: { condition: service_started }
+      auto-trader: { condition: service_started }
+      trader-agent: { condition: service_started }
       kafka: { condition: service_healthy }
 
   ml-engine:
