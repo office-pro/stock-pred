@@ -371,6 +371,14 @@ export class AgentController {
     }));
   }
 
+  @Get('recommendations/:id/thesis')
+  thesis(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+  ): Promise<{ thesis: import('@stockpred/shared-types').StructuredThesis | null }> {
+    return this.agent.getThesisIntelligence(id, userId).then((thesis) => ({ thesis }));
+  }
+
   @Post('recommendations/:id/reject')
   reject(
     @Param('id') id: string,

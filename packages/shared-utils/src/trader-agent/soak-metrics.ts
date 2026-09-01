@@ -5,6 +5,7 @@
 import {
   isDecisionLedgerEntry,
   isDecisionOutcomeRecord,
+  isThesisHistoryLedgerRecord,
   type CalibrationBandRow,
   type DecisionLedgerEntry,
   type DecisionLedgerRecord,
@@ -39,8 +40,9 @@ export function filterLedgerForSoak(
   soakRunId: string,
 ): DecisionLedgerRecord[] {
   return records.filter((row) => {
+    if (isThesisHistoryLedgerRecord(row)) return false;
     if (isDecisionOutcomeRecord(row)) return row.soakRunId === soakRunId;
-    return row.soakRunId === soakRunId;
+    return isDecisionLedgerEntry(row) && row.soakRunId === soakRunId;
   });
 }
 

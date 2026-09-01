@@ -5,9 +5,14 @@ import {
   type DecisionLedgerRecord,
   type DecisionOutcomeRecord,
   type DecisionTradeOutcome,
+  type StructuredThesis,
+  type ThesisHistoryEvent,
+  type ThesisHistoryLedgerRecord,
   isDecisionLedgerEntry,
   isDecisionOutcomeRecord,
+  isThesisHistoryLedgerRecord,
 } from '@stockpred/shared-types';
+import { appendThesisHistory } from '@stockpred/shared-utils';
 
 function defaultLedgerPath(): string {
   const fromEnv = process.env.AGENT_DECISION_LEDGER_PATH;
@@ -184,8 +189,9 @@ export class DecisionLedgerStore {
 
   listForSoak(soakRunId: string): DecisionLedgerRecord[] {
     return this.read().entries.filter((row) => {
+      if (isThesisHistoryLedgerRecord(row)) return false;
       if (isDecisionOutcomeRecord(row)) return row.soakRunId === soakRunId;
-      return row.soakRunId === soakRunId;
+      return isDecisionLedgerEntry(row) && row.soakRunId === soakRunId;
     });
   }
 
@@ -201,6 +207,69 @@ export class DecisionLedgerStore {
     return file.entries.some((row) => isDecisionOutcomeRecord(row) && outcomeKey(row) === key);
   }
 
+  /** Append-only thesis history. Enforces monotonic timestamps and single THESIS_CREATED. */
+  appendThesisEvent(input: {
+    decisionId: string;
+    timestamp?: number;
+    event: ThesisHistoryEvent;
+    reassessment?: StructuredThesis;
+  }): { recorded: ThesisHistoryLedgerRecord; duplicate: boolean } {
+    const file = this.read();
+    const existingEvents = file.entries
+      .filter((row): row is ThesisHistoryLedgerRecord => isThesisHistoryLedgerRecord(row))
+      .filter((row) => row.decisionId === input.decisionId)
+      .map((row) => row.event);
+
+    if (
+      input.event.type === 'THESIS_CREATED' &&
+      existingEvents.some((e) => e.type === 'THESIS_CREATED')
+    ) {
+      const prior = file.entries.find(
+        (row): row is ThesisHistoryLedgerRecord =>
+          isThesisHistoryLedgerRecord(row) &&
+          row.decisionId === input.decisionId &&
+          row.event.type === 'THESIS_CREATED',
+      );
+      return { recorded: prior!, duplicate: true };
+    }
+
+    appendThesisHistory({ events: existingEvents }, input.event);
+
+    const record: ThesisHistoryLedgerRecord = {
+      kind: 'THESIS_EVENT',
+      decisionId: input.decisionId,
+      timestamp: input.timestamp ?? Date.now(),
+      event: input.event,
+      reassessment: input.reassessment,
+    };
+    file.entries.push(record);
+    if (file.entries.length > this.maxEntries) {
+      file.entries = file.entries.slice(file.entries.length - this.maxEntries);
+    }
+    this.write(file);
+    return { recorded: record, duplicate: false };
+  }
+
+  listThesisEvents(decisionId: string): ThesisHistoryLedgerRecord[] {
+    return this.read().entries.filter(
+      (row): row is ThesisHistoryLedgerRecord =>
+        isThesisHistoryLedgerRecord(row) && row.decisionId === decisionId,
+    );
+  }
+
+  private latestThesisEvent(
+    decisionId: string,
+    all: DecisionLedgerRecord[],
+  ): ThesisHistoryLedgerRecord | null {
+    let latest: ThesisHistoryLedgerRecord | null = null;
+    for (const row of all) {
+      if (isThesisHistoryLedgerRecord(row) && row.decisionId === decisionId) {
+        latest = row;
+      }
+    }
+    return latest;
+  }
+
   private materialize(
     decision: DecisionLedgerEntry,
     all: DecisionLedgerRecord[],
@@ -213,7 +282,14 @@ export class DecisionLedgerStore {
         break;
       }
     }
-    if (!latest) return decision;
+    const thesisEvent = this.latestThesisEvent(decision.decisionId, all);
+    const thesisReassessment = thesisEvent?.reassessment ?? decision.thesisSnapshot?.initialThesis;
+
+    let result: DecisionLedgerEntry = decision;
+    if (thesisReassessment) {
+      result = { ...result, thesisReassessment };
+    }
+    if (!latest) return result;
     const outcome: DecisionTradeOutcome = {
       outcomeId: latest.outcomeId,
       decisionId: latest.decisionId,
@@ -243,6 +319,6 @@ export class DecisionLedgerStore {
       counterfactualProvenance: latest.counterfactualProvenance,
       waitMarkEndReason: latest.waitMarkEndReason,
     };
-    return { ...decision, outcome };
+    return { ...result, outcome };
   }
 }

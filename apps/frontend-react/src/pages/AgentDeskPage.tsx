@@ -27,6 +27,7 @@ import {
 } from '@mui/material';
 import { useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
+import type { StructuredThesis } from '@stockpred/shared-types';
 import AgentTradingToggle from '../components/AgentTradingToggle';
 import AgentSuggestionCards from '../components/AgentSuggestionCards';
 import { authErrorMessage } from '../lib/auth-errors';
@@ -55,6 +56,39 @@ import {
   useStopAgentSoakMutation,
   useWaiveAgentSoakMutation,
 } from '../store/api';
+
+function ThesisIntelligencePanel({ thesis }: { thesis: StructuredThesis }) {
+  const weakened = thesis.supportingEvidence.filter((e) => e.polarity === 'NEGATIVE');
+  const supporting = thesis.supportingEvidence.filter((e) => e.polarity !== 'NEGATIVE');
+  return (
+    <Box sx={{ mt: 1, p: 1, borderRadius: 1, bgcolor: 'action.hover' }}>
+      <Typography variant="caption" fontWeight={700} display="block">
+        Thesis Intelligence
+      </Typography>
+      <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+        {thesis.primaryThesis}
+      </Typography>
+      <Typography variant="caption" display="block" color="text.secondary">
+        Status: {thesis.state}
+      </Typography>
+      {supporting.length > 0 ? (
+        <Typography variant="caption" display="block" color="text.secondary">
+          Supporting: {supporting.map((e) => e.message).join(' · ')}
+        </Typography>
+      ) : null}
+      {weakened.length > 0 ? (
+        <Typography variant="caption" display="block" color="warning.main">
+          Weakened: {weakened.map((e) => e.message).join(' · ')}
+        </Typography>
+      ) : null}
+      {thesis.invalidationConditions.length > 0 ? (
+        <Typography variant="caption" display="block" color="text.secondary">
+          Invalidation: {thesis.invalidationConditions.join(' · ')}
+        </Typography>
+      ) : null}
+    </Box>
+  );
+}
 
 function WaitIntelligencePanel({
   wait,
@@ -266,6 +300,7 @@ export default function AgentDeskPage(): JSX.Element {
     return map;
   }, [opportunityRanking]);
   const waitByOpportunityId = opps?.waitIntelligenceById ?? {};
+  const thesisByOpportunityId = opps?.thesisIntelligenceById ?? {};
   const approvable = useMemo(() => opportunities.filter(isApprovable), [opportunities]);
   const approvableIds = useMemo(
     () => approvable.map((row) => row.recommendationId!).filter(Boolean),
@@ -1143,6 +1178,11 @@ export default function AgentDeskPage(): JSX.Element {
                       {row.recommendationId && waitByOpportunityId[row.recommendationId] ? (
                         <WaitIntelligencePanel wait={waitByOpportunityId[row.recommendationId]} />
                       ) : null}
+                      {row.recommendationId && thesisByOpportunityId[row.recommendationId] ? (
+                        <ThesisIntelligencePanel
+                          thesis={thesisByOpportunityId[row.recommendationId]}
+                        />
+                      ) : null}
                     </TableCell>
                     <TableCell align="center">
                       <Stack direction="row" spacing={0.5} justifyContent="center">
@@ -1763,6 +1803,11 @@ export default function AgentDeskPage(): JSX.Element {
                 ) : null}
                 {row.waitIntelligence ? (
                   <WaitIntelligencePanel wait={row.waitIntelligence} />
+                ) : null}
+                {row.thesisReassessment ? (
+                  <ThesisIntelligencePanel thesis={row.thesisReassessment} />
+                ) : row.thesisSnapshot?.initialThesis ? (
+                  <ThesisIntelligencePanel thesis={row.thesisSnapshot.initialThesis} />
                 ) : null}
               </Paper>
             ))}

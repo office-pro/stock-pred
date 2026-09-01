@@ -25,6 +25,7 @@ import type {
   UserStatus,
   IntelligenceSnapshot,
   WaitRecommendation,
+  StructuredThesis,
 } from '@stockpred/shared-types';
 import { API_BASE_URL } from '../config';
 import { logout, setTokens } from './authSlice';
@@ -1163,6 +1164,8 @@ export const api = createApi({
           };
           intelligenceSnapshot?: IntelligenceSnapshot;
           waitIntelligence?: WaitRecommendation;
+          thesisSnapshot?: { initialThesis: StructuredThesis; snapshotAt: string };
+          thesisReassessment?: StructuredThesis;
         }>;
         decisionMode: 'APPROVAL' | 'AUTONOMOUS';
       },
@@ -1508,6 +1511,7 @@ export const api = createApi({
         }>;
         disclaimer: string;
         waitIntelligenceById?: Record<string, WaitRecommendation>;
+        thesisIntelligenceById?: Record<string, StructuredThesis>;
       },
       { limit?: number } | void
     >({

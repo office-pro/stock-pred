@@ -46,6 +46,7 @@ import {
   TradeDecision,
   TradeSide,
   WaitRecommendation,
+  StructuredThesis,
 } from '@stockpred/shared-types';
 import {
   AGENT_CAPABILITY_DEFS,
@@ -96,6 +97,12 @@ import {
   buildOhOpsReport,
   buildWaitRecommendation,
   digestFromSnapshot,
+  buildThesisSnapshot,
+  reassessThesis,
+  buildThesisHistoryEvent,
+  digestFromStructuredThesis,
+  detectWeakenedChanges,
+  digestThesisEvidence,
   diagnosticFromExecutionError,
   priceDeviationPct,
   OH2_PRICE_DEVIATION_PCT,
@@ -537,6 +544,7 @@ export class AgentService implements OnModuleInit {
         humanDecision: 'HUMAN_WAIT',
         humanReasonCode: reason,
         waitIntelligence: waitIntel,
+        analysis: rec.analysis,
       },
     );
 
@@ -597,6 +605,7 @@ export class AgentService implements OnModuleInit {
         }),
         humanDecision: 'HUMAN_REJECT',
         humanReasonCode: reason,
+        analysis: rec.analysis,
       },
     );
 
@@ -984,6 +993,8 @@ export class AgentService implements OnModuleInit {
     autonomous?: { attempted: number; accepted: number; skipped: number };
     /** T2.1 advisory wait intelligence by opportunity id (display only). */
     waitIntelligenceById?: Record<string, WaitRecommendation>;
+    /** T2.2 advisory thesis reassessment by opportunity id (display only). */
+    thesisIntelligenceById?: Record<string, StructuredThesis>;
   }> {
     if (!userId) {
       throw new BadRequestException('x-user-id is required for per-user opportunities');
@@ -1151,6 +1162,7 @@ export class AgentService implements OnModuleInit {
 
     const now = Date.now();
     const waitIntelligenceById: Record<string, WaitRecommendation> = {};
+    const thesisIntelligenceById: Record<string, StructuredThesis> = {};
     for (const c of rankingCandidates) {
       const row = synced.find((s) => s.id === c.opportunityId);
       if (!row) continue;
@@ -1170,6 +1182,19 @@ export class AgentService implements OnModuleInit {
           priorDigest: digestFromSnapshot(c.snapshot),
         };
         this.recommendations.set(c.opportunityId, existing);
+      }
+
+      const ledgerEntry = this.ledger.getByOpportunity(c.opportunityId);
+      if (ledgerEntry?.thesisSnapshot) {
+        const reassessed = this.reassessAndAppendThesis({
+          now,
+          decisionId: ledgerEntry.decisionId,
+          initial: ledgerEntry.thesisSnapshot.initialThesis,
+          analysis: row.analysis,
+          snapshot: c.snapshot,
+          priorReassessment: ledgerEntry.thesisReassessment,
+        });
+        thesisIntelligenceById[c.opportunityId] = reassessed;
       }
     }
 
@@ -1196,7 +1221,42 @@ export class AgentService implements OnModuleInit {
       disclaimer: AGENT_DISCLAIMER,
       autonomous,
       waitIntelligenceById,
+      thesisIntelligenceById,
     };
+  }
+
+  async getThesisIntelligence(id: string, userId?: string): Promise<StructuredThesis | null> {
+    if (!userId) {
+      throw new BadRequestException('x-user-id is required');
+    }
+    const ledgerEntry = this.ledger.getByOpportunity(id);
+    if (!ledgerEntry?.thesisSnapshot) return null;
+
+    let rec = this.recommendations.get(id);
+    if (!rec) {
+      const persisted = await this.opportunitiesDb.findForUser(id, userId);
+      rec = persisted != null ? this.opportunitiesDb.toRecommendation(persisted) : undefined;
+    }
+    if (!rec) {
+      return ledgerEntry.thesisReassessment ?? ledgerEntry.thesisSnapshot.initialThesis;
+    }
+
+    const portfolio = await this.fetchPortfolio(userId);
+    if (!portfolio) {
+      return ledgerEntry.thesisReassessment ?? ledgerEntry.thesisSnapshot.initialThesis;
+    }
+    const pipeline = await this.runDecisionPipeline(rec.analysis, portfolio, {
+      opportunityId: id,
+      decisionId: id,
+    });
+    return this.reassessAndAppendThesis({
+      now: Date.now(),
+      decisionId: ledgerEntry.decisionId,
+      initial: ledgerEntry.thesisSnapshot.initialThesis,
+      analysis: rec.analysis,
+      snapshot: pipeline.intelligenceSnapshot,
+      priorReassessment: ledgerEntry.thesisReassessment,
+    });
   }
 
   async getWaitIntelligence(id: string, userId?: string): Promise<WaitRecommendation | null> {
@@ -1820,6 +1880,7 @@ export class AgentService implements OnModuleInit {
           agentRecommendation: deriveAgentRecommendation({ decision: analysis.decision }),
           humanDecision: opts?.autonomous ? undefined : 'HUMAN_APPROVE',
           gateResult,
+          analysis,
         },
       );
 
@@ -2134,6 +2195,7 @@ export class AgentService implements OnModuleInit {
       humanReasonCode?: HumanReasonCode | string;
       gateResult?: GateResultSnapshot;
       waitIntelligence?: WaitRecommendation;
+      analysis?: AgentAnalysis;
     },
   ): DecisionLedgerEntry {
     const { decision, risk, portfolio, policy, budgetSnapshot, intelligenceSnapshot } = pipeline;
@@ -2142,7 +2204,19 @@ export class AgentService implements OnModuleInit {
       decision.opportunityId ?? '',
       decision.symbol,
     );
-    return this.ledger.append({
+    const freezesThesis = ['WAIT', 'REJECT', 'APPROVED', 'AUTO_ACCEPT'].includes(decisionLabel);
+    const thesisSnapshot =
+      freezesThesis && intelligenceSnapshot && evidence?.analysis
+        ? buildThesisSnapshot({
+            now: Date.now(),
+            analysis: evidence.analysis,
+            snapshot: intelligenceSnapshot,
+            tradeHorizon: inferTradeHorizon(evidence.analysis.setup?.expectedHoldingPeriod),
+            strategyTag: decision.strategy,
+          })
+        : undefined;
+
+    const entry = this.ledger.append({
       decisionId: decision.decisionId,
       opportunityId: decision.opportunityId,
       timestamp: Date.now(),
@@ -2189,7 +2263,61 @@ export class AgentService implements OnModuleInit {
       gateResult: evidence?.gateResult,
       rankingContext: rankingContext ?? undefined,
       waitIntelligence: evidence?.waitIntelligence,
+      thesisSnapshot,
     });
+
+    if (thesisSnapshot) {
+      this.ledger.appendThesisEvent({
+        decisionId: entry.decisionId,
+        timestamp: entry.timestamp,
+        event: buildThesisHistoryEvent({
+          now: entry.timestamp,
+          priorState: undefined,
+          newState: thesisSnapshot.initialThesis.state,
+          changes: [],
+        }),
+        reassessment: thesisSnapshot.initialThesis,
+      });
+    }
+
+    return entry;
+  }
+
+  private reassessAndAppendThesis(input: {
+    now: number;
+    decisionId: string;
+    initial: StructuredThesis;
+    analysis: AgentAnalysis;
+    snapshot: import('@stockpred/shared-types').IntelligenceSnapshot;
+    priorReassessment?: StructuredThesis;
+  }): StructuredThesis {
+    const reassessed = reassessThesis({
+      now: input.now,
+      initial: input.initial,
+      analysis: input.analysis,
+      snapshot: input.snapshot,
+    });
+    const priorState = input.priorReassessment?.state ?? input.initial.state;
+    const changes = detectWeakenedChanges(
+      digestFromStructuredThesis(input.initial),
+      digestThesisEvidence(input.snapshot),
+    );
+    const stateChanged = reassessed.state !== priorState;
+    const hasNewChanges = changes.length > 0 && reassessed.state === 'WEAKENING';
+    if (stateChanged || hasNewChanges) {
+      this.ledger.appendThesisEvent({
+        decisionId: input.decisionId,
+        timestamp: input.now,
+        event: buildThesisHistoryEvent({
+          now: input.now,
+          priorState,
+          newState: reassessed.state,
+          changes,
+        }),
+        reassessment: reassessed,
+      });
+    }
+    return reassessed;
   }
 
   private async syncAutoTraderAgentGate(enabled: boolean): Promise<void> {

@@ -420,6 +420,10 @@ export interface DecisionLedgerEntry {
   rankingContext?: import('./p5-measurement').P5DecisionRankingContext;
   /** T2.1 WAIT intelligence at decision time — display only. */
   waitIntelligence?: import('./wait-intelligence').WaitRecommendation;
+  /** T2.2 frozen thesis at decision time — never rewritten. */
+  thesisSnapshot?: import('./thesis-intelligence').ThesisSnapshot;
+  /** T2.2 materialized current thesis view (from latest append-only event). */
+  thesisReassessment?: import('./thesis-intelligence').StructuredThesis;
 }
 
 /** Closed-trade economics for calibration / soak (append-only via outcome records). */
@@ -495,12 +499,34 @@ export interface DecisionOutcomeRecord {
   waitMarkEndReason?: import('./p5-measurement').P5WaitMarkEndReason;
 }
 
-export type DecisionLedgerRecord = DecisionLedgerEntry | DecisionOutcomeRecord;
+/**
+ * Append-only thesis history event. Do not mutate the original
+ * {@link DecisionLedgerEntry} or {@link ThesisSnapshot}.
+ */
+export interface ThesisHistoryLedgerRecord {
+  kind: 'THESIS_EVENT';
+  decisionId: string;
+  timestamp: number;
+  event: import('./thesis-intelligence').ThesisHistoryEvent;
+  /** Materialized thesis view at this event (display only). */
+  reassessment?: import('./thesis-intelligence').StructuredThesis;
+}
+
+export type DecisionLedgerRecord =
+  | DecisionLedgerEntry
+  | DecisionOutcomeRecord
+  | ThesisHistoryLedgerRecord;
 
 export function isDecisionOutcomeRecord(row: DecisionLedgerRecord): row is DecisionOutcomeRecord {
   return (row as DecisionOutcomeRecord).kind === 'OUTCOME_RECORDED';
 }
 
+export function isThesisHistoryLedgerRecord(
+  row: DecisionLedgerRecord,
+): row is ThesisHistoryLedgerRecord {
+  return (row as ThesisHistoryLedgerRecord).kind === 'THESIS_EVENT';
+}
+
 export function isDecisionLedgerEntry(row: DecisionLedgerRecord): row is DecisionLedgerEntry {
-  return !isDecisionOutcomeRecord(row);
+  return !isDecisionOutcomeRecord(row) && !isThesisHistoryLedgerRecord(row);
 }
