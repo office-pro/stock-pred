@@ -18,3 +18,4 @@ export * from './wait-intelligence';
 export * from './thesis-intelligence';
 export * from './exit-intelligence';
 export * from './trade-lifecycle';
+export * from './t2-validation';
