@@ -13,8 +13,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import jobs as ml_jobs
+from . import lifecycle as ml_lifecycle
 from . import manipulation as investigate
-from .config import DISCLAIMER, settings
+from .config import CORE_HORIZONS, DISCLAIMER, settings
 from .data import load_universe
 from .persistence import (
     list_cached,
@@ -24,6 +25,8 @@ from .persistence import (
     shutdown,
 )
 from .predict import missing_models_message, models_available, predict_symbol
+from .promote import PromoteError, promote_horizon
+from .registry import get_active, list_models
 from .score import load_accuracy, score_all
 
 _background_task = None
@@ -101,11 +104,21 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> Dict[str, object]:
+    active_models = {}
+    for horizon in CORE_HORIZONS:
+        entry = get_active(horizon)
+        if entry:
+            active_models[horizon] = {
+                "modelId": entry.get("modelId"),
+                "modelVersion": entry.get("modelVersion"),
+                "artifactDir": entry.get("artifactDir"),
+            }
     return {
         "status": "ok",
         "service": "ml-engine",
         "modelsTrained": models_available(),
         "manipulationModelsTrained": investigate.models_available(),
+        "activeModels": active_models,
     }
 
 
@@ -120,11 +133,350 @@ def _read_json(name: str) -> Dict[str, object]:
 
 @app.get("/evaluations")
 def get_evaluations() -> Dict[str, object]:
-    """Holdout, walk-forward, and costed ML backtest reports if present."""
+    """Holdout, walk-forward, ML backtest, and dataset-quality reports if present.
+
+    Read-only surface of existing M2 artifacts — does not train or promote.
+    """
+    holdout = _read_json("holdout.json")
+    walk_forward = _read_json("walkforward.json")
+    ml_backtest = _read_json("ml-backtest.json")
+    dataset_quality = _read_json("dataset-quality.json")
     return {
-        "holdout": _read_json("holdout.json"),
-        "walkForward": _read_json("walkforward.json"),
-        "mlBacktest": _read_json("ml-backtest.json"),
+        "holdout": holdout,
+        "walkForward": walk_forward,
+        "mlBacktest": ml_backtest,
+        "datasetQuality": dataset_quality,
+        "present": {
+            "holdout": bool(holdout),
+            "walkForward": bool(walk_forward),
+            "mlBacktest": bool(ml_backtest),
+            "datasetQuality": bool(dataset_quality),
+        },
+        "note": (
+            "Evaluation artifacts are advisory for ML promotion gates only. "
+            "They do not authorize trades (Risk → Portfolio → Policy → Gate)."
+        ),
+        "disclaimer": DISCLAIMER,
+    }
+
+
+@app.get("/drift")
+def get_drift() -> Dict[str, object]:
+    """Read-only M4 drift reports written by assess_drift (per core horizon).
+
+    Advisory only — never auto-retrains and never authorizes trades.
+    """
+    reports: Dict[str, object] = {}
+    present: Dict[str, bool] = {}
+    for horizon in CORE_HORIZONS:
+        path = os.path.join(settings.models_dir, "drift", f"{horizon}.json")
+        report: Dict[str, object] = {}
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            report = payload if isinstance(payload, dict) else {}
+        reports[horizon] = report
+        present[horizon] = bool(report)
+    return {
+        "horizons": reports,
+        "present": present,
+        "note": (
+            "Drift status is ML serving metadata for Trade Intelligence usability only. "
+            "It does not authorize trades (Risk → Portfolio → Policy → Gate)."
+        ),
+        "disclaimer": DISCLAIMER,
+    }
+
+
+@app.get("/reports")
+def get_reports() -> Dict[str, object]:
+    """Phase 5: catalog of existing ML report artifacts (presence only).
+
+    Does not generate new reports, retrain, or authorize trades.
+    """
+    holdout = _read_json("holdout.json")
+    walk_forward = _read_json("walkforward.json")
+    ml_backtest = _read_json("ml-backtest.json")
+    dataset_quality = _read_json("dataset-quality.json")
+    accuracy_path = os.path.join(settings.models_dir, "accuracy.json")
+    accuracy_present = os.path.exists(accuracy_path)
+    drift_present = False
+    drift_horizons: Dict[str, bool] = {}
+    for horizon in CORE_HORIZONS:
+        path = os.path.join(settings.models_dir, "drift", f"{horizon}.json")
+        found = os.path.exists(path)
+        drift_horizons[horizon] = found
+        drift_present = drift_present or found
+    cached = list_cached("", "", "", 1, 0)
+    predictions_total = int(cached.get("total") or 0) if isinstance(cached, dict) else 0
+
+    reports = [
+        {
+            "id": "datasetQuality",
+            "title": "Dataset quality",
+            "phase": "M2",
+            "artifact": "dataset-quality.json",
+            "present": bool(dataset_quality),
+            "labPath": "/ml-lab/dataset",
+            "blurb": "PIT / coverage / price-policy hard gates (promote input only).",
+        },
+        {
+            "id": "holdout",
+            "title": "Holdout evaluation",
+            "phase": "M2",
+            "artifact": "holdout.json",
+            "present": bool(holdout),
+            "labPath": "/ml-lab/validation",
+            "blurb": "Out-of-sample holdout metrics used by promote gates.",
+        },
+        {
+            "id": "walkForward",
+            "title": "Walk-forward stability",
+            "phase": "M2",
+            "artifact": "walkforward.json",
+            "present": bool(walk_forward),
+            "labPath": "/ml-lab/validation",
+            "blurb": "Fold mean / worst / std stability for promote.",
+        },
+        {
+            "id": "mlBacktest",
+            "title": "ML backtest",
+            "phase": "M2/M3",
+            "artifact": "ml-backtest.json",
+            "present": bool(ml_backtest),
+            "labPath": "/ml-lab/validation",
+            "blurb": "Cost-aware / imbalance evaluation artifact when present.",
+        },
+        {
+            "id": "drift",
+            "title": "Serving drift",
+            "phase": "M4",
+            "artifact": "drift/{horizon}.json",
+            "present": drift_present,
+            "detail": drift_horizons,
+            "labPath": "/ml-lab/monitoring",
+            "blurb": "Feature / calibration drift stamps (TI usability only).",
+        },
+        {
+            "id": "accuracy",
+            "title": "Prediction accuracy",
+            "phase": "M4",
+            "artifact": "accuracy.json",
+            "present": accuracy_present,
+            "labPath": "/ml-lab/monitoring",
+            "blurb": "Scored hit-rate track record (observational).",
+        },
+        {
+            "id": "predictions",
+            "title": "Latest predictions",
+            "phase": "M4",
+            "artifact": "latest-predictions.json / DB",
+            "present": predictions_total > 0,
+            "detail": {"cachedRows": predictions_total},
+            "labPath": "/ml-lab/predictions",
+            "blurb": "ACTIVE-model serving outputs for TI (not Gate).",
+        },
+        {
+            "id": "tiBridge",
+            "title": "ML → TI usability bridge",
+            "phase": "M4",
+            "artifact": "market-data prediction cache",
+            "present": None,
+            "external": True,
+            "labPath": "/ml-lab/ti-bridge",
+            "blurb": "Fresh + drift-compatible rows usable by Trade Intelligence (MDS).",
+        },
+        {
+            "id": "registry",
+            "title": "Model registry",
+            "phase": "M1–M4",
+            "artifact": "registry/models.json",
+            "present": True,
+            "labPath": "/ml-lab/registry",
+            "blurb": "CANDIDATE / ACTIVE / RETIRED inventory + promote.",
+        },
+    ]
+    return {
+        "reports": reports,
+        "counts": {
+            "present": sum(1 for row in reports if row.get("present") is True),
+            "missing": sum(1 for row in reports if row.get("present") is False),
+            "external": sum(1 for row in reports if row.get("present") is None),
+            "total": len(reports),
+        },
+        "note": (
+            "Reports hub indexes existing M2–M4 artifacts only. "
+            "It does not generate new reports or authorize trades "
+            "(Risk → Portfolio → Policy → Gate)."
+        ),
+        "disclaimer": DISCLAIMER,
+    }
+
+
+_M4_PREDICTION_KEYS = (
+    "modelId",
+    "driftStatus",
+    "calibratedProbabilities",
+    "probabilities",
+    "expectedReturn",
+    "expectedMfe",
+    "expectedMae",
+    "expiresAt",
+    "predictionTimestamp",
+    "sourceDataTimestamp",
+    "featureVersion",
+    "datasetVersion",
+    "freshnessStatus",
+    "priceAdjustmentMode",
+)
+
+
+def _enrich_predictions_from_cache(predictions: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    """Overlay M4 serving fields from the in-memory/file cache onto slim DB rows."""
+    if not predictions:
+        return predictions
+    cached = list_cached("", "", "", 100_000, 0).get("predictions") or []
+    index = {
+        (str(row.get("symbol")), str(row.get("horizon"))): row
+        for row in cached
+        if isinstance(row, dict)
+    }
+    for row in predictions:
+        rich = index.get((str(row.get("symbol")), str(row.get("horizon"))))
+        if not isinstance(rich, dict):
+            continue
+        for key in _M4_PREDICTION_KEYS:
+            if key in rich and rich[key] is not None and key not in row:
+                row[key] = rich[key]
+    return predictions
+
+
+def _normalize_status(raw: object) -> str:
+    status = str(raw or "candidate").strip().lower()
+    if status in {"active", "candidate", "retired"}:
+        return status.upper()
+    return "CANDIDATE"
+
+
+def _public_model(entry: Dict[str, object]) -> Dict[str, object]:
+    return {
+        "modelId": entry.get("modelId"),
+        "horizon": entry.get("horizon"),
+        "modelVersion": entry.get("modelVersion"),
+        "featureVersion": entry.get("featureVersion"),
+        "datasetVersion": entry.get("datasetVersion"),
+        "algorithm": entry.get("algorithm"),
+        "status": _normalize_status(entry.get("status")),
+        "active": bool(entry.get("active")),
+        "artifactDir": entry.get("artifactDir"),
+        "createdAt": entry.get("createdAt"),
+        "promotedAt": entry.get("promotedAt"),
+        "metrics": entry.get("metrics") or {},
+        "calibration": entry.get("calibration") or {},
+        "trainingWindow": entry.get("trainingWindow") or {},
+    }
+
+
+@app.get("/registry")
+def get_registry(horizon: str = "", status: str = "") -> Dict[str, object]:
+    """List registered models (candidates, active, retired)."""
+    rows = [_public_model(entry) for entry in list_models(horizon.upper() or None)]
+    if status:
+        wanted = status.strip().upper()
+        rows = [row for row in rows if row.get("status") == wanted]
+    rows.sort(key=lambda row: str(row.get("createdAt") or ""), reverse=True)
+    return {"models": rows, "count": len(rows), "disclaimer": DISCLAIMER}
+
+
+@app.get("/registry/active")
+def get_registry_active() -> Dict[str, object]:
+    """Active model per core horizon (empty entry when none promoted)."""
+    active: Dict[str, object] = {}
+    for horizon in CORE_HORIZONS:
+        entry = get_active(horizon)
+        active[horizon] = _public_model(entry) if entry else None
+    return {"active": active, "disclaimer": DISCLAIMER}
+
+
+class PromoteBody(BaseModel):
+    horizon: str
+    modelId: Optional[str] = None
+
+
+@app.post("/promote")
+def post_promote(body: PromoteBody) -> Dict[str, object]:
+    """Promote a candidate to ACTIVE after server-side M2/M3 gates.
+
+    UI never decides eligibility — gate failures return HTTP 400.
+    Does not authorize trades.
+    """
+    horizon = body.horizon.strip().upper()
+    if not horizon:
+        raise HTTPException(status_code=400, detail="horizon is required")
+    try:
+        promoted = promote_horizon(horizon, body.modelId)
+    except PromoteError as error:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": str(error), "code": "PROMOTE_GATES_FAILED"},
+        ) from error
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(error)) from error
+    return {
+        "model": _public_model(promoted),
+        "message": "Promoted to ACTIVE after server gates.",
+        "disclaimer": DISCLAIMER,
+    }
+
+
+@app.get("/overview")
+def get_overview() -> Dict[str, object]:
+    """ML Lab rollup: registry counts + job snapshot + evaluation presence."""
+    models = list_models()
+    counts = {"active": 0, "candidate": 0, "retired": 0, "total": len(models)}
+    for entry in models:
+        key = _normalize_status(entry.get("status")).lower()
+        if key in counts:
+            counts[key] += 1
+    job_snap = ml_jobs.snapshot()
+    job = job_snap.get("job") if isinstance(job_snap, dict) else None
+    holdout = _read_json("holdout.json")
+    walk_forward = _read_json("walkforward.json")
+    ml_backtest = _read_json("ml-backtest.json")
+    dataset_quality = _read_json("dataset-quality.json")
+    active: Dict[str, object] = {}
+    for horizon in CORE_HORIZONS:
+        entry = get_active(horizon)
+        active[horizon] = _public_model(entry) if entry else None
+    return {
+        "counts": counts,
+        "activeByHorizon": active,
+        "modelsTrained": bool(job_snap.get("modelsTrained")),
+        "currentJob": (
+            {
+                "kind": job.get("kind"),
+                "status": job.get("status"),
+                "universe": job.get("universe"),
+                "percent": job.get("percent"),
+                "stage": job.get("stage"),
+                "startedAt": job.get("startedAt"),
+                "finishedAt": job.get("finishedAt"),
+            }
+            if isinstance(job, dict)
+            else None
+        ),
+        "evaluationsPresent": {
+            "holdout": bool(holdout),
+            "walkForward": bool(walk_forward),
+            "mlBacktest": bool(ml_backtest),
+            "datasetQuality": bool(dataset_quality),
+        },
+        "note": (
+            "Train registers CANDIDATE only. Promote to ACTIVE requires server-side gates. "
+            "ML Lab does not authorize trades."
+        ),
         "disclaimer": DISCLAIMER,
     }
 
@@ -184,12 +536,16 @@ async def get_all_predictions(
         ]
         if predictions:
             return {
-                "predictions": predictions,
+                "predictions": _enrich_predictions_from_cache(predictions),
                 "total": total,
                 "page": page,
                 "limit": limit,
                 "hasMore": offset + len(predictions) < total,
                 "disclaimer": DISCLAIMER,
+                "note": (
+                    "Predictions are advisory ML outputs for Trade Intelligence only — "
+                    "not trade authorization."
+                ),
             }
     except Exception as error:
         print(f"[ml-engine] predictions/all db fallback: {error}")
@@ -203,6 +559,10 @@ async def get_all_predictions(
         "hasMore": offset + len(cached["predictions"]) < cached["total"],
         "disclaimer": DISCLAIMER,
         "source": "cache",
+        "note": (
+            "Predictions are advisory ML outputs for Trade Intelligence only — "
+            "not trade authorization."
+        ),
     }
 
 
@@ -305,6 +665,20 @@ def cancel_ml_job() -> Dict[str, object]:
         return ml_jobs.cancel()
     except RuntimeError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.get("/lifecycle/latest")
+def lifecycle_latest() -> Dict[str, object]:
+    """Latest staged ML lifecycle run (observation for ML Lab Jobs)."""
+    return ml_lifecycle.public_run()
+
+
+@app.get("/lifecycle/runs/{run_id}")
+def lifecycle_run(run_id: str) -> Dict[str, object]:
+    run = ml_lifecycle.load_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Lifecycle run {run_id} not found")
+    return ml_lifecycle.public_run(run)
 
 
 @app.post("/train")

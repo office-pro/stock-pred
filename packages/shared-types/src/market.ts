@@ -97,6 +97,20 @@ export interface StockInfo {
  */
 export type MarketDataSource = 'live' | 'cached' | 'listed' | 'simulated';
 
+/**
+ * How market data was ingested into the canonical store.
+ * LIVE_INGEST is the only mode that can produce LIVE-fresh quotes for trading.
+ */
+export type IngestMode = 'LIVE_INGEST' | 'EOD_INGEST' | 'HISTORICAL_BACKFILL';
+
+/**
+ * Session-aware freshness of a quote for consumers.
+ * - LIVE: NSE cash session open and quote within live TTL
+ * - CLOSED_MARKET: session closed (EOD/latest session OK for ML/analysis, not live entry)
+ * - STALE: session open but quote older than live TTL (or missing timestamp)
+ */
+export type DataFreshnessStatus = 'LIVE' | 'CLOSED_MARKET' | 'STALE';
+
 export type TradeSuggestion = 'BUY' | 'SELL' | 'HOLD';
 
 /** Actionable paper-trading levels derived from ML + ATR. */
@@ -138,6 +152,12 @@ export interface StockQuote extends StockInfo {
   scanner?: BullRunSnapshot | null;
   manipulation?: ManipulationSnapshot | null;
   updatedAt: number;
+  /** Ingest path that produced this quote (optional; stamped by market-data). */
+  ingestMode?: IngestMode;
+  /** Session-aware freshness — CLOSED_MARKET/STALE are never live-tradable. */
+  freshnessStatus?: DataFreshnessStatus;
+  /** True only when freshnessStatus === LIVE (does not bypass risk quote-age gate). */
+  liveUsable?: boolean;
 }
 
 /** Index quote for the dashboard header. */

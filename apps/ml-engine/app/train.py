@@ -6,6 +6,7 @@ Usage:
 import argparse
 import json
 import os
+import uuid
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -20,7 +21,13 @@ from .feature_cache import (
     save_symbol_cache,
     wipe_feature_cache,
 )
-from .features import FEATURE_COLUMNS, build_features, make_dataset
+from .registry import register_model
+from .dataset_quality import (
+    assert_dataset_quality,
+    build_dataset_quality_report,
+    persist_dataset_quality,
+)
+from .features import FEATURE_COLUMNS, FEATURE_SET_VERSION, build_features, make_dataset
 from .models.boosted import LgbmModel, XgbModel
 from .models.scaler import Scaler
 from .models.sequence import LstmModel, TransformerModel, make_sequences
@@ -77,11 +84,35 @@ def collect_dataset(
     horizon_bars: int,
     threshold: float,
     use_cache: bool = True,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    universe: str = "nifty50",
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, np.ndarray]]:
+    """Build pooled (X, y, fwd, times, path_targets) with PIT membership + adjusted prices."""
+    from .historical_universe import (
+        filter_times_by_membership,
+        list_snapshot_dates,
+        pit_violation_count,
+        save_universe_snapshot,
+    )
+    from .price_policy import PRICE_POLICY_VERSION, assert_canonical_mode, read_mode_from_frame
+
     market = attach_alt_data(load_market_context(days)) if not synthetic else {}
     xs, ys, fwds, times = [], [], [], []
+    path_buckets: Dict[str, List[np.ndarray]] = {
+        "forwardReturn": [],
+        "maxFavorableExcursion": [],
+        "maxAdverseExcursion": [],
+    }
     skipped = []
+    membership_drops = 0
+    pit_membership_violations = 0
     cache_on = use_cache and not synthetic
+
+    # Seed a today snapshot so subsequent as-of lookups have at least one file.
+    if not list_snapshot_dates(universe):
+        as_of = pd.Timestamp.utcnow().strftime("%Y-%m-%d")
+        save_universe_snapshot(universe=universe, as_of=as_of, symbols=symbols)
+        print(f"[train] seeded universe snapshot {universe} asOf={as_of}", flush=True)
+
     for i, symbol in enumerate(symbols):
         try:
             candles = (
@@ -91,17 +122,40 @@ def collect_dataset(
             print(f"[train] skipping {symbol}: {error}", flush=True)
             skipped.append(symbol)
             continue
+        mode = read_mode_from_frame(candles)
+        assert_canonical_mode(mode, context=f"train:{symbol}")
         features = _features_for_symbol(symbol, candles, market, days, cache_on)
-        x, y, fwd, clock = make_dataset(features, horizon_bars, threshold)
-        if len(x) > 0:
-            xs.append(x)
-            ys.append(y)
-            fwds.append(fwd)
-            times.append(clock)
+        x, y, fwd, clock, paths = make_dataset(features, horizon_bars, threshold)
+        if len(x) == 0:
+            continue
+        member_mask = filter_times_by_membership(
+            symbol, clock, universe=universe, fallback_symbols=symbols
+        )
+        member_mask_arr = np.asarray(member_mask, dtype=bool)
+        if not member_mask_arr.all():
+            dropped = int((~member_mask_arr).sum())
+            membership_drops += dropped
+            pit_membership_violations += pit_violation_count(
+                symbol, clock, universe=universe, fallback_symbols=symbols
+            )
+            x = x[member_mask_arr]
+            y = y[member_mask_arr]
+            fwd = fwd[member_mask_arr]
+            clock = clock[member_mask_arr]
+            paths = {k: v[member_mask_arr] for k, v in paths.items()}
+        if len(x) == 0:
+            continue
+        xs.append(x)
+        ys.append(y)
+        fwds.append(fwd)
+        times.append(clock)
+        for key in path_buckets:
+            path_buckets[key].append(paths[key])
         if (i + 1) % 25 == 0 or i + 1 == len(symbols):
             print(
                 f"[train] features {i + 1}/{len(symbols)} "
-                f"(kept {len(xs)}, skipped {len(skipped)})",
+                f"(kept {len(xs)}, skipped {len(skipped)}, "
+                f"membershipDrops={membership_drops})",
                 flush=True,
             )
     if skipped:
@@ -111,11 +165,22 @@ def collect_dataset(
             "No training data could be built - is the market-data-service running? "
             "(use --synthetic only for offline experiments)"
         )
+    path_targets = {
+        key: np.concatenate(vals) if vals else np.array([], dtype="float32")
+        for key, vals in path_buckets.items()
+    }
+    collect_dataset.last_meta = {  # type: ignore[attr-defined]
+        "membershipDrops": membership_drops,
+        "pitMembershipViolations": pit_membership_violations,
+        "pricePolicyVersion": PRICE_POLICY_VERSION,
+        "universe": universe,
+    }
     return (
         np.concatenate(xs),
         np.concatenate(ys),
         np.concatenate(fwds),
         np.concatenate(times),
+        path_targets,
     )
 
 
@@ -162,11 +227,41 @@ def train_horizon(
     synthetic: bool,
     trees_only: bool,
     holdout_days: int,
+    universe: str = "nifty50",
 ) -> None:
+    from .path_labels import assert_mfe_mae_consistency
+    from .price_policy import CANONICAL_MODE, PRICE_POLICY_VERSION, policy_stamp
+    from .regressors import save_path_regressors, train_path_regressors
+
     config = HORIZONS[horizon]
     print(f"[train] horizon={horizon} bars={config['bars']} threshold={config['threshold']}", flush=True)
-    x, y, fwd, times = collect_dataset(symbols, days, synthetic, config["bars"], config["threshold"])
+    x, y, fwd, times, path_targets = collect_dataset(
+        symbols,
+        days,
+        synthetic,
+        config["bars"],
+        config["threshold"],
+        universe=universe,
+    )
     print(f"[train] dataset: {x.shape[0]} samples x {x.shape[1]} features", flush=True)
+    assert_mfe_mae_consistency(
+        path_targets["forwardReturn"],
+        path_targets["maxFavorableExcursion"],
+        path_targets["maxAdverseExcursion"],
+    )
+    collect_meta = getattr(collect_dataset, "last_meta", {}) or {}
+    quality = build_dataset_quality_report(
+        x=x,
+        y=y,
+        times=times,
+        symbols=symbols,
+        pit_membership_violations=int(collect_meta.get("pitMembershipViolations") or 0),
+        price_policy_mode=CANONICAL_MODE,
+        price_policy_version=PRICE_POLICY_VERSION,
+        unverified_adjustment=not synthetic,
+    )
+    assert_dataset_quality(quality, context=f"train:{horizon}")
+
     train_mask, holdout_mask = train_holdout_masks(times, holdout_days)
     if holdout_mask.any():
         print(
@@ -175,10 +270,12 @@ def train_horizon(
             flush=True,
         )
         x_fit, y_fit = x[train_mask], y[train_mask]
+        path_fit = {k: v[train_mask] for k, v in path_targets.items()}
     else:
         if holdout_days:
             print("[train] holdout window too small - fitting all labeled rows", flush=True)
         x_fit, y_fit = x, y
+        path_fit = path_targets
 
     distribution = {CLASSES[i]: int((y_fit == i).sum()) for i in range(3)}
     print(f"[train] class distribution: {distribution}", flush=True)
@@ -193,7 +290,9 @@ def train_horizon(
     holdout_summary: Optional[Dict[str, object]] = None
     if holdout_mask.any():
         x_h = scaler.transform(x[holdout_mask])
-        holdout_summary = tabular_summary(x_h, y[holdout_mask], xgb, lgbm)
+        holdout_summary = tabular_summary(
+            x_h, y[holdout_mask], xgb, lgbm, forward_returns=fwd[holdout_mask]
+        )
         holdout_summary.update(
             {
                 "horizon": horizon,
@@ -227,15 +326,21 @@ def train_horizon(
     scaler = Scaler().fit(x)
     x_all = scaler.transform(x)
     xgb, lgbm = _fit_trees(x_all, y)
+    regressors = train_path_regressors(x_all, path_targets)
+    print(f"[train] path regressors: {list(regressors)}", flush=True)
     if not trees_only:
         lstm, transformer = _fit_sequences(x_all, y, x.shape[1])
 
-    out_dir = os.path.join(settings.models_dir, horizon)
+    model_id = str(uuid.uuid4())
+    out_dir = os.path.join(settings.models_dir, horizon, "candidates", model_id)
     os.makedirs(out_dir, exist_ok=True)
     xgb.save(os.path.join(out_dir, "xgboost.json"))
     print("[train] xgboost saved", flush=True)
     lgbm.save(os.path.join(out_dir, "lightgbm.txt"))
     print("[train] lightgbm saved", flush=True)
+    if regressors:
+        save_path_regressors(regressors, out_dir)
+        print("[train] path regressors saved", flush=True)
     if lstm is not None and transformer is not None:
         lstm.save(os.path.join(out_dir, "lstm.pt"))
         print("[train] lstm saved", flush=True)
@@ -252,9 +357,23 @@ def train_horizon(
                 os.remove(path)
 
     scaler.save(os.path.join(out_dir, "scaler.json"))
+    with open(os.path.join(out_dir, "feature-baseline.json"), "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "schemaVersion": "feature-baseline.v1",
+                "featureNames": FEATURE_COLUMNS,
+                "mean": scaler.mean.tolist(),
+                "std": scaler.std.tolist(),
+            },
+            handle,
+            indent=2,
+        )
+    stamp = policy_stamp()
     metadata = {
         "horizon": horizon,
         "features": FEATURE_COLUMNS,
+        "feature_version": FEATURE_SET_VERSION,
+        "dataset_version": settings.dataset_version,
         "classes": CLASSES,
         "class_moves": class_move_stats(y, fwd),
         "samples": int(x.shape[0]),
@@ -267,10 +386,44 @@ def train_horizon(
         "holdoutDays": holdout_days,
         "holdout": holdout_summary,
         "fitSamples": int(x_fit.shape[0]),
+        "universe": universe,
+        **stamp,
+        "pathTargets": list(path_targets.keys()),
+        "authorizationBoundary": "ML→TradeIntelligence_only",
     }
     with open(os.path.join(out_dir, "metadata.json"), "w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2)
-    print(f"[train] {horizon} artifacts written to {out_dir}", flush=True)
+    persist_dataset_quality(quality, out_dir)
+    metadata["dataset_quality"] = {
+        "passed": quality.get("passed"),
+        "rows": quality.get("rows"),
+        "pitViolations": quality.get("pitViolations"),
+        "pitMembershipViolations": quality.get("pitMembershipViolations"),
+        "missingRate": quality.get("missingRate"),
+        "classCounts": quality.get("classCounts"),
+        "pricePolicy": quality.get("pricePolicy"),
+    }
+    with open(os.path.join(out_dir, "metadata.json"), "w", encoding="utf-8") as handle:
+        json.dump(metadata, handle, indent=2)
+    entry = register_model(
+        horizon=horizon,
+        model_id=model_id,
+        model_version=str(metadata["model_version"]),
+        feature_version=FEATURE_SET_VERSION,
+        dataset_version=str(metadata["dataset_version"]),
+        algorithm="ensemble-trees" if trees_only else "ensemble-full",
+        metrics={
+            "holdout": holdout_summary if holdout_summary else {},
+            "datasetQuality": metadata["dataset_quality"],
+        },
+        activate=False,
+        artifact_dir=out_dir,
+    )
+    print(
+        f"[train] {horizon} candidate modelId={entry['modelId']} "
+        f"written to {out_dir} (candidate until promote)",
+        flush=True,
+    )
 
 
 def main() -> None:
@@ -338,7 +491,15 @@ def main() -> None:
     )
     horizons = list(HORIZONS) if args.all_horizons else list(CORE_HORIZONS)
     for horizon in horizons:
-        train_horizon(horizon, symbols, args.days, args.synthetic, trees_only, args.holdout_days)
+        train_horizon(
+            horizon,
+            symbols,
+            args.days,
+            args.synthetic,
+            trees_only,
+            args.holdout_days,
+            universe=basket,
+        )
     print("[train] done. Predictions are probabilistic - this is not investment advice.")
 
 

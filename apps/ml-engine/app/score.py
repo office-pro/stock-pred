@@ -12,12 +12,14 @@ from typing import Dict, List
 
 import numpy as np
 
+from .calibration import apply_calibrator, probabilities_to_dict
 from .config import HORIZONS, SEQUENCE_LENGTH, settings
 from .data import attach_alt_data, load_candles, load_market_context, load_universe
 from .features import FEATURE_COLUMNS, build_features
 from .models.ensemble import blend_probabilities, decide, expected_move
 from .persistence import persist_outcomes_sync
 from .predict import get_models, missing_models_message, models_available
+from .price_policy import assert_outcome_modes, model_price_mode, require_canonical_candles
 
 
 def _action(direction: str) -> str:
@@ -109,6 +111,13 @@ def score_horizon(horizon: str, symbols: List[str], lookback: int = 20) -> List[
             candles = load_candles(symbol, 120)
         except RuntimeError:
             continue
+        outcome_mode = require_canonical_candles(candles, context=f"outcome:{symbol}")
+        prediction_mode = model_price_mode(getattr(models, "metadata", None)) or outcome_mode
+        assert_outcome_modes(
+            prediction_mode,
+            outcome_mode,
+            context=f"outcome:{symbol}:{horizon}",
+        )
         if len(candles) < SEQUENCE_LENGTH + bars + 5:
             continue
         features = build_features(candles, market, symbol=symbol)
@@ -131,12 +140,20 @@ def score_horizon(horizon: str, symbols: List[str], lookback: int = 20) -> List[
             true_dir = "UP" if actual > threshold else "DOWN" if actual < -threshold else "SIDEWAYS"
             predicted = _action(str(decision["direction"]))
             true_action = _action(true_dir)
+            calibrated = None
+            if getattr(models, "calibrator", None) is not None:
+                calibrated_row = apply_calibrator(
+                    blended.reshape(1, -1), models.calibrator
+                )[0]
+                calibrated = probabilities_to_dict(calibrated_row)
             outcomes.append(
                 {
                     "symbol": symbol,
                     "horizon": horizon,
                     "predicted": predicted,
                     "confidence": float(decision["confidence"]),
+                    "probabilities": probabilities_to_dict(blended),
+                    "calibratedProbabilities": calibrated,
                     "entry": float(closes[index]),
                     "actualReturn": actual,
                     "correct": predicted == true_action,

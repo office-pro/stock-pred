@@ -67,6 +67,8 @@ class Settings:
     # 0 = every listed symbol. Set a positive cap to bound the periodic loop.
     predict_universe_limit: int = int(os.getenv("ML_PREDICT_UNIVERSE_LIMIT", "0"))
     model_version: str = os.getenv("ML_MODEL_VERSION", "ensemble-v1")
+    prediction_ttl_seconds: int = int(os.getenv("ML_PREDICTION_TTL_SECONDS", "21600"))
+    dataset_version: str = os.getenv("ML_DATASET_VERSION", "dataset.v1")
     symbols: List[str] = field(default_factory=list)
 
     @property

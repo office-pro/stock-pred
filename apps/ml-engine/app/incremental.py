@@ -5,9 +5,10 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, List, Sequence, Set
 
-from .config import CORE_HORIZONS, settings
+from .config import settings
 from .data import _pg_fetch
 from .feature_cache import feature_cache_populated
+from .predict import models_available
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -163,10 +164,7 @@ def has_new_feature_bars(symbols: Sequence[str]) -> bool:
 
 
 def live_models_ready() -> bool:
-    return all(
-        os.path.exists(os.path.join(settings.models_dir, horizon, "metadata.json"))
-        for horizon in CORE_HORIZONS
-    )
+    return models_available()
 
 
 def predictions_ready() -> bool:
