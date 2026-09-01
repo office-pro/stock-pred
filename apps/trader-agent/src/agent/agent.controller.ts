@@ -361,6 +361,16 @@ export class AgentController {
     return this.agent.waitRecommendation(id, userId, body?.reason);
   }
 
+  @Get('recommendations/:id/wait-intelligence')
+  waitIntelligence(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+  ): Promise<{ waitIntelligence: import('@stockpred/shared-types').WaitRecommendation | null }> {
+    return this.agent.getWaitIntelligence(id, userId).then((waitIntelligence) => ({
+      waitIntelligence,
+    }));
+  }
+
   @Post('recommendations/:id/reject')
   reject(
     @Param('id') id: string,

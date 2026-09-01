@@ -14,3 +14,4 @@ export * from './trade-intelligence';
 export * from './phase5';
 export * from './p5-measurement';
 export * from './ops-hardening';
+export * from './wait-intelligence';

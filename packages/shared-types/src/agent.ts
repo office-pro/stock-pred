@@ -418,6 +418,8 @@ export interface DecisionLedgerEntry {
    * Never reconstruct by re-running today's ranking engine.
    */
   rankingContext?: import('./p5-measurement').P5DecisionRankingContext;
+  /** T2.1 WAIT intelligence at decision time — display only. */
+  waitIntelligence?: import('./wait-intelligence').WaitRecommendation;
 }
 
 /** Closed-trade economics for calibration / soak (append-only via outcome records). */

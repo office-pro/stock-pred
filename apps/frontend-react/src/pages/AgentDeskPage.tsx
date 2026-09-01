@@ -56,6 +56,58 @@ import {
   useWaiveAgentSoakMutation,
 } from '../store/api';
 
+function WaitIntelligencePanel({
+  wait,
+}: {
+  wait: {
+    decision: 'WAIT';
+    summary: string;
+    reasonCodes: string[];
+    reevaluateWhen: {
+      trigger: string;
+      priceLevel?: number;
+      timeAt?: number;
+      eventRef?: string;
+      unavailableReason?: string;
+    };
+    invalidation: { conditions: string[] };
+    evidenceDelta?: string[];
+  };
+}) {
+  return (
+    <Box sx={{ mt: 1, p: 1, borderRadius: 1, bgcolor: 'action.hover' }}>
+      <Typography variant="caption" fontWeight={700} display="block">
+        WAIT Intelligence
+      </Typography>
+      <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+        Why? {wait.summary}
+      </Typography>
+      <Typography variant="caption" display="block" color="text.secondary">
+        Codes: {wait.reasonCodes.join(', ') || '—'}
+      </Typography>
+      <Typography variant="caption" display="block" color="text.secondary">
+        Reassess: {wait.reevaluateWhen.trigger}
+        {wait.reevaluateWhen.priceLevel != null ? ` @ ₹${wait.reevaluateWhen.priceLevel}` : ''}
+        {wait.reevaluateWhen.timeAt != null
+          ? ` · ${new Date(wait.reevaluateWhen.timeAt).toLocaleString()}`
+          : ''}
+        {wait.reevaluateWhen.eventRef ? ` · ${wait.reevaluateWhen.eventRef}` : ''}
+        {wait.reevaluateWhen.unavailableReason ? ` · ${wait.reevaluateWhen.unavailableReason}` : ''}
+      </Typography>
+      {wait.invalidation.conditions.length > 0 ? (
+        <Typography variant="caption" display="block" color="text.secondary">
+          Invalidated by: {wait.invalidation.conditions.join(' · ')}
+        </Typography>
+      ) : null}
+      {wait.evidenceDelta?.length ? (
+        <Typography variant="caption" display="block" color="text.secondary">
+          Evidence changed: {wait.evidenceDelta.join(' · ')}
+        </Typography>
+      ) : null}
+    </Box>
+  );
+}
+
 type ApproveTarget = {
   id: string;
   symbol: string;
@@ -213,6 +265,7 @@ export default function AgentDeskPage(): JSX.Element {
     }
     return map;
   }, [opportunityRanking]);
+  const waitByOpportunityId = opps?.waitIntelligenceById ?? {};
   const approvable = useMemo(() => opportunities.filter(isApprovable), [opportunities]);
   const approvableIds = useMemo(
     () => approvable.map((row) => row.recommendationId!).filter(Boolean),
@@ -1087,6 +1140,9 @@ export default function AgentDeskPage(): JSX.Element {
                     </TableCell>
                     <TableCell>
                       <Typography variant="caption">{row.thesis}</Typography>
+                      {row.recommendationId && waitByOpportunityId[row.recommendationId] ? (
+                        <WaitIntelligencePanel wait={waitByOpportunityId[row.recommendationId]} />
+                      ) : null}
                     </TableCell>
                     <TableCell align="center">
                       <Stack direction="row" spacing={0.5} justifyContent="center">
@@ -1704,6 +1760,9 @@ export default function AgentDeskPage(): JSX.Element {
                       </Typography>
                     ))}
                   </Box>
+                ) : null}
+                {row.waitIntelligence ? (
+                  <WaitIntelligencePanel wait={row.waitIntelligence} />
                 ) : null}
               </Paper>
             ))}

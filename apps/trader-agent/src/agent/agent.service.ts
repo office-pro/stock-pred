@@ -45,6 +45,7 @@ import {
   Timeframe,
   TradeDecision,
   TradeSide,
+  WaitRecommendation,
 } from '@stockpred/shared-types';
 import {
   AGENT_CAPABILITY_DEFS,
@@ -93,6 +94,8 @@ import {
   validateMarketContext,
   buildOhReconciliationReport,
   buildOhOpsReport,
+  buildWaitRecommendation,
+  digestFromSnapshot,
   diagnosticFromExecutionError,
   priceDeviationPct,
   OH2_PRICE_DEVIATION_PCT,
@@ -497,8 +500,6 @@ export class AgentService implements OnModuleInit {
       previous: rec.wait ?? null,
     });
     rec.status = 'WAITING';
-    rec.wait = wait;
-    this.recommendations.set(id, rec);
 
     const portfolio = await this.fetchPortfolio(userId);
     if (!portfolio) {
@@ -508,6 +509,21 @@ export class AgentService implements OnModuleInit {
       opportunityId: id,
       decisionId: id,
     });
+
+    const now = Date.now();
+    const waitIntel = buildWaitRecommendation({
+      now,
+      analysis: rec.analysis,
+      snapshot: pipeline.intelligenceSnapshot,
+      previousWait: { ...wait, priorDigest: rec.wait?.priorDigest },
+    });
+    rec.wait = {
+      ...wait,
+      waitIntelligence: waitIntel,
+      lastWaitRecommendationAt: now,
+      priorDigest: digestFromSnapshot(pipeline.intelligenceSnapshot),
+    };
+    this.recommendations.set(id, rec);
 
     const decision = this.recordLedger(
       pipeline,
@@ -520,6 +536,7 @@ export class AgentService implements OnModuleInit {
         agentRecommendation: deriveAgentRecommendation({ decision: String(rec.analysis.decision) }),
         humanDecision: 'HUMAN_WAIT',
         humanReasonCode: reason,
+        waitIntelligence: waitIntel,
       },
     );
 
@@ -965,6 +982,8 @@ export class AgentService implements OnModuleInit {
     capabilityRequests: AgentCapabilityRequest[];
     disclaimer: string;
     autonomous?: { attempted: number; accepted: number; skipped: number };
+    /** T2.1 advisory wait intelligence by opportunity id (display only). */
+    waitIntelligenceById?: Record<string, WaitRecommendation>;
   }> {
     if (!userId) {
       throw new BadRequestException('x-user-id is required for per-user opportunities');
@@ -1130,6 +1149,30 @@ export class AgentService implements OnModuleInit {
     // Freeze cohort for subsequent human decisions — do not re-run ranking later.
     this.lastOpportunityRanking = opportunityRanking;
 
+    const now = Date.now();
+    const waitIntelligenceById: Record<string, WaitRecommendation> = {};
+    for (const c of rankingCandidates) {
+      const row = synced.find((s) => s.id === c.opportunityId);
+      if (!row) continue;
+      const existing = this.recommendations.get(c.opportunityId);
+      const previousWait = existing?.wait ?? null;
+      waitIntelligenceById[c.opportunityId] = buildWaitRecommendation({
+        now,
+        analysis: row.analysis,
+        snapshot: c.snapshot,
+        previousWait,
+      });
+      if (existing?.status === 'WAITING' && existing.wait) {
+        existing.wait = {
+          ...existing.wait,
+          waitIntelligence: waitIntelligenceById[c.opportunityId],
+          lastWaitRecommendationAt: now,
+          priorDigest: digestFromSnapshot(c.snapshot),
+        };
+        this.recommendations.set(c.opportunityId, existing);
+      }
+    }
+
     return {
       mode: this.mode,
       decisionMode: this.decisionMode,
@@ -1152,7 +1195,21 @@ export class AgentService implements OnModuleInit {
       ),
       disclaimer: AGENT_DISCLAIMER,
       autonomous,
+      waitIntelligenceById,
     };
+  }
+
+  async getWaitIntelligence(id: string, userId?: string): Promise<WaitRecommendation | null> {
+    if (!userId) {
+      throw new BadRequestException('x-user-id is required');
+    }
+    let rec = this.recommendations.get(id);
+    if (!rec) {
+      const persisted = await this.opportunitiesDb.findForUser(id, userId);
+      rec = persisted != null ? this.opportunitiesDb.toRecommendation(persisted) : undefined;
+    }
+    if (!rec) return null;
+    return rec.wait?.waitIntelligence ?? null;
   }
 
   async getAnalysis(symbol: string, userId?: string, brandId?: string): Promise<AgentAnalysis> {
@@ -2076,6 +2133,7 @@ export class AgentService implements OnModuleInit {
       humanDecision?: HumanDecisionAction;
       humanReasonCode?: HumanReasonCode | string;
       gateResult?: GateResultSnapshot;
+      waitIntelligence?: WaitRecommendation;
     },
   ): DecisionLedgerEntry {
     const { decision, risk, portfolio, policy, budgetSnapshot, intelligenceSnapshot } = pipeline;
@@ -2130,6 +2188,7 @@ export class AgentService implements OnModuleInit {
       humanReasonCode: evidence?.humanReasonCode,
       gateResult: evidence?.gateResult,
       rankingContext: rankingContext ?? undefined,
+      waitIntelligence: evidence?.waitIntelligence,
     });
   }
 

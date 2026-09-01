@@ -70,6 +70,11 @@ export interface OpportunityWaitState {
   waitReason?: HumanWaitReasonCode | string;
   waitCount: number;
   lastEvaluatedAt: number;
+  /** T2.1 advisory wait intelligence — display only. */
+  waitIntelligence?: import('./wait-intelligence').WaitRecommendation;
+  lastWaitRecommendationAt?: number;
+  /** Prior TI digest for evidenceDelta on re-eval. */
+  priorDigest?: import('./wait-intelligence').WaitIntelligenceDigest;
 }
 
 /**

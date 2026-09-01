@@ -24,6 +24,7 @@ import type {
   UserRole,
   UserStatus,
   IntelligenceSnapshot,
+  WaitRecommendation,
 } from '@stockpred/shared-types';
 import { API_BASE_URL } from '../config';
 import { logout, setTokens } from './authSlice';
@@ -1161,6 +1162,7 @@ export const api = createApi({
             plannedRiskAmount?: number;
           };
           intelligenceSnapshot?: IntelligenceSnapshot;
+          waitIntelligence?: WaitRecommendation;
         }>;
         decisionMode: 'APPROVAL' | 'AUTONOMOUS';
       },
@@ -1505,6 +1507,7 @@ export const api = createApi({
           priority: string;
         }>;
         disclaimer: string;
+        waitIntelligenceById?: Record<string, WaitRecommendation>;
       },
       { limit?: number } | void
     >({
