@@ -228,9 +228,40 @@ export class MarketController {
     return this.market.getIndices();
   }
 
+  @Get('market/data-contract')
+  getDataContract(): {
+    ingestMode: string;
+    nseCashSessionOpen: boolean;
+    quoteStatus: string;
+    liveUsable: boolean;
+    sampleSymbol: string | null;
+    sampleUpdatedAt: number | null;
+    note: string;
+  } {
+    return this.market.getDataContract();
+  }
+
+  /** ML Lab Phase 4 — observational ML → TI usability bridge (not trade auth). */
+  @Get('market/ml-ti-bridge')
+  getMlTiBridge(): ReturnType<MarketService['getMlTiBridge']> {
+    return this.market.getMlTiBridge();
+  }
+
   @Get('market/context')
   getMarketContext(): ReturnType<MarketService['getMarketContext']> {
     return this.market.getMarketContext();
+  }
+
+  /**
+   * Usable ML prediction for TI (fresh + drift-compatible). Observe-only.
+   * Query: optional horizon=NEXT_DAY|NEXT_WEEK (default: day then week fallback).
+   */
+  @Get('market/predictions/:symbol')
+  getUsableMlPrediction(
+    @Param('symbol') symbol: string,
+    @Query('horizon') horizon?: string,
+  ): ReturnType<MarketService['getUsableMlPrediction']> {
+    return this.market.getUsableMlPrediction(symbol, horizon?.trim() || undefined);
   }
 
   @Get('scanner')

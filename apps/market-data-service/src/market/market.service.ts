@@ -16,6 +16,8 @@ import {
   DepthLevel,
   Exchange,
   IndexQuote,
+  IngestMode,
+  DataFreshnessStatus,
   ManipulationSnapshot,
   MarketDataSource,
   MarketDepth,
@@ -51,6 +53,10 @@ import {
   round2,
   DEFAULT_PAPER_CAPITAL,
   aggregateCandles,
+  classifyQuoteStatus,
+  isUsableForLiveTrading,
+  resolveActiveIngestMode,
+  isNseCashSessionOpen,
 } from '@stockpred/shared-utils';
 import { CandleCache } from './candle-cache';
 import {
@@ -62,7 +68,7 @@ import {
   quoteToCandle,
   recentWeekdays,
 } from './bhavcopy-quotes';
-import { PredictionCache } from './prediction-cache';
+import { PredictionCache, type CachedMlPrediction } from './prediction-cache';
 import { ManipulationCache } from './manipulation-cache';
 import { KafkaProducerService } from './kafka.service';
 import { IndexState, INTRADAY_BUFFER, SymbolState } from './market-state';
@@ -126,6 +132,8 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private scannerAlertsRunning = false;
   private readonly hydrateJobs = new Map<string, Promise<void>>();
   private readonly hydrateTried = new Set<string>();
+  /** Active ingest mode for this process (LIVE vs EOD). Historical backfill is job-scoped. */
+  private readonly ingestMode: IngestMode;
 
   constructor(
     private readonly kafka: KafkaProducerService,
@@ -139,6 +147,10 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       this.yahooProvider = null;
       this.provider = this.simulated;
     }
+    this.ingestMode = resolveActiveIngestMode({
+      liveProviderEnabled: this.yahooProvider != null,
+      simulatedLiveFeed: this.yahooProvider == null && getUniverseMode() === 'quick-start',
+    });
   }
 
   async onModuleInit(): Promise<void> {
@@ -162,9 +174,12 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       );
     } else {
       console.log(
-        '[market-data] EOD-only mode: official bhavcopy/index closes, no simulated ticks',
+        '[market-data] EOD_INGEST mode: official bhavcopy/index closes, no simulated ticks',
       );
     }
+    console.log(
+      `[market-data] ingestMode=${this.ingestMode} nseCashSessionOpen=${isNseCashSessionOpen()}`,
+    );
 
     // Register every listed symbol immediately so the UI can paginate the full universe.
     for (const stock of universe) {
@@ -511,18 +526,38 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   getIndices(): IndexQuote[] {
-    return [...this.indices.values()].map((state) => ({
-      index: state.name as MarketIndex,
-      name: state.displayName,
-      value: round2(state.value),
-      change: round2(state.value - state.previousClose),
-      changePercent: round2(((state.value - state.previousClose) / state.previousClose) * 100),
-      updatedAt: Date.now(),
-    }));
+    return [...this.indices.values()].map((state) => {
+      const lastBar = state.daily[state.daily.length - 1];
+      return {
+        index: state.name as MarketIndex,
+        name: state.displayName,
+        value: round2(state.value),
+        change: round2(state.value - state.previousClose),
+        changePercent: round2(((state.value - state.previousClose) / state.previousClose) * 100),
+        // Prefer last bar time — Date.now() falsely implies live freshness when EOD-only.
+        updatedAt: lastBar?.time ?? 0,
+      };
+    });
   }
 
   getMarketContext(): MarketContext {
     return this.marketContext();
+  }
+
+  /**
+   * Usable ML prediction for Trade Intelligence (fresh + drift-compatible).
+   * Prefer NEXT_DAY, then NEXT_WEEK. Observe-only — never trade authorization.
+   */
+  getUsableMlPrediction(symbol: string, horizon?: string): CachedMlPrediction | null {
+    const upper = symbol.toUpperCase();
+    if (horizon) {
+      return this.predictions.getUsable(upper, horizon) ?? null;
+    }
+    return (
+      this.predictions.getUsable(upper, PredictionHorizon.NEXT_DAY) ??
+      this.predictions.getUsable(upper, PredictionHorizon.NEXT_WEEK) ??
+      null
+    );
   }
 
   getScanner(
@@ -1043,12 +1078,14 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
         relativeStrengthNifty50: null,
         scanner: null,
         manipulation: null,
-        updatedAt: Date.now(),
+        // Do not fake freshness with Date.now() when no bar exists.
+        updatedAt: 0,
+        ...this.freshnessFields(0),
       };
     }
     const price = state.lastTick?.price ?? today.close;
     const prev = state.previousClose > 0 ? state.previousClose : today.open;
-    const ml = this.predictions.get(state.info.symbol, horizon);
+    const ml = this.predictions.getUsable(state.info.symbol, horizon);
     const niftyDaily = this.indices.get(MarketIndex.NIFTY_50)?.daily ?? [];
     const niftyStamp = niftyDaily[niftyDaily.length - 1]?.time ?? 0;
     const memoKey = `${state.info.symbol}|${horizon}|${ml?.direction ?? ''}|${ml?.confidence ?? 0}|${today.time}|${state.daily.length}|${niftyStamp}`;
@@ -1092,6 +1129,81 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       scanner: includeScanner ? this.scannerFor(state) : null,
       manipulation: this.manipulationFor(state),
       updatedAt: state.lastTick?.time ?? today.time,
+      ...this.freshnessFields(state.lastTick?.time ?? today.time),
+    };
+  }
+
+  private freshnessFields(
+    updatedAt: number,
+  ): Pick<StockQuote, 'ingestMode' | 'freshnessStatus' | 'liveUsable'> {
+    const freshnessStatus = classifyQuoteStatus(updatedAt);
+    return {
+      ingestMode: this.ingestMode,
+      freshnessStatus,
+      liveUsable: isUsableForLiveTrading(freshnessStatus),
+    };
+  }
+
+  /**
+   * ML → Trade Intelligence bridge status (observational).
+   * Shows which cached predictions MDS considers usable for advisory/TI —
+   * never trade authorization (Risk → Portfolio → Policy → Gate).
+   */
+  getMlTiBridge(): {
+    total: number;
+    usable: number;
+    rejected: {
+      stale: number;
+      incompatible: number;
+      missingExpiry: number;
+      other: number;
+    };
+    byHorizon: Record<string, { total: number; usable: number; rejected: number }>;
+    usableSamples: ReturnType<PredictionCache['summarizeTiBridge']>['usableSamples'];
+    rejectedSamples: ReturnType<PredictionCache['summarizeTiBridge']>['rejectedSamples'];
+    note: string;
+  } {
+    const summary = this.predictions.summarizeTiBridge();
+    return {
+      ...summary,
+      note:
+        'Usable = fresh + drift-compatible for Trade Intelligence / advisory only. ' +
+        'This bridge does not authorize trades (Risk → Portfolio → Policy → Gate).',
+    };
+  }
+
+  /** Explicit ingest / session contract for ops and consumers (data status only). */
+  getDataContract(): {
+    ingestMode: IngestMode;
+    nseCashSessionOpen: boolean;
+    quoteStatus: DataFreshnessStatus;
+    liveUsable: boolean;
+    sampleSymbol: string | null;
+    sampleUpdatedAt: number | null;
+    note: string;
+  } {
+    const open = isNseCashSessionOpen();
+    let sampleSymbol: string | null = null;
+    let sampleUpdatedAt: number | null = null;
+    for (const state of this.stocks.values()) {
+      const stamp = state.lastTick?.time ?? state.daily[state.daily.length - 1]?.time ?? 0;
+      if (stamp > 0) {
+        sampleSymbol = state.info.symbol;
+        sampleUpdatedAt = stamp;
+        break;
+      }
+    }
+    const quoteStatus = classifyQuoteStatus(sampleUpdatedAt);
+    return {
+      ingestMode: this.ingestMode,
+      nseCashSessionOpen: open,
+      quoteStatus,
+      liveUsable: isUsableForLiveTrading(quoteStatus),
+      sampleSymbol,
+      sampleUpdatedAt,
+      note: open
+        ? 'LIVE quotes require ingestMode=LIVE_INGEST and freshnessStatus=LIVE; risk still enforces 60s quote age. Data status is not trade authorization.'
+        : 'Session closed: EOD/historical data is for ML/analysis only — not live entry freshness. Data status is not trade authorization.',
     };
   }
 
@@ -1142,8 +1254,8 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     const memoKey = `${state.info.symbol}|${last.time}|${context.regime}|${context.breadth.asOf}`;
     const cached = this.scannerMemo.get(memoKey);
     if (cached !== undefined) return cached;
-    const week = this.predictions.get(state.info.symbol, PredictionHorizon.NEXT_WEEK);
-    const day = this.predictions.get(state.info.symbol, PredictionHorizon.NEXT_DAY);
+    const week = this.predictions.getUsable(state.info.symbol, PredictionHorizon.NEXT_WEEK);
+    const day = this.predictions.getUsable(state.info.symbol, PredictionHorizon.NEXT_DAY);
     const ml = week ?? day;
     const snapshot = buildBullRunSnapshot({
       symbol: state.info.symbol,
@@ -1338,7 +1450,9 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
         /* skip missing sessions */
       }
     }
-    console.log(`[market-data] bhavcopy history merged (${extra} row updates)`);
+    console.log(
+      `[market-data] bhavcopy history merged (${extra} row updates) ingestMode=HISTORICAL_BACKFILL`,
+    );
   }
 
   /** Force-reload daily history, live print, and technical indicators for one symbol. */
