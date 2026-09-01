@@ -33,6 +33,7 @@ import { authErrorMessage } from '../lib/auth-errors';
 import {
   useApproveAgentRecommendationMutation,
   useWaitAgentRecommendationMutation,
+  useRejectAgentRecommendationMutation,
   useGetAgentCalibrationQuery,
   useGetAgentDecisionsQuery,
   useGetAgentModeQuery,
@@ -177,6 +178,7 @@ export default function AgentDeskPage(): JSX.Element {
   const [setKill] = useSetAgentKillSwitchMutation();
   const [approve, approveState] = useApproveAgentRecommendationMutation();
   const [wait, waitState] = useWaitAgentRecommendationMutation();
+  const [reject, rejectState] = useRejectAgentRecommendationMutation();
   const [toast, setToast] = useState<string | null>(null);
   const [toastSeverity, setToastSeverity] = useState<'info' | 'success' | 'error'>('info');
   const [approveTarget, setApproveTarget] = useState<ApproveTarget | null>(null);
@@ -203,6 +205,14 @@ export default function AgentDeskPage(): JSX.Element {
 
   const opportunities = (opps?.opportunities ?? []) as OpportunityRow[];
   const added = (opps?.added ?? []) as AddedRow[];
+  const opportunityRanking = opps?.opportunityRanking;
+  const rankingBySymbol = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof opportunityRanking>['rankings'][number]>();
+    for (const row of opportunityRanking?.rankings ?? []) {
+      map.set(row.symbol, row);
+    }
+    return map;
+  }, [opportunityRanking]);
   const approvable = useMemo(() => opportunities.filter(isApprovable), [opportunities]);
   const approvableIds = useMemo(
     () => approvable.map((row) => row.recommendationId!).filter(Boolean),
@@ -955,6 +965,49 @@ export default function AgentDeskPage(): JSX.Element {
         </Box>
       )}
 
+      {oppsTab === 'new' && opportunityRanking ? (
+        <Paper variant="outlined" sx={{ mb: 2, p: 1.5 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+            Attention shortlist
+            {opportunityRanking.noClearWinner ? ' — no clear winner under current context' : ''}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+            {opportunityRanking.context.tradeHorizon}
+            {opportunityRanking.context.strategyTag
+              ? ` · ${opportunityRanking.context.strategyTag}`
+              : ''}{' '}
+            · lexicographic precedence (not a RankingScore) · advisory only
+          </Typography>
+          <Stack spacing={1}>
+            {opportunityRanking.rankings.slice(0, 5).map((r) => {
+              const above = r.pairwiseReasons.find((p) => p.polarity === 'ABOVE');
+              const whyAbove = above?.evidence[0]?.message;
+              const concern = r.weaknesses[0]?.message;
+              return (
+                <Box key={r.opportunityId}>
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                      #{r.rank} {r.symbol}
+                    </Typography>
+                    <Chip size="small" label={r.dominance} variant="outlined" />
+                    {r.stale ? <Chip size="small" color="warning" label="STALE" /> : null}
+                    {r.dataCompleteness !== 'COMPLETE' ? (
+                      <Chip size="small" color="warning" label={r.dataCompleteness} />
+                    ) : null}
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    {whyAbove
+                      ? `vs ${above!.peerSymbol}: ${whyAbove}`
+                      : (r.strengths[0]?.message ?? 'Context-scoped attention only')}
+                    {concern ? ` · concern: ${concern}` : ''}
+                  </Typography>
+                </Box>
+              );
+            })}
+          </Stack>
+        </Paper>
+      ) : null}
+
       {oppsTab === 'new' ? (
         <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
           <Table size="small">
@@ -972,6 +1025,7 @@ export default function AgentDeskPage(): JSX.Element {
                 </TableCell>
                 <TableCell>Symbol</TableCell>
                 <TableCell>Decision</TableCell>
+                <TableCell>Attention</TableCell>
                 <TableCell align="right">Score</TableCell>
                 <TableCell align="right">Size</TableCell>
                 <TableCell>Thesis</TableCell>
@@ -982,6 +1036,7 @@ export default function AgentDeskPage(): JSX.Element {
               {opportunities.map((row) => {
                 const canApprove = isApprovable(row);
                 const id = row.recommendationId;
+                const rankRow = rankingBySymbol.get(row.symbol);
                 return (
                   <TableRow key={`${row.symbol}-${row.recommendationId ?? row.symbol}`}>
                     <TableCell padding="checkbox">
@@ -1009,6 +1064,18 @@ export default function AgentDeskPage(): JSX.Element {
                     </TableCell>
                     <TableCell>
                       <Chip size="small" label={row.decision.replaceAll('_', ' ')} />
+                    </TableCell>
+                    <TableCell>
+                      {rankRow ? (
+                        <Typography variant="caption" display="block">
+                          #{rankRow.rank} · {rankRow.dominance}
+                          {rankRow.stale ? ' · STALE' : ''}
+                        </Typography>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">
+                          —
+                        </Typography>
+                      )}
                     </TableCell>
                     <TableCell align="right">{row.scores.overall}</TableCell>
                     <TableCell align="right">
@@ -1069,6 +1136,30 @@ export default function AgentDeskPage(): JSX.Element {
                           }}
                         >
                           Wait
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="error"
+                          disabled={!row.recommendationId || rejectState.isLoading}
+                          onClick={() => {
+                            if (!row.recommendationId) return;
+                            void reject({
+                              id: row.recommendationId,
+                              reason: 'HUMAN_REJECT',
+                            })
+                              .unwrap()
+                              .then(() => {
+                                setToastSeverity('success');
+                                setToast(`Rejected ${row.symbol}`);
+                              })
+                              .catch((error: unknown) => {
+                                setToastSeverity('error');
+                                setToast(authErrorMessage(error, 'Reject failed'));
+                              });
+                          }}
+                        >
+                          Reject
                         </Button>
                       </Stack>
                     </TableCell>
@@ -1520,13 +1611,82 @@ export default function AgentDeskPage(): JSX.Element {
                     </Typography>
                     <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
                       {row.intelligenceSnapshot.strategyTag ?? 'UNKNOWN'}
+                      {row.intelligenceSnapshot.marketContext?.regimeCombo
+                        ? ` · ${row.intelligenceSnapshot.marketContext.regimeCombo}`
+                        : ''}
                       {row.intelligenceSnapshot.tradeQuality?.overallScore != null
                         ? ` · quality ${fmtNum(row.intelligenceSnapshot.tradeQuality.overallScore, 1)}`
                         : ''}
                       {row.intelligenceSnapshot.expectedValue?.expectedValueR != null
                         ? ` · EV ${fmtNum(row.intelligenceSnapshot.expectedValue.expectedValueR)} R`
                         : ''}
+                      {row.intelligenceSnapshot.expectedValue?.probabilitySource
+                        ? ` · ${row.intelligenceSnapshot.expectedValue.probabilitySource}`
+                        : ''}
+                      {row.intelligenceSnapshot.expectedValue?.expectedValueMethod
+                        ? ` · ${row.intelligenceSnapshot.expectedValue.expectedValueMethod}`
+                        : ''}
+                      {row.intelligenceSnapshot.crossSectionalRs?.rsBucket
+                        ? ` · RS ${row.intelligenceSnapshot.crossSectionalRs.rsBucket}`
+                        : ''}
+                      {row.intelligenceSnapshot.sectorIntelligence?.sectorFit
+                        ? ` · sector ${row.intelligenceSnapshot.sectorIntelligence.sectorFit}`
+                        : ''}
+                      {row.intelligenceSnapshot.marketContext?.sectorTrend &&
+                      row.intelligenceSnapshot.marketContext.sectorTrend !== 'UNKNOWN'
+                        ? ` · ${row.intelligenceSnapshot.marketContext.sectorTrend}`
+                        : ''}
+                      {row.intelligenceSnapshot.multiHorizonAgreement
+                        ? ` · MH ${row.intelligenceSnapshot.multiHorizonAgreement.tradeHorizon} ${row.intelligenceSnapshot.multiHorizonAgreement.agreement}`
+                        : ''}
+                      {row.intelligenceSnapshot.regimeCompatibility
+                        ? ` · regime ${row.intelligenceSnapshot.regimeCompatibility.compatibility}`
+                        : ''}
+                      {row.intelligenceSnapshot.catalystContext
+                        ? ` · eventRisk ${row.intelligenceSnapshot.catalystContext.eventRisk}`
+                        : ''}
                     </Typography>
+                    {row.intelligenceSnapshot.catalystContext?.events?.length ? (
+                      <Typography variant="caption" display="block" color="text.secondary">
+                        {row.intelligenceSnapshot.catalystContext.events
+                          .slice(0, 3)
+                          .map((e) => {
+                            const prox =
+                              e.sessionsUntil != null && e.proximity !== 'PAST'
+                                ? ` in ${e.sessionsUntil}s`
+                                : e.proximity === 'PAST'
+                                  ? ' (past)'
+                                  : '';
+                            return `${e.type}${prox} · ${e.direction}`;
+                          })
+                          .join(' · ')}
+                        {` · thesis ${row.intelligenceSnapshot.catalystContext.thesisInteraction}`}
+                      </Typography>
+                    ) : null}
+                    {row.intelligenceSnapshot.regimeCompatibility?.dimensions ? (
+                      <Typography variant="caption" display="block" color="text.secondary">
+                        {`trend ${row.intelligenceSnapshot.regimeCompatibility.dimensions.trend}`}
+                        {` · vol ${row.intelligenceSnapshot.regimeCompatibility.dimensions.volatility}`}
+                        {` · breadth ${row.intelligenceSnapshot.regimeCompatibility.dimensions.breadth}`}
+                        {` · liq ${row.intelligenceSnapshot.regimeCompatibility.dimensions.liquidity}`}
+                        {row.intelligenceSnapshot.regimeCompatibility.dimensions.indexStructure !==
+                        'UNKNOWN'
+                          ? ` · idx ${row.intelligenceSnapshot.regimeCompatibility.dimensions.indexStructure}`
+                          : ''}
+                      </Typography>
+                    ) : null}
+                    {row.intelligenceSnapshot.multiHorizonAgreement?.horizons?.length ? (
+                      <Typography variant="caption" display="block" color="text.secondary">
+                        {row.intelligenceSnapshot.multiHorizonAgreement.horizons
+                          .filter((h) => h.role !== 'CONTEXT' || h.bias !== 'UNKNOWN')
+                          .map((h) => `${h.horizon}:${h.bias}`)
+                          .join(' · ')}
+                        {row.intelligenceSnapshot.multiHorizonAgreement.higherTimeframeAlignment !==
+                        'UNKNOWN'
+                          ? ` · HTF ${row.intelligenceSnapshot.multiHorizonAgreement.higherTimeframeAlignment}`
+                          : ''}
+                      </Typography>
+                    ) : null}
                     {row.intelligenceSnapshot.thesis?.setup ? (
                       <Typography variant="caption" display="block">
                         {row.intelligenceSnapshot.thesis.direction ?? ''}{' '}

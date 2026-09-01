@@ -413,6 +413,11 @@ export interface DecisionLedgerEntry {
   humanReasonCode?: import('./phase5').HumanReasonCode | string;
   /** Final Gate revalidation snapshot (Phase 5 evidence). */
   gateResult?: import('./phase5').GateResultSnapshot;
+  /**
+   * T1.8 ranking cohort frozen at human decision time (P5 measurement).
+   * Never reconstruct by re-running today's ranking engine.
+   */
+  rankingContext?: import('./p5-measurement').P5DecisionRankingContext;
 }
 
 /** Closed-trade economics for calibration / soak (append-only via outcome records). */
@@ -432,6 +437,22 @@ export interface DecisionTradeOutcome {
   /** pnl / plannedRiskAmount at entry; 0 if planned risk unknown. */
   realizedR: number;
   plannedRiskAmount?: number;
+  /** P5 measurement — ACTUAL vs COUNTERFACTUAL vs WAIT_MARK (never mix in metrics). */
+  outcomeKind?: import('./p5-measurement').P5OutcomeKind;
+  rankingContextId?: string;
+  /** Gross R before fees/slippage; defaults to realizedR when omitted. */
+  grossR?: number;
+  fees?: number;
+  slippage?: number;
+  grossPnl?: number;
+  netPnl?: number;
+  /** Net R after costs; prefer over realizedR for cost-adjusted reports. */
+  netR?: number;
+  maeR?: number | null;
+  mfeR?: number | null;
+  pathMetricsStatus?: import('./p5-measurement').P5PathMetricsStatus;
+  counterfactualProvenance?: import('./p5-measurement').P5CounterfactualProvenance;
+  waitMarkEndReason?: import('./p5-measurement').P5WaitMarkEndReason;
 }
 
 /**
@@ -456,6 +477,20 @@ export interface DecisionOutcomeRecord {
   closedAt: number;
   realizedR: number;
   plannedRiskAmount?: number;
+  /** P5 measurement fields (additive; older rows remain valid). */
+  outcomeKind?: import('./p5-measurement').P5OutcomeKind;
+  rankingContextId?: string;
+  grossR?: number;
+  fees?: number;
+  slippage?: number;
+  grossPnl?: number;
+  netPnl?: number;
+  netR?: number;
+  maeR?: number | null;
+  mfeR?: number | null;
+  pathMetricsStatus?: import('./p5-measurement').P5PathMetricsStatus;
+  counterfactualProvenance?: import('./p5-measurement').P5CounterfactualProvenance;
+  waitMarkEndReason?: import('./p5-measurement').P5WaitMarkEndReason;
 }
 
 export type DecisionLedgerRecord = DecisionLedgerEntry | DecisionOutcomeRecord;

@@ -23,6 +23,7 @@ import type {
   SymbolPatternPayload,
   UserRole,
   UserStatus,
+  IntelligenceSnapshot,
 } from '@stockpred/shared-types';
 import { API_BASE_URL } from '../config';
 import { logout, setTokens } from './authSlice';
@@ -88,7 +89,9 @@ export type MlJobKind =
   | 'predict_all'
   | 'train_manipulation'
   | 'walk_forward'
-  | 'ml_backtest';
+  | 'ml_backtest'
+  | 'ml_lifecycle_full'
+  | 'ml_lifecycle_refresh';
 export type MlUniverseId = 'nifty50' | 'nifty100' | 'nifty500' | 'smallcap' | 'all';
 
 export interface MlJobCatalogItem {
@@ -129,6 +132,251 @@ export interface MlJobSnapshot {
   available: MlJobCatalogItem[];
   universes?: MlUniverseOption[];
   modelsTrained?: boolean;
+}
+
+export type MlModelStatus = 'CANDIDATE' | 'ACTIVE' | 'RETIRED';
+
+export interface MlRegistryModel {
+  modelId: string;
+  horizon: string;
+  modelVersion: string;
+  featureVersion: string;
+  datasetVersion: string;
+  algorithm?: string;
+  status: MlModelStatus;
+  active: boolean;
+  artifactDir?: string | null;
+  createdAt?: string;
+  promotedAt?: string | null;
+  metrics?: Record<string, unknown>;
+  calibration?: Record<string, unknown>;
+  trainingWindow?: Record<string, unknown>;
+}
+
+export interface MlRegistryResponse {
+  models: MlRegistryModel[];
+  count: number;
+  disclaimer?: string;
+}
+
+export interface MlRegistryActiveResponse {
+  active: Record<string, MlRegistryModel | null>;
+  disclaimer?: string;
+}
+
+export interface MlOverviewResponse {
+  counts: { active: number; candidate: number; retired: number; total: number };
+  activeByHorizon: Record<string, MlRegistryModel | null>;
+  modelsTrained: boolean;
+  currentJob: {
+    kind?: string;
+    status?: string;
+    universe?: string;
+    percent?: number;
+    stage?: string;
+    startedAt?: string | number;
+    finishedAt?: string | number | null;
+  } | null;
+  evaluationsPresent: {
+    holdout: boolean;
+    walkForward: boolean;
+    mlBacktest: boolean;
+    datasetQuality?: boolean;
+  };
+  note?: string;
+  disclaimer?: string;
+}
+
+export interface MlDatasetQualityReport {
+  schemaVersion?: string;
+  generatedAt?: string;
+  rows?: number;
+  nFeatures?: number;
+  symbols?: number;
+  symbolCoverage?: number;
+  timeMin?: number | null;
+  timeMax?: number | null;
+  missingRate?: number;
+  classCounts?: Record<string, number>;
+  pitViolations?: number;
+  pitMembershipViolations?: number;
+  pitExamples?: Array<Record<string, unknown>>;
+  pricePolicy?: {
+    mode?: string | null;
+    version?: string | null;
+    unverifiedAdjustment?: boolean;
+  };
+  thresholds?: Record<string, unknown>;
+  hardFailures?: string[];
+  warnings?: string[];
+  passed?: boolean;
+}
+
+export interface MlWalkForwardStability {
+  foldCount?: number;
+  foldHitRates?: number[];
+  meanHitRate?: number | null;
+  hitRateStd?: number | null;
+  worstFoldHitRate?: number | null;
+  thresholds?: Record<string, unknown>;
+  passed?: boolean;
+  failures?: string[];
+}
+
+export interface MlWalkForwardHorizon {
+  overallHitRate?: number;
+  folds?: Array<Record<string, unknown>>;
+  stability?: MlWalkForwardStability;
+  [key: string]: unknown;
+}
+
+export interface MlEvaluationsResponse {
+  holdout: Record<string, unknown>;
+  walkForward: {
+    universe?: string;
+    days?: number;
+    horizons?: Record<string, MlWalkForwardHorizon>;
+    [key: string]: unknown;
+  };
+  mlBacktest: Record<string, unknown>;
+  datasetQuality: MlDatasetQualityReport;
+  present?: {
+    holdout: boolean;
+    walkForward: boolean;
+    mlBacktest: boolean;
+    datasetQuality: boolean;
+  };
+  note?: string;
+  disclaimer?: string;
+}
+
+export interface MlPromoteResponse {
+  model: MlRegistryModel;
+  message: string;
+  disclaimer?: string;
+}
+
+export type MarketIngestMode = 'LIVE_INGEST' | 'EOD_INGEST' | 'HISTORICAL_BACKFILL';
+export type MarketQuoteStatus = 'LIVE' | 'CLOSED_MARKET' | 'STALE';
+
+/** Ops contract from market-data — informational only; not trade authorization. */
+export interface MarketDataContract {
+  ingestMode: MarketIngestMode;
+  nseCashSessionOpen: boolean;
+  quoteStatus: MarketQuoteStatus;
+  liveUsable: boolean;
+  sampleSymbol: string | null;
+  sampleUpdatedAt: number | null;
+  note: string;
+}
+
+/** M4 drift report per horizon (read-only artifact). */
+export interface MlDriftHorizonReport {
+  status?: string;
+  featureDrift?: Record<string, unknown>;
+  calibrationDrift?: Record<string, unknown>;
+  outcomeSampleSize?: number;
+  reasons?: string[];
+  [key: string]: unknown;
+}
+
+export interface MlDriftResponse {
+  horizons: Record<string, MlDriftHorizonReport>;
+  present: Record<string, boolean>;
+  note?: string;
+  disclaimer?: string;
+}
+
+export interface MlReportCatalogItem {
+  id: string;
+  title: string;
+  phase: string;
+  artifact: string;
+  present: boolean | null;
+  detail?: Record<string, unknown>;
+  external?: boolean;
+  labPath: string;
+  blurb: string;
+}
+
+/** Phase 5: index of existing M2–M4 report artifacts (presence only). */
+export interface MlReportsResponse {
+  reports: MlReportCatalogItem[];
+  counts: {
+    present: number;
+    missing: number;
+    external: number;
+    total: number;
+  };
+  note?: string;
+  disclaimer?: string;
+}
+
+export type MlLifecycleStageStatus =
+  | 'PENDING'
+  | 'RUNNING'
+  | 'PASSED'
+  | 'FAILED'
+  | 'SKIPPED'
+  | 'BLOCKED';
+
+export interface MlLifecycleStage {
+  id: string;
+  status: MlLifecycleStageStatus;
+  startedAt: string | null;
+  finishedAt: string | null;
+  detail: string | null;
+  exitCode: number | null;
+}
+
+export interface MlLifecycleRun {
+  runId: string;
+  mode: 'full' | 'refresh' | string;
+  universe: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+  resumeFrom?: string | null;
+  stages: MlLifecycleStage[];
+  note?: string;
+  disclaimer?: string;
+}
+
+/** Staged lifecycle orchestration observation (Jobs / control center). */
+export interface MlLifecycleLatestResponse {
+  run: MlLifecycleRun | null;
+  note?: string;
+  disclaimer: string;
+}
+
+export interface MlTiBridgeSample {
+  symbol: string;
+  horizon: string;
+  direction: string;
+  confidence: number;
+  expectedMove?: number;
+  driftStatus?: string;
+  freshnessStatus?: string;
+  expiresAt?: string;
+  modelId?: string;
+  rejectReason?: string;
+}
+
+/** Observational ML → Trade Intelligence usability (not trade auth). */
+export interface MlTiBridgeResponse {
+  total: number;
+  usable: number;
+  rejected: {
+    stale: number;
+    incompatible: number;
+    missingExpiry: number;
+    other: number;
+  };
+  byHorizon: Record<string, { total: number; usable: number; rejected: number }>;
+  usableSamples: MlTiBridgeSample[];
+  rejectedSamples: MlTiBridgeSample[];
+  note: string;
 }
 
 export interface TradeRow {
@@ -227,6 +475,7 @@ export const api = createApi({
     'Portfolio',
     'Trades',
     'MlJobs',
+    'MlRegistry',
     'AgentMode',
     'AgentDecisions',
     'AgentRiskBudgets',
@@ -345,6 +594,9 @@ export const api = createApi({
     getMarketContext: builder.query<MarketContext, void>({
       query: () => '/market/context',
     }),
+    getMarketDataContract: builder.query<MarketDataContract, void>({
+      query: () => '/market/data-contract',
+    }),
     getScanner: builder.query<
       {
         data: StockQuote[];
@@ -440,12 +692,22 @@ export const api = createApi({
           direction: string;
           confidence: number;
           expectedMove: number;
-          createdAt: string;
+          createdAt?: string;
+          modelVersion?: string;
+          modelId?: string;
+          driftStatus?: string;
+          calibratedProbabilities?: Record<string, number>;
+          expectedReturn?: number | null;
+          expectedMfe?: number | null;
+          expectedMae?: number | null;
+          expiresAt?: string;
+          freshnessStatus?: string;
         }>;
         total?: number;
         page?: number;
         limit?: number;
         hasMore?: boolean;
+        note?: string;
       },
       { limit?: number; page?: number; search?: string; horizon?: string; direction?: string }
     >({
@@ -488,6 +750,45 @@ export const api = createApi({
     cancelMlJob: builder.mutation<MlJobSnapshot, void>({
       query: () => ({ url: '/ml/jobs/current/cancel', method: 'POST' }),
       invalidatesTags: ['MlJobs'],
+    }),
+    getMlOverview: builder.query<MlOverviewResponse, void>({
+      query: () => '/ml/overview',
+      providesTags: ['MlRegistry', 'MlJobs'],
+    }),
+    getMlEvaluations: builder.query<MlEvaluationsResponse, void>({
+      query: () => '/ml/evaluations',
+      providesTags: ['MlRegistry', 'MlJobs'],
+    }),
+    getMlDrift: builder.query<MlDriftResponse, void>({
+      query: () => '/ml/drift',
+      providesTags: ['MlRegistry', 'Predictions'],
+    }),
+    getMlReports: builder.query<MlReportsResponse, void>({
+      query: () => '/ml/reports',
+      providesTags: ['MlRegistry', 'MlJobs', 'Predictions'],
+    }),
+    getMlLifecycleLatest: builder.query<MlLifecycleLatestResponse, void>({
+      query: () => '/ml/lifecycle/latest',
+      providesTags: ['MlJobs'],
+    }),
+    getMlTiBridge: builder.query<MlTiBridgeResponse, void>({
+      query: () => '/market/ml-ti-bridge',
+      providesTags: ['Predictions'],
+    }),
+    getMlRegistry: builder.query<MlRegistryResponse, { horizon?: string; status?: string } | void>({
+      query: (params) => ({
+        url: '/ml/registry',
+        params: params ?? undefined,
+      }),
+      providesTags: ['MlRegistry'],
+    }),
+    getMlRegistryActive: builder.query<MlRegistryActiveResponse, void>({
+      query: () => '/ml/registry/active',
+      providesTags: ['MlRegistry'],
+    }),
+    promoteMlModel: builder.mutation<MlPromoteResponse, { horizon: string; modelId?: string }>({
+      query: (body) => ({ url: '/ml/promote', method: 'POST', body }),
+      invalidatesTags: ['MlRegistry', 'MlJobs'],
     }),
     runBacktest: builder.mutation<
       BacktestResult,
@@ -859,31 +1160,7 @@ export const api = createApi({
             realizedR: number;
             plannedRiskAmount?: number;
           };
-          intelligenceSnapshot?: {
-            schemaVersion: string;
-            engineVersion: string;
-            generatedAt: number;
-            sourceDataTimestamp?: number;
-            strategyTag?: string;
-            marketContext?: {
-              regime?: string;
-              volatilityRegime?: string;
-              breadth?: number | null;
-            };
-            thesis?: {
-              direction?: string;
-              setup?: string;
-              rationale?: string[];
-              thesisConfidence?: number;
-            };
-            expectedValue?: {
-              expectedValueR?: number;
-              rewardR?: number;
-              riskR?: number;
-            };
-            tradeQuality?: { overallScore?: number };
-            conflicts?: Array<{ code: string; severity: string; message: string }>;
-          };
+          intelligenceSnapshot?: IntelligenceSnapshot;
         }>;
         decisionMode: 'APPROVAL' | 'AUTONOMOUS';
       },
@@ -1152,6 +1429,57 @@ export const api = createApi({
           recommendationId?: string;
           missingCapabilities: string[];
         }>;
+        /** P5 legacy display rank (may include rankScore — keep for desk sort only). */
+        ranked?: Array<{
+          opportunityId: string;
+          symbol: string;
+          rankScore: number;
+          quality: number;
+          expectedValueR: number;
+          signalScore: number;
+          quantity: number;
+          portfolioFit: string;
+        }>;
+        /** T1.8 lexicographic shortlist / decision briefing — never authorize. */
+        opportunityRanking?: {
+          context: {
+            tradeHorizon: string;
+            strategyTag?: string;
+            timestamp: string;
+          };
+          timestamp: string;
+          engineVersion: string;
+          calculationVersion: string;
+          candidateUniverse: string[];
+          noClearWinner: boolean;
+          rankings: Array<{
+            rank: number;
+            symbol: string;
+            opportunityId: string;
+            dominance: string;
+            dataCompleteness: string;
+            stale: boolean;
+            strengths: Array<{ code: string; message: string }>;
+            weaknesses: Array<{ code: string; message: string }>;
+            pairwiseReasons: Array<{
+              peerSymbol: string;
+              polarity: 'ABOVE' | 'BELOW';
+              evidence: Array<{ code: string; message: string }>;
+            }>;
+            dimensions: {
+              ev: string;
+              rs: string;
+              sector: string;
+              mtf: string;
+              regime: string;
+              eventSafety: string;
+              technical: string;
+              liquidity: string;
+              freshness: string;
+              portfolioFit: string;
+            };
+          }>;
+        };
         added: Array<{
           symbol: string;
           decision: string;
@@ -1305,6 +1633,14 @@ export const api = createApi({
       }),
       invalidatesTags: ['AgentOpportunities', 'AgentDecisions'],
     }),
+    rejectAgentRecommendation: builder.mutation<unknown, { id: string; reason?: string }>({
+      query: ({ id, reason }) => ({
+        url: `/agent/recommendations/${id}/reject`,
+        method: 'POST',
+        body: reason ? { reason } : {},
+      }),
+      invalidatesTags: ['AgentOpportunities', 'AgentDecisions'],
+    }),
     getAgentHumanIntelMetrics: builder.query<
       {
         metrics: {
@@ -1356,6 +1692,7 @@ export const {
   useLazyGetStockQuery,
   useGetIndicesQuery,
   useGetMarketContextQuery,
+  useGetMarketDataContractQuery,
   useGetScannerQuery,
   useGetCandlesQuery,
   useGetIndexCandlesQuery,
@@ -1373,6 +1710,15 @@ export const {
   useLazyGetMlJobQuery,
   useStartMlJobMutation,
   useCancelMlJobMutation,
+  useGetMlOverviewQuery,
+  useGetMlEvaluationsQuery,
+  useGetMlDriftQuery,
+  useGetMlReportsQuery,
+  useGetMlLifecycleLatestQuery,
+  useGetMlTiBridgeQuery,
+  useGetMlRegistryQuery,
+  useGetMlRegistryActiveQuery,
+  usePromoteMlModelMutation,
   useRunBacktestMutation,
   useRunScannerBacktestMutation,
   useGetPortfolioQuery,
@@ -1428,6 +1774,7 @@ export const {
   useGetAgentMonitoringLogsQuery,
   useApproveAgentRecommendationMutation,
   useWaitAgentRecommendationMutation,
+  useRejectAgentRecommendationMutation,
   useGetAgentHumanIntelMetricsQuery,
   useNotifyAgentBrokerReadyMutation,
 } = api;

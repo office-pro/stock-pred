@@ -91,6 +91,8 @@ export class MlJobStartDto {
     'train_manipulation',
     'walk_forward',
     'ml_backtest',
+    'ml_lifecycle_full',
+    'ml_lifecycle_refresh',
   ])
   kind!: string;
 
@@ -103,6 +105,17 @@ export class MlJobStartDto {
   @IsString()
   @MaxLength(200)
   symbols?: string;
+}
+
+export class MlPromoteDto {
+  @IsString()
+  @MaxLength(32)
+  horizon!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  modelId?: string;
 }
 
 export class BrokerConfigDto {
@@ -283,6 +296,28 @@ export class ApiController {
     return this.proxy.get('marketData', '/market/context');
   }
 
+  @Get('market/data-contract')
+  getMarketDataContract(): Promise<unknown> {
+    return this.proxy.get('marketData', '/market/data-contract');
+  }
+
+  @Get('market/ml-ti-bridge')
+  @UseGuards(JwtAuthGuard)
+  getMlTiBridge(): Promise<unknown> {
+    return this.proxy.get('marketData', '/market/ml-ti-bridge');
+  }
+
+  @Get('market/predictions/:symbol')
+  @UseGuards(JwtAuthGuard)
+  getUsableMlPrediction(
+    @Param('symbol') symbol: string,
+    @Query('horizon') horizon?: string,
+  ): Promise<unknown> {
+    return this.proxy.get('marketData', `/market/predictions/${encodeURIComponent(symbol)}`, {
+      params: horizon ? { horizon } : undefined,
+    });
+  }
+
   @Get('scanner')
   getScanner(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
@@ -414,6 +449,18 @@ export class ApiController {
     return this.proxy.get('mlEngine', '/evaluations');
   }
 
+  @Get('ml/drift')
+  @UseGuards(JwtAuthGuard)
+  getMlDrift(): Promise<unknown> {
+    return this.proxy.get('mlEngine', '/drift');
+  }
+
+  @Get('ml/reports')
+  @UseGuards(JwtAuthGuard)
+  getMlReports(): Promise<unknown> {
+    return this.proxy.get('mlEngine', '/reports');
+  }
+
   @Post('ml/jobs')
   @UseGuards(JwtAuthGuard)
   startMlJob(@Body() dto: MlJobStartDto): Promise<unknown> {
@@ -424,6 +471,45 @@ export class ApiController {
   @UseGuards(JwtAuthGuard)
   cancelMlJob(): Promise<unknown> {
     return this.proxy.post('mlEngine', '/jobs/current/cancel');
+  }
+
+  @Get('ml/registry')
+  @UseGuards(JwtAuthGuard)
+  getMlRegistry(
+    @Query('horizon') horizon?: string,
+    @Query('status') status?: string,
+  ): Promise<unknown> {
+    return this.proxy.get('mlEngine', '/registry', { params: { horizon, status } });
+  }
+
+  @Get('ml/registry/active')
+  @UseGuards(JwtAuthGuard)
+  getMlRegistryActive(): Promise<unknown> {
+    return this.proxy.get('mlEngine', '/registry/active');
+  }
+
+  @Post('ml/promote')
+  @UseGuards(JwtAuthGuard)
+  promoteMlModel(@Body() dto: MlPromoteDto): Promise<unknown> {
+    return this.proxy.post('mlEngine', '/promote', dto);
+  }
+
+  @Get('ml/overview')
+  @UseGuards(JwtAuthGuard)
+  getMlOverview(): Promise<unknown> {
+    return this.proxy.get('mlEngine', '/overview');
+  }
+
+  @Get('ml/lifecycle/latest')
+  @UseGuards(JwtAuthGuard)
+  getMlLifecycleLatest(): Promise<unknown> {
+    return this.proxy.get('mlEngine', '/lifecycle/latest');
+  }
+
+  @Get('ml/lifecycle/runs/:runId')
+  @UseGuards(JwtAuthGuard)
+  getMlLifecycleRun(@Param('runId') runId: string): Promise<unknown> {
+    return this.proxy.get('mlEngine', `/lifecycle/runs/${encodeURIComponent(runId)}`);
   }
 
   // ---------------------------------------------------------------- backtest
@@ -803,6 +889,23 @@ export class ApiController {
     return this.proxy.post(
       'traderAgent',
       `/agent/recommendations/${encodeURIComponent(id)}/wait`,
+      body,
+      {
+        headers: identityHeaders(request.user),
+      },
+    );
+  }
+
+  @Post('agent/recommendations/:id/reject')
+  @UseGuards(JwtAuthGuard)
+  rejectAgentRecommendation(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post(
+      'traderAgent',
+      `/agent/recommendations/${encodeURIComponent(id)}/reject`,
       body,
       {
         headers: identityHeaders(request.user),
