@@ -18,9 +18,11 @@ Real Agent Desk activity
 ? GO / NO-GO
 ```
 
-Until that path produces non-zero runtime evidence, **NO-GO remains the correct state**.
+Until that path produces non-zero runtime evidence, **INCONCLUSIVE** (insufficient samples) or **NO-GO** (sufficient samples, not ready) remain the correct states. Neither unlocks ARM. **GO = eligibility only** — never auto-arm.
 
 There is no alternate unlock path. Do not invent samples. Do not lower thresholds. Do not arm P6.
+
+P5 measurement hardening (code) adds: rankingContext stamp, ACTUAL/COUNTERFACTUAL/WAIT_MARK outcomes, MAE/MFE when available, Validation Report with GO/NO-GO/INCONCLUSIVE. Evidence window remains **ops-only**.
 
 ---
 

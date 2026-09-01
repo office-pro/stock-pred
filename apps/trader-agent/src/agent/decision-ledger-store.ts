@@ -101,6 +101,19 @@ export class DecisionLedgerStore {
       closedAt: outcome.closedAt,
       realizedR: outcome.realizedR,
       plannedRiskAmount: outcome.plannedRiskAmount,
+      outcomeKind: outcome.outcomeKind,
+      rankingContextId: outcome.rankingContextId,
+      grossR: outcome.grossR,
+      fees: outcome.fees,
+      slippage: outcome.slippage,
+      grossPnl: outcome.grossPnl,
+      netPnl: outcome.netPnl,
+      netR: outcome.netR,
+      maeR: outcome.maeR,
+      mfeR: outcome.mfeR,
+      pathMetricsStatus: outcome.pathMetricsStatus,
+      counterfactualProvenance: outcome.counterfactualProvenance,
+      waitMarkEndReason: outcome.waitMarkEndReason,
     };
     file.entries.push(record);
     if (file.entries.length > this.maxEntries) {
@@ -216,6 +229,19 @@ export class DecisionLedgerStore {
       closedAt: latest.closedAt,
       realizedR: latest.realizedR,
       plannedRiskAmount: latest.plannedRiskAmount,
+      outcomeKind: latest.outcomeKind,
+      rankingContextId: latest.rankingContextId,
+      grossR: latest.grossR,
+      fees: latest.fees,
+      slippage: latest.slippage,
+      grossPnl: latest.grossPnl,
+      netPnl: latest.netPnl,
+      netR: latest.netR,
+      maeR: latest.maeR,
+      mfeR: latest.mfeR,
+      pathMetricsStatus: latest.pathMetricsStatus,
+      counterfactualProvenance: latest.counterfactualProvenance,
+      waitMarkEndReason: latest.waitMarkEndReason,
     };
     return { ...decision, outcome };
   }

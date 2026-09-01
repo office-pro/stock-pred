@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 
-export type P5EvidenceOverall = 'GO' | 'NO-GO' | 'UNKNOWN';
+export type P5EvidenceOverall = 'GO' | 'NO-GO' | 'INCONCLUSIVE' | 'UNKNOWN';
 
 export interface P5EvidenceUnlockStatus {
   unlocked: boolean;
@@ -20,9 +20,17 @@ function defaultEvidencePath(): string {
   return resolve(__dirname, '../../../../apps/trader-agent/data/p5-evidence-review-latest.json');
 }
 
+function normalizeOverall(raw: string | undefined): P5EvidenceOverall {
+  if (raw === 'GO') return 'GO';
+  if (raw === 'NO-GO') return 'NO-GO';
+  if (raw === 'INCONCLUSIVE') return 'INCONCLUSIVE';
+  return 'UNKNOWN';
+}
+
 /**
  * Read-only P5 evidence unlock check.
  * GO makes ARM *available*; it never arms autonomy by itself.
+ * INCONCLUSIVE and NO-GO never unlock ARM.
  */
 export function readP5EvidenceUnlock(path = defaultEvidencePath()): P5EvidenceUnlockStatus {
   if (!existsSync(path)) {
@@ -40,8 +48,7 @@ export function readP5EvidenceUnlock(path = defaultEvidencePath()): P5EvidenceUn
       overallDecision?: string;
       generatedAt?: string;
     };
-    const overall =
-      raw.overallDecision === 'GO' ? 'GO' : raw.overallDecision === 'NO-GO' ? 'NO-GO' : 'UNKNOWN';
+    const overall = normalizeOverall(raw.overallDecision);
     if (overall === 'GO') {
       return {
         unlocked: true,

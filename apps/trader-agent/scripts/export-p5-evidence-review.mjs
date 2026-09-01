@@ -231,13 +231,17 @@ const sampleAdequate =
   metrics.qualityVsRealizedRSamples >= 10 &&
   modeSummary.live + modeSummary.paper >= 20;
 
-const overallDecision =
-  classification.TECHNICAL_SAFETY === 'PASS' &&
-  failCount === 0 &&
-  reviewCount <= 1 &&
-  sampleAdequate
-    ? 'GO'
-    : 'NO-GO';
+// Locked verdict: floors unmet → INCONCLUSIVE (not NO-GO). GO never auto-arms.
+let overallDecision = 'INCONCLUSIVE';
+if (!sampleAdequate) {
+  overallDecision = 'INCONCLUSIVE';
+} else if (classification.TECHNICAL_SAFETY !== 'PASS' || failCount > 0) {
+  overallDecision = 'NO-GO';
+} else if (reviewCount <= 1) {
+  overallDecision = 'GO';
+} else {
+  overallDecision = 'NO-GO';
+}
 
 const generatedAt = new Date().toISOString();
 

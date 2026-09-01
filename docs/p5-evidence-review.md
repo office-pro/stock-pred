@@ -21,7 +21,7 @@ Export tool: `node apps/trader-agent/scripts/export-p5-evidence-review.mjs`
 | Field                                       | Value                                                                                         |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | Review kind                                 | Runtime disk export                                                                           |
-| Generated                                   | 2026-08-22T21:49:24Z (export after Desk WAIT run)                                             |
+| Generated                                   | 2026-08-23T10:08:09Z (re-export after REJECT enablement)                                      |
 | Decision ledger path                        | `apps/trader-agent/data/decision-ledger.json`                                                 |
 | Ledger present                              | **Yes**                                                                                       |
 | Decision entries                            | **10**                                                                                        |
@@ -37,6 +37,7 @@ Export tool: `node apps/trader-agent/scripts/export-p5-evidence-review.mjs`
 | Unauthorized LIVE `AUTO_ACCEPTED`           | **0**                                                                                         |
 | Mode during run                             | PAPER (LIVE broker not configured)                                                            |
 | P4 soak reference                           | `apps/trader-agent/data/paper-soak-report-latest.json` (`SOAK-2026-08-22-513`, status KILLED) |
+| Calendar note                               | **Sunday 2026-08-23** — NSE closed; no fresh fills possible this session                      |
 
 **Sample adequacy:** Not justified (`reviewed≥20`, `qualityVsRealizedRSamples≥10`, `paper+live≥20` unmet). Technical Safety remains assessable from P5 implementation + tests.
 
@@ -109,18 +110,18 @@ Intelligence snapshots are being recorded, but quality vs realized R cannot be s
 ### Observed
 
 - Real Desk WAIT decisions recorded: `humanWaitCount=6`.
-- `humanApproveCount=0`, `humanRejectCount=0`.
+- `humanApproveCount=0`, `humanRejectCount=0` (no new REJECT rows yet after enablement).
 - Agreement≈33%, overrides≈67% on reviewed=6.
-- Human REJECT API not exposed on running agent (`POST .../reject|dismiss|decline` → 404). Agent can emit `RECOMMEND_REJECT`; human REJECT action is missing from Desk routes.
+- **Human REJECT is now exposed end-to-end** (agent `POST .../recommendations/:id/reject`, gateway proxy, Desk Reject button). Live probe: agent 400 (x-user-id) / gateway 401 (bearer) — route present (was 404).
 
 ### Interpretation
 
-WAIT human-validation path works and writes ledger rows. APPROVE and REJECT human paths did not produce completed evidence in this window.
+WAIT human-validation path works and writes ledger rows. APPROVE fills and human REJECT ledger rows are still missing from this window (REJECT UI/API ready; market closed Sunday).
 
 ### Limitations
 
-- No human APPROVE fills.
-- No human REJECT route on this process.
+- No human APPROVE fills / closes.
+- Human REJECT enabled but not yet exercised on Desk.
 - Sample count far below review adequacy.
 
 ### Reviewer conclusion
@@ -179,7 +180,7 @@ Evidence-only; **incomplete** for this window (no realizedR linkage).
 
 ### Reviewer rationale
 
-Real WAIT activity and a non-empty ledger exist, but APPROVE fills, REJECT actions, Gate rows, LIVE samples, and realizedR are still missing. **NO-GO means insufficient evidence, not ineffective intelligence.**
+Real WAIT activity and a non-empty ledger exist. Human REJECT is now available on Desk/API but not yet used. APPROVE fills, Gate rows, LIVE samples, and realizedR are still missing. **NO-GO means insufficient evidence, not ineffective intelligence.**
 
 ### ARM status
 
@@ -187,11 +188,11 @@ Real WAIT activity and a non-empty ledger exist, but APPROVE fills, REJECT actio
 
 ### Missing before next re-score
 
-1. Fresh quotes (≤60s) so PAPER/LIVE APPROVE can pass policy
-2. Human APPROVE → fill → close → `realizedR` on ledger
-3. Human REJECT path (or explicit Desk action if/when exposed)
-4. LIVE broker configured only if LIVE evidence is required for GO criteria
-5. Re-export + re-score when counts justify adequacy
+1. **NSE session** with fresh quotes (≤60s) so PAPER APPROVE can pass quote-age policy
+2. Human **APPROVE** → Risk→Portfolio→Policy→Gate → fill → close → `realizedR` on ledger
+3. Human **REJECT** / **WAIT** mix on Desk (REJECT now enabled)
+4. Re-export + re-score when counts approach adequacy (`reviewed≥20`, `qualityVsRealizedRSamples≥10`)
+5. LIVE broker only if LIVE samples are required for your GO bar
 
 ```bash
 node apps/trader-agent/scripts/export-p5-evidence-review.mjs

@@ -173,6 +173,25 @@ export class OpportunityRepository {
     return row ? mapRow(row) : null;
   }
 
+  /** Human REJECT — marks PENDING opportunity rejected. Never submits to Gate. */
+  async markRejected(id: string, userId: string): Promise<PersistedOpportunity | null> {
+    const existing = await this.prisma.agentOpportunity.findFirst({
+      where: { OR: [{ id, userId }, { id }] },
+    });
+    if (!existing) return null;
+    if (existing.userId !== userId) {
+      throw new Error('Suggestion belongs to another user');
+    }
+    if (existing.status !== 'PENDING' && existing.status !== 'WAITING') {
+      return mapRow(existing);
+    }
+    const row = await this.prisma.agentOpportunity.update({
+      where: { id: existing.id },
+      data: { status: 'REJECTED' },
+    });
+    return mapRow(row);
+  }
+
   /** Persist an approved suggestion for this user (Added tab). Never deletes other users' rows. */
   async markApproved(
     id: string,
