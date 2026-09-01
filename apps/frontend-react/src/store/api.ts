@@ -26,6 +26,7 @@ import type {
   IntelligenceSnapshot,
   WaitRecommendation,
   StructuredThesis,
+  ExitRecommendation,
 } from '@stockpred/shared-types';
 import { API_BASE_URL } from '../config';
 import { logout, setTokens } from './authSlice';
@@ -1541,6 +1542,7 @@ export const api = createApi({
           brandId?: string | null;
           exitMode?: 'AGENT_POLICY' | 'CLASSIC_STOP_TARGET';
           monitored?: boolean;
+          exitIntelligence?: ExitRecommendation;
         }>;
         killSwitch: boolean;
         agentTradingEnabled: boolean;

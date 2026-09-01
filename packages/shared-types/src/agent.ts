@@ -128,6 +128,8 @@ export interface AgentManagedPosition {
   brandId?: string | null;
   exitMode?: 'AGENT_POLICY' | 'CLASSIC_STOP_TARGET';
   monitored?: boolean;
+  /** T2.3 advisory exit recommendation — display only. */
+  exitIntelligence?: import('./exit-intelligence').ExitRecommendation;
 }
 
 export interface AgentLiveArming {

@@ -187,6 +187,19 @@ export class DecisionLedgerStore {
     return null;
   }
 
+  /** Newest decision row for symbol (materialized thesis/outcome when present). */
+  getLatestBySymbol(symbol: string): DecisionLedgerEntry | null {
+    const upper = symbol.toUpperCase();
+    const file = this.read();
+    for (let i = file.entries.length - 1; i >= 0; i -= 1) {
+      const row = file.entries[i];
+      if (isDecisionLedgerEntry(row) && row.symbol.toUpperCase() === upper) {
+        return this.materialize(row, file.entries);
+      }
+    }
+    return null;
+  }
+
   listForSoak(soakRunId: string): DecisionLedgerRecord[] {
     return this.read().entries.filter((row) => {
       if (isThesisHistoryLedgerRecord(row)) return false;

@@ -47,6 +47,8 @@ import {
   TradeSide,
   WaitRecommendation,
   StructuredThesis,
+  ExitRecommendation,
+  ExitIntelligenceP5Context,
 } from '@stockpred/shared-types';
 import {
   AGENT_CAPABILITY_DEFS,
@@ -103,6 +105,7 @@ import {
   digestFromStructuredThesis,
   detectWeakenedChanges,
   digestThesisEvidence,
+  buildExitRecommendation,
   diagnosticFromExecutionError,
   priceDeviationPct,
   OH2_PRICE_DEVIATION_PCT,
@@ -1313,6 +1316,7 @@ export class AgentService implements OnModuleInit {
     agentTradingEnabled: boolean;
   }> {
     const monitored = await this.fetchMonitoredPositions();
+    const now = Date.now();
     const positions: AgentManagedPosition[] = (monitored?.positions ?? []).map((lot) => {
       const note = this.positionNotes.get(lot.symbol);
       const policyEval = evaluateExitPolicy(
@@ -1349,12 +1353,70 @@ export class AgentService implements OnModuleInit {
         brandId: lot.brandId,
         exitMode,
         monitored: lot.monitored ?? true,
+        exitIntelligence: this.buildExitIntelligenceForLot(lot, now),
       };
     });
     return {
       positions,
       killSwitch: this.killSwitch,
       agentTradingEnabled: monitored?.agentTradingEnabled ?? this.tradingEnabled,
+    };
+  }
+
+  async getExitIntelligence(symbol: string): Promise<ExitRecommendation | null> {
+    const monitored = await this.fetchMonitoredPositions();
+    const lot = (monitored?.positions ?? []).find(
+      (row) => row.symbol.toUpperCase() === symbol.toUpperCase(),
+    );
+    if (!lot) return null;
+    return this.buildExitIntelligenceForLot(lot, Date.now());
+  }
+
+  private buildExitIntelligenceForLot(
+    lot: {
+      symbol: string;
+      entryPrice: number;
+      currentPrice: number;
+      stopLoss: number;
+      target: number;
+      quantity: number;
+      openedAt?: number;
+    },
+    now: number,
+  ): ExitRecommendation {
+    const ledgerEntry = this.ledger.getLatestBySymbol(lot.symbol);
+    const thesis =
+      ledgerEntry?.thesisReassessment ?? ledgerEntry?.thesisSnapshot?.initialThesis ?? null;
+    const p5Context = this.p5ContextForLedgerEntry(ledgerEntry, now);
+    return buildExitRecommendation({
+      now,
+      position: {
+        symbol: lot.symbol,
+        entryPrice: lot.entryPrice,
+        currentPrice: lot.currentPrice,
+        stopLoss: lot.stopLoss,
+        target: lot.target,
+        quantity: lot.quantity,
+        openedAt: lot.openedAt ?? now,
+      },
+      thesis,
+      p5Context,
+    });
+  }
+
+  private p5ContextForLedgerEntry(
+    entry: import('@stockpred/shared-types').DecisionLedgerEntry | null,
+    now: number,
+  ): ExitIntelligenceP5Context | null {
+    if (!entry?.outcome) return null;
+    const asOf = entry.outcome.closedAt ?? entry.timestamp;
+    if (!Number.isFinite(asOf) || asOf > now) return null;
+    if (entry.outcome.maeR == null && entry.outcome.mfeR == null) return null;
+    return {
+      decisionId: entry.decisionId,
+      maeR: entry.outcome.maeR,
+      mfeR: entry.outcome.mfeR,
+      asOf,
     };
   }
 

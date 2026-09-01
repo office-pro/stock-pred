@@ -25,6 +25,7 @@ export * from './opportunity-ranking-engine';
 export * from './wait-lifecycle';
 export * from './wait-intelligence-engine';
 export * from './thesis-intelligence-engine';
+export * from './exit-intelligence-engine';
 export * from './human-intel-metrics';
 export * from './p5-evidence-unlock';
 export * from './p5-outcome-stats';

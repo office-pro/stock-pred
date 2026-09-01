@@ -310,6 +310,15 @@ export class AgentController {
     return this.agent.getPositions();
   }
 
+  @Get('positions/:symbol/exit-intelligence')
+  exitIntelligence(
+    @Param('symbol') symbol: string,
+  ): Promise<{ exitIntelligence: import('@stockpred/shared-types').ExitRecommendation | null }> {
+    return this.agent.getExitIntelligence(symbol).then((exitIntelligence) => ({
+      exitIntelligence,
+    }));
+  }
+
   @Get('portfolio')
   portfolio(
     @Headers('x-user-id') userId?: string,

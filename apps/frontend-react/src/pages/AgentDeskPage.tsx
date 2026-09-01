@@ -27,7 +27,7 @@ import {
 } from '@mui/material';
 import { useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import type { StructuredThesis } from '@stockpred/shared-types';
+import type { StructuredThesis, ExitRecommendation } from '@stockpred/shared-types';
 import AgentTradingToggle from '../components/AgentTradingToggle';
 import AgentSuggestionCards from '../components/AgentSuggestionCards';
 import { authErrorMessage } from '../lib/auth-errors';
@@ -56,6 +56,27 @@ import {
   useStopAgentSoakMutation,
   useWaiveAgentSoakMutation,
 } from '../store/api';
+
+function ExitIntelligencePanel({ exit }: { exit: ExitRecommendation }) {
+  return (
+    <Box sx={{ mt: 0.5, p: 1, borderRadius: 1, bgcolor: 'action.hover' }}>
+      <Typography variant="caption" fontWeight={700} display="block">
+        Exit recommendation: {exit.action} — advisory
+      </Typography>
+      <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+        {exit.summary}
+      </Typography>
+      <Typography variant="caption" display="block" color="text.secondary">
+        Codes: {exit.reasonCodes.join(', ') || '—'}
+      </Typography>
+      {exit.evidence.length > 0 ? (
+        <Typography variant="caption" display="block" color="text.secondary">
+          Evidence: {exit.evidence.map((e) => e.message).join(' · ')}
+        </Typography>
+      ) : null}
+    </Box>
+  );
+}
 
 function ThesisIntelligencePanel({ thesis }: { thesis: StructuredThesis }) {
   const weakened = thesis.supportingEvidence.filter((e) => e.polarity === 'NEGATIVE');
@@ -1408,6 +1429,9 @@ export default function AgentDeskPage(): JSX.Element {
                   <Typography variant="caption" display="block" color="text.secondary">
                     {lot.policyNote}
                   </Typography>
+                  {lot.exitIntelligence ? (
+                    <ExitIntelligencePanel exit={lot.exitIntelligence} />
+                  ) : null}
                 </TableCell>
                 <TableCell align="right">{lot.unrealizedPnl}</TableCell>
               </TableRow>
