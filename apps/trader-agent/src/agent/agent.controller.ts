@@ -217,8 +217,18 @@ export class AgentController {
   decisions(
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50,
     @Query('decisionId') decisionId?: string,
-  ): { decisions: DecisionLedgerEntry[]; decisionMode: AgentDecisionMode } {
+  ): {
+    decisions: import('@stockpred/shared-types').DecisionWithLifecycle[];
+    decisionMode: AgentDecisionMode;
+  } {
     return this.agent.getDecisions(Math.min(limit, 200), decisionId);
+  }
+
+  @Get('decisions/:id/lifecycle')
+  decisionLifecycle(
+    @Param('id') id: string,
+  ): Promise<{ lifecycle: import('@stockpred/shared-types').TradeLifecycleSnapshot | null }> {
+    return this.agent.getDecisionLifecycle(id).then((lifecycle) => ({ lifecycle }));
   }
 
   @Post('kill-switch')

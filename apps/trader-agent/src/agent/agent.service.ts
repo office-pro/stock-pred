@@ -49,6 +49,10 @@ import {
   StructuredThesis,
   ExitRecommendation,
   ExitIntelligenceP5Context,
+  DecisionWithLifecycle,
+  TradeLifecycleSnapshot,
+  isDecisionLedgerEntry,
+  isDecisionOutcomeRecord,
 } from '@stockpred/shared-types';
 import {
   AGENT_CAPABILITY_DEFS,
@@ -106,6 +110,8 @@ import {
   detectWeakenedChanges,
   digestThesisEvidence,
   buildExitRecommendation,
+  materializeTradeLifecycle,
+  type TradeLifecycleWaitContext,
   diagnosticFromExecutionError,
   priceDeviationPct,
   OH2_PRICE_DEVIATION_PCT,
@@ -668,17 +674,94 @@ export class AgentService implements OnModuleInit {
     limit = 50,
     decisionId?: string,
   ): {
-    decisions: DecisionLedgerEntry[];
+    decisions: DecisionWithLifecycle[];
     decisionMode: AgentDecisionMode;
   } {
-    if (decisionId) {
-      const one = this.ledger.get(decisionId) ?? this.ledger.getByOpportunity(decisionId);
-      return {
-        decisions: one ? [one] : [],
-        decisionMode: this.decisionMode,
-      };
+    const rows = decisionId
+      ? (() => {
+          const one = this.ledger.get(decisionId) ?? this.ledger.getByOpportunity(decisionId);
+          return one ? [one] : [];
+        })()
+      : this.ledger.list(limit);
+    return {
+      decisions: rows.map((decision) => ({
+        decision,
+        lifecycleSnapshot: this.buildLifecycleForDecision(decision),
+      })),
+      decisionMode: this.decisionMode,
+    };
+  }
+
+  async getDecisionLifecycle(decisionId: string): Promise<TradeLifecycleSnapshot | null> {
+    const decision = this.ledger.get(decisionId) ?? this.ledger.getByOpportunity(decisionId);
+    if (!decision) return null;
+    let exitAdvisory: ExitRecommendation | null = null;
+    if (decision.execution && !decision.outcome) {
+      exitAdvisory = await this.getExitIntelligence(decision.symbol);
     }
-    return { decisions: this.ledger.list(limit), decisionMode: this.decisionMode };
+    return this.materializeLifecycleSnapshot(decision, exitAdvisory);
+  }
+
+  private buildLifecycleForDecision(decision: DecisionLedgerEntry): TradeLifecycleSnapshot {
+    return this.materializeLifecycleSnapshot(decision, null);
+  }
+
+  private materializeLifecycleSnapshot(
+    decision: DecisionLedgerEntry,
+    exitAdvisory: ExitRecommendation | null,
+  ): TradeLifecycleSnapshot {
+    const now = Date.now();
+    const thesisEvents = this.ledger.listThesisEvents(decision.decisionId);
+    const outcomeRecords = this.listOutcomeRecordsForDecision(decision.decisionId);
+    return materializeTradeLifecycle({
+      now,
+      decision,
+      thesisEvents,
+      outcomeRecords,
+      exitAdvisory,
+      waitContext: this.buildWaitContextForDecision(decision),
+    });
+  }
+
+  private listOutcomeRecordsForDecision(
+    decisionId: string,
+  ): import('@stockpred/shared-types').DecisionOutcomeRecord[] {
+    return this.ledger
+      .listRaw(5_000)
+      .filter(
+        (row): row is import('@stockpred/shared-types').DecisionOutcomeRecord =>
+          isDecisionOutcomeRecord(row) && row.decisionId === decisionId,
+      );
+  }
+
+  private buildWaitContextForDecision(
+    decision: DecisionLedgerEntry,
+  ): TradeLifecycleWaitContext | null {
+    if (decision.decision !== 'WAIT' && !decision.waitIntelligence) return null;
+    const waitStartMs = decision.timestamp;
+    const waitExpiresAtMs = decision.waitIntelligence?.expiryAt ?? null;
+    let waitEndMs: number | null = null;
+    if (decision.opportunityId) {
+      const entries = this.ledger.listRaw(5_000);
+      const selfIdx = entries.findIndex(
+        (row) => isDecisionLedgerEntry(row) && row.decisionId === decision.decisionId,
+      );
+      if (selfIdx >= 0) {
+        for (let i = selfIdx + 1; i < entries.length; i += 1) {
+          const row = entries[i];
+          if (
+            isDecisionLedgerEntry(row) &&
+            row.opportunityId === decision.opportunityId &&
+            row.decisionId !== decision.decisionId &&
+            row.decision !== 'WAIT'
+          ) {
+            waitEndMs = row.timestamp;
+            break;
+          }
+        }
+      }
+    }
+    return { waitStartMs, waitExpiresAtMs, waitEndMs };
   }
 
   /** Raw ledger stream for soak metrics (decisions + outcome events). */

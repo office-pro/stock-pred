@@ -23,10 +23,11 @@ import type {
   SymbolPatternPayload,
   UserRole,
   UserStatus,
-  IntelligenceSnapshot,
   WaitRecommendation,
   StructuredThesis,
   ExitRecommendation,
+  DecisionWithLifecycle,
+  TradeLifecycleSnapshot,
 } from '@stockpred/shared-types';
 import { API_BASE_URL } from '../config';
 import { logout, setTokens } from './authSlice';
@@ -1107,67 +1108,7 @@ export const api = createApi({
     }),
     getAgentDecisions: builder.query<
       {
-        decisions: Array<{
-          decisionId: string;
-          opportunityId?: string;
-          timestamp: number;
-          symbol: string;
-          decisionMode: 'APPROVAL' | 'AUTONOMOUS';
-          state: string;
-          decision: string;
-          reasonCodes: string[];
-          decisionReasons: string[];
-          analysisSnapshot: {
-            score: number;
-            confidence: number;
-            eligibility: string;
-            thesis: string;
-            strategy: string;
-            regime: string;
-          };
-          riskVerdict: { allowed: boolean; reasons: string[]; quantity?: number };
-          portfolioVerdict: { allowed: boolean; reasons: string[] };
-          policy?: { outcome: string; reasons: string[] };
-          budgetSnapshot?: {
-            dayStartEquity: number;
-            weekStartEquity: number;
-            currentEquity: number;
-            cash: number;
-            perTradeRiskPercent: number;
-            maxRiskAmount: number;
-            confidence: number;
-            confidenceScale: number;
-            quantityBeforeConfidence: number;
-            quantityAfterConfidence: number;
-            symbolSector: string | null;
-            maxNameExposurePct: number;
-            maxSectorExposurePct: number;
-            maxOpenPositions: number;
-            cashReservePct: number;
-          };
-          execution?: {
-            quantity: number;
-            entryPrice?: number;
-            status?: string;
-            plannedRiskAmount?: number;
-          };
-          soakRunId?: string;
-          outcome?: {
-            outcomeId: string;
-            exitPrice: number;
-            pnl: number;
-            pnlPercent: number;
-            holdingPeriodMs: number;
-            exitReason: string;
-            closedAt: number;
-            realizedR: number;
-            plannedRiskAmount?: number;
-          };
-          intelligenceSnapshot?: IntelligenceSnapshot;
-          waitIntelligence?: WaitRecommendation;
-          thesisSnapshot?: { initialThesis: StructuredThesis; snapshotAt: string };
-          thesisReassessment?: StructuredThesis;
-        }>;
+        decisions: DecisionWithLifecycle[];
         decisionMode: 'APPROVAL' | 'AUTONOMOUS';
       },
       { limit?: number; decisionId?: string } | void
@@ -1178,6 +1119,10 @@ export const api = createApi({
         if (args?.decisionId) params.set('decisionId', args.decisionId);
         return `/agent/decisions?${params.toString()}`;
       },
+      providesTags: ['AgentDecisions'],
+    }),
+    getAgentDecisionLifecycle: builder.query<{ lifecycle: TradeLifecycleSnapshot | null }, string>({
+      query: (decisionId) => `/agent/decisions/${encodeURIComponent(decisionId)}/lifecycle`,
       providesTags: ['AgentDecisions'],
     }),
     getAgentSoak: builder.query<
@@ -1761,6 +1706,7 @@ export const {
   useSetAgentLiveAutoArmMutation,
   useSetAgentDecisionModeMutation,
   useGetAgentDecisionsQuery,
+  useGetAgentDecisionLifecycleQuery,
   useGetAgentSoakQuery,
   useStartAgentSoakMutation,
   useStopAgentSoakMutation,

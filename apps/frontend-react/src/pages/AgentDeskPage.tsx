@@ -27,7 +27,11 @@ import {
 } from '@mui/material';
 import { useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import type { StructuredThesis, ExitRecommendation } from '@stockpred/shared-types';
+import type {
+  StructuredThesis,
+  ExitRecommendation,
+  TradeLifecycleSnapshot,
+} from '@stockpred/shared-types';
 import AgentTradingToggle from '../components/AgentTradingToggle';
 import AgentSuggestionCards from '../components/AgentSuggestionCards';
 import { authErrorMessage } from '../lib/auth-errors';
@@ -56,6 +60,42 @@ import {
   useStopAgentSoakMutation,
   useWaiveAgentSoakMutation,
 } from '../store/api';
+
+function TradeLifecyclePanel({ lifecycle }: { lifecycle: TradeLifecycleSnapshot }) {
+  const recentEvents = lifecycle.events.slice(-4);
+  return (
+    <Box sx={{ mt: 1, p: 1, borderRadius: 1, bgcolor: 'action.selected' }}>
+      <Typography variant="caption" fontWeight={700} display="block">
+        Trade lifecycle: {lifecycle.currentStage} — measurement only
+      </Typography>
+      <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>
+        {lifecycle.metrics.realizedR != null
+          ? `Realized R ${lifecycle.metrics.realizedR.toFixed(2)}`
+          : 'Realized R —'}
+        {lifecycle.metrics.thesisEvolutionCount != null
+          ? ` · thesis evolutions ${lifecycle.metrics.thesisEvolutionCount}`
+          : ''}
+        {lifecycle.metrics.plannedWaitDurationMs != null
+          ? ` · planned wait ${Math.round(lifecycle.metrics.plannedWaitDurationMs / 60_000)}m`
+          : ''}
+        {lifecycle.metrics.waitDurationMs != null
+          ? ` · observed wait ${Math.round(lifecycle.metrics.waitDurationMs / 60_000)}m`
+          : ''}
+      </Typography>
+      {recentEvents.length > 0 ? (
+        <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>
+          {recentEvents
+            .map((e) =>
+              e.kind === 'STAGE' && e.stage
+                ? `${e.stage} (${e.source})`
+                : `${e.detail ?? e.source} [context]`,
+            )
+            .join(' · ')}
+        </Typography>
+      ) : null}
+    </Box>
+  );
+}
 
 function ExitIntelligencePanel({ exit }: { exit: ExitRecommendation }) {
   return (
@@ -1661,7 +1701,7 @@ export default function AgentDeskPage(): JSX.Element {
             never auto-buy by itself.
           </Typography>
           <Stack spacing={1.5}>
-            {(decisionsData?.decisions ?? []).map((row) => (
+            {(decisionsData?.decisions ?? []).map(({ decision: row, lifecycleSnapshot }) => (
               <Paper key={`${row.decisionId}-${row.timestamp}`} variant="outlined" sx={{ p: 1.5 }}>
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
                   <Typography fontWeight={700}>{row.symbol}</Typography>
@@ -1833,6 +1873,7 @@ export default function AgentDeskPage(): JSX.Element {
                 ) : row.thesisSnapshot?.initialThesis ? (
                   <ThesisIntelligencePanel thesis={row.thesisSnapshot.initialThesis} />
                 ) : null}
+                <TradeLifecyclePanel lifecycle={lifecycleSnapshot} />
               </Paper>
             ))}
             {(decisionsData?.decisions?.length ?? 0) === 0 ? (
