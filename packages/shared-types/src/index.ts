@@ -12,3 +12,5 @@ export * from './walk-forward';
 export * from './soak';
 export * from './trade-intelligence';
 export * from './phase5';
+export * from './p5-measurement';
+export * from './ops-hardening';

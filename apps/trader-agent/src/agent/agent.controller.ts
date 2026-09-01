@@ -93,6 +93,12 @@ class WaitDto {
   reason?: string;
 }
 
+class RejectDto {
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
 class RecordOutcomeDto {
   @IsOptional()
   @IsString()
@@ -355,6 +361,15 @@ export class AgentController {
     return this.agent.waitRecommendation(id, userId, body?.reason);
   }
 
+  @Post('recommendations/:id/reject')
+  reject(
+    @Param('id') id: string,
+    @Body() body: RejectDto,
+    @Headers('x-user-id') userId?: string,
+  ): Promise<{ recommendation: AgentRecommendation; decision: DecisionLedgerEntry }> {
+    return this.agent.rejectRecommendation(id, userId, body?.reason);
+  }
+
   @Post('decisions/outcome')
   recordOutcome(@Body() body: RecordOutcomeDto): {
     recorded: boolean;
@@ -401,6 +416,51 @@ export class AgentController {
   @Get('ops')
   getOps(@Query('soakRunId') soakRunId?: string): import('@stockpred/shared-types').SoakOpsMetrics {
     return this.agent.getSoakController().getOpsMetrics(soakRunId);
+  }
+
+  /** OH-1 observe-only pipeline latency metrics. */
+  @Get('ops/pipeline-metrics')
+  getOhPipelineMetrics(): import('@stockpred/shared-types').OhPipelineMetricsSnapshot {
+    return this.agent.getOhPipelineMetrics();
+  }
+
+  /** OH-2 observe-only execution health. */
+  @Get('ops/execution-health')
+  getOhExecutionHealth(): import('@stockpred/shared-types').OhExecutionHealthSnapshot {
+    return this.agent.getOhExecutionHealth();
+  }
+
+  /**
+   * OH-3 observe-only reconciliation (ledger ↔ holdings ↔ positions).
+   * Detect/report only — never authorizes or mutates positions.
+   */
+  @Get('ops/reconcile')
+  runOhReconciliation(
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-brand-id') brandId?: string,
+  ): Promise<import('@stockpred/shared-types').OhReconciliationReport> {
+    return this.agent.runOhReconciliation(userId, brandId);
+  }
+
+  /** OH-4 observe-only kill/disarm safety events. */
+  @Get('ops/safety-events')
+  getOhSafetyEvents(): import('@stockpred/shared-types').OhSafetyEventsSnapshot {
+    return this.agent.getOhSafetyEvents();
+  }
+
+  /** OH-5 observe-only data quality. */
+  @Get('ops/data-quality')
+  getOhDataQuality(): import('@stockpred/shared-types').OhDataQualitySnapshot {
+    return this.agent.getOhDataQuality();
+  }
+
+  /** OH-6 unified operational report (OH-1…OH-5 aggregate). */
+  @Get('ops/report')
+  getOhOpsReport(
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-brand-id') brandId?: string,
+  ): Promise<import('@stockpred/shared-types').OhOpsReportSnapshot> {
+    return this.agent.getOhOpsReport(userId, brandId);
   }
 
   @Get('calibration')

@@ -31,13 +31,18 @@ import {
   DEFAULT_RISK_LIMITS,
   FundamentalView,
   GateResultSnapshot,
+  HorizonPrediction,
   HumanDecisionAction,
   HumanIntelMetrics,
   HumanReasonCode,
+  MarketContext,
+  MultiTimeframeCandles,
   PortfolioSnapshot,
   PortfolioVerdict,
+  PredictionHorizon,
   RiskVerdict,
   StockQuote,
+  Timeframe,
   TradeDecision,
   TradeSide,
 } from '@stockpred/shared-types';
@@ -59,11 +64,17 @@ import {
   deriveAgentRecommendation,
   isWaitExpired,
   rankOpportunitiesForDisplay,
+  assessOpportunityRanking,
+  stampRankingContextFromResult,
   buildCapabilityStatuses,
   buildIntelligenceSnapshot,
+  candidatesFromAltData,
   capabilityRequestsFromStatuses,
   composeAgentAnalysis,
   confidenceToScale,
+  approximateH4ClosesFromH1,
+  approximateW1ClosesFromD1,
+  inferTradeHorizon,
   evaluateExitPolicy,
   evaluatePortfolio,
   evaluateRisk,
@@ -72,6 +83,22 @@ import {
   getEnvNumber,
   isPortfolioSnapshot,
   requiredCapabilitiesMissing,
+  OhPipelineMetricsCollector,
+  OhExecutionHealthCollector,
+  OhSafetyEventCollector,
+  OhDataQualityCollector,
+  validateQuoteSample,
+  validateCandleSeries,
+  validateFundamentals,
+  validateMarketContext,
+  buildOhReconciliationReport,
+  buildOhOpsReport,
+  diagnosticFromExecutionError,
+  priceDeviationPct,
+  OH2_PRICE_DEVIATION_PCT,
+  ohStage,
+  timeAsync,
+  timeSync,
 } from '@stockpred/shared-utils';
 import axios from 'axios';
 import { randomUUID } from 'crypto';
@@ -148,6 +175,14 @@ export class AgentService implements OnModuleInit {
   private lastDayStartEquity = 0;
   private lastWeekStartEquity = 0;
   private soakController: SoakController | null = null;
+  /** OH-1 observe-only pipeline timings (never authorizes). */
+  private readonly ohMetrics = new OhPipelineMetricsCollector();
+  /** OH-2 observe-only execution health (never authorizes). */
+  private readonly ohExecution = new OhExecutionHealthCollector();
+  /** OH-4 observe-only kill/disarm safety events (never authorizes). */
+  private readonly ohSafety = new OhSafetyEventCollector();
+  /** OH-5 observe-only data quality (never authorizes; never writes lastQuoteAgeMs). */
+  private readonly ohDataQuality = new OhDataQualityCollector();
   /** Symbol → last order-submit attempt (DUPLICATE_ORDER gate). */
   private readonly recentSubmits = new Map<string, number>();
   private readonly recommendations = new Map<string, AgentRecommendation>();
@@ -158,6 +193,8 @@ export class AgentService implements OnModuleInit {
   private readonly suggestions = new SuggestionStore();
   private readonly stateStore = new AgentStateStore();
   private readonly ledger = new DecisionLedgerStore();
+  /** Frozen T1.8 ranking batch from the latest getOpportunities call — never re-ranked at decision time. */
+  private lastOpportunityRanking: ReturnType<typeof assessOpportunityRanking> | null = null;
   private readonly opportunitiesDb = new OpportunityRepository();
   private readonly transactionAuditor = new AgentTransactionAuditor();
 
@@ -225,6 +262,103 @@ export class AgentService implements OnModuleInit {
     return readP5EvidenceUnlock(this.evidencePath());
   }
 
+  /** OH-1: observe-only pipeline latency snapshot. */
+  getOhPipelineMetrics(): import('@stockpred/shared-types').OhPipelineMetricsSnapshot {
+    this.ohMetrics.noteQuoteAge(this.lastQuoteAgeMs);
+    return this.ohMetrics.snapshot();
+  }
+
+  /** OH-2: observe-only execution health snapshot. */
+  getOhExecutionHealth(): import('@stockpred/shared-types').OhExecutionHealthSnapshot {
+    const connected = this.mode === 'LIVE' ? this.brokerTestOk : true;
+    this.ohExecution.setBrokerConnected(connected);
+    this.ohExecution.noteFailureStreak(this.execFailStreak);
+    return this.ohExecution.snapshot();
+  }
+
+  /** OH-4: observe-only kill/disarm safety event snapshot. */
+  getOhSafetyEvents(): import('@stockpred/shared-types').OhSafetyEventsSnapshot {
+    return this.ohSafety.snapshot();
+  }
+
+  /** OH-5: observe-only data quality snapshot. */
+  getOhDataQuality(): import('@stockpred/shared-types').OhDataQualitySnapshot {
+    return this.ohDataQuality.snapshot();
+  }
+
+  /**
+   * OH-6: unified operational report (OH-1…OH-5 aggregate).
+   * Observe-only — never authorizes or mutates trading path.
+   */
+  async getOhOpsReport(
+    userId?: string,
+    brandId?: string,
+  ): Promise<import('@stockpred/shared-types').OhOpsReportSnapshot> {
+    try {
+      const pipeline = this.getOhPipelineMetrics();
+      const execution = this.getOhExecutionHealth();
+      const safety = this.getOhSafetyEvents();
+      const dataQuality = this.getOhDataQuality();
+      let reconciliation: import('@stockpred/shared-types').OhReconciliationReport | null = null;
+      try {
+        reconciliation = await this.runOhReconciliation(userId, brandId);
+      } catch {
+        /* observe-only */
+      }
+      return buildOhOpsReport({
+        pipeline,
+        execution,
+        reconciliation,
+        safety,
+        dataQuality,
+      });
+    } catch {
+      return buildOhOpsReport({
+        pipeline: this.ohMetrics.snapshot(),
+        execution: this.ohExecution.snapshot(),
+        reconciliation: null,
+        safety: this.ohSafety.snapshot(),
+        dataQuality: this.ohDataQuality.snapshot(),
+      });
+    }
+  }
+
+  /**
+   * OH-3: observe-only ledger ↔ holdings ↔ positions reconciliation.
+   * Never authorizes, resizes, or cancels — detect/report only.
+   */
+  async runOhReconciliation(
+    userId?: string,
+    brandId?: string,
+  ): Promise<import('@stockpred/shared-types').OhReconciliationReport> {
+    const ledgerRows = this.ledger.list(200);
+    const portfolio = await this.fetchPortfolio(userId, brandId);
+    const positions = await this.getPositions();
+    return buildOhReconciliationReport({
+      ledger: ledgerRows.map((row) => ({
+        decisionId: row.decisionId,
+        symbol: row.symbol,
+        decision: row.decision,
+        timestamp: row.timestamp,
+        orderId: row.orderId,
+        executionOrderId: row.execution?.orderId,
+        executionQty: row.execution?.quantity,
+        executionStatus: row.execution?.status,
+        hasOutcome: row.outcome != null,
+      })),
+      holdings: (portfolio?.holdings ?? []).map((h) => ({
+        symbol: h.symbol,
+        quantity: h.quantity,
+        entryPrice: h.entryPrice,
+      })),
+      positions: (positions.positions ?? []).map((p) => ({
+        symbol: p.symbol,
+        quantity: p.quantity,
+        entryPrice: p.entryPrice,
+      })),
+    });
+  }
+
   /**
    * ARM / DISARM LIVE AUTONOMOUS (authorization latch).
    * ARM requires confirmLiveAuto === 'ARM LIVE AUTONOMOUS' and P5 evidence OVERALL=GO.
@@ -239,8 +373,18 @@ export class AgentService implements OnModuleInit {
     evidence: ReturnType<typeof readP5EvidenceUnlock>;
   } {
     if (!armed) {
+      try {
+        this.ohSafety.record({ code: 'DISARM_REQUESTED', message: 'operator DISARM' });
+      } catch {
+        /* observe-only */
+      }
       this.liveAutoArmed = false;
       this.persistState();
+      try {
+        this.ohSafety.record({ code: 'DISARM_CONFIRMED', message: 'liveAutoArmed=false' });
+      } catch {
+        /* observe-only */
+      }
       console.log('[trader-agent] LIVE AUTONOMOUS disarmed');
       const evidence = this.getP5EvidenceUnlock();
       return {
@@ -360,7 +504,7 @@ export class AgentService implements OnModuleInit {
     if (!portfolio) {
       throw new BadRequestException('Portfolio unavailable — cannot record WAIT');
     }
-    const pipeline = this.runDecisionPipeline(rec.analysis, portfolio, {
+    const pipeline = await this.runDecisionPipeline(rec.analysis, portfolio, {
       opportunityId: id,
       decisionId: id,
     });
@@ -375,6 +519,66 @@ export class AgentService implements OnModuleInit {
       {
         agentRecommendation: deriveAgentRecommendation({ decision: String(rec.analysis.decision) }),
         humanDecision: 'HUMAN_WAIT',
+        humanReasonCode: reason,
+      },
+    );
+
+    return { recommendation: rec, decision };
+  }
+
+  /**
+   * Phase 5 REJECT — records human REJECT evidence; never submits to Gate.
+   * PENDING/WAITING → REJECTED.
+   */
+  async rejectRecommendation(
+    id: string,
+    userId?: string,
+    reason?: string,
+  ): Promise<{ recommendation: AgentRecommendation; decision: DecisionLedgerEntry }> {
+    if (!userId) {
+      throw new BadRequestException('x-user-id is required');
+    }
+    const persisted = await this.opportunitiesDb.findForUser(id, userId);
+    const rec =
+      persisted != null
+        ? this.opportunitiesDb.toRecommendation(persisted)
+        : this.recommendations.get(id);
+    if (!rec) throw new NotFoundException('Recommendation not found');
+    if (rec.status !== 'PENDING' && rec.status !== 'WAITING') {
+      throw new BadRequestException(`Recommendation is ${rec.status}`);
+    }
+
+    rec.status = 'REJECTED';
+    this.recommendations.set(id, rec);
+    try {
+      await this.opportunitiesDb.markRejected(id, userId);
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error ? error.message : 'Failed to persist REJECT',
+      );
+    }
+
+    const portfolio = await this.fetchPortfolio(userId);
+    if (!portfolio) {
+      throw new BadRequestException('Portfolio unavailable — cannot record REJECT');
+    }
+    const pipeline = await this.runDecisionPipeline(rec.analysis, portfolio, {
+      opportunityId: id,
+      decisionId: id,
+    });
+
+    const decision = this.recordLedger(
+      pipeline,
+      'REJECTED',
+      'REJECT',
+      undefined,
+      [],
+      reason ? [`Human REJECT: ${reason}`] : ['Human REJECT'],
+      {
+        agentRecommendation: deriveAgentRecommendation({
+          decision: String(rec.analysis.decision),
+        }),
+        humanDecision: 'HUMAN_REJECT',
         humanReasonCode: reason,
       },
     );
@@ -460,6 +664,14 @@ export class AgentService implements OnModuleInit {
       this.liveUserConfirmed = false;
       this.liveAutoArmed = false;
       if (this.mode === 'LIVE') this.mode = 'PAPER';
+      try {
+        this.ohSafety.record({
+          code: 'TRADING_DISABLED',
+          message: 'tradingEnabled=false; LIVE latch cleared',
+        });
+      } catch {
+        /* observe-only */
+      }
     }
     this.persistState();
     await this.syncAutoTraderAgentGate(enabled);
@@ -499,9 +711,25 @@ export class AgentService implements OnModuleInit {
   setKillSwitch(enabled: boolean, flatten?: boolean): { killSwitch: boolean; flatten: boolean } {
     this.killSwitch = enabled;
     if (enabled) {
+      try {
+        this.ohSafety.record({
+          code: 'KILL_SWITCH_TRIGGERED',
+          message: flatten ? 'kill + flatten requested' : 'kill switch on',
+        });
+      } catch {
+        /* observe-only */
+      }
       if (this.liveArmed) this.liveArmed = false;
       if (this.liveAutoArmed) {
         this.liveAutoArmed = false;
+        try {
+          this.ohSafety.record({
+            code: 'DISARM_CONFIRMED',
+            message: 'liveAutoArmed cleared by kill switch',
+          });
+        } catch {
+          /* observe-only */
+        }
         console.log('[trader-agent] LIVE AUTONOMOUS disarmed (kill switch)');
       }
     }
@@ -515,6 +743,7 @@ export class AgentService implements OnModuleInit {
 
   recordBrokerTest(ok: boolean): void {
     this.brokerTestOk = ok;
+    this.ohExecution.setBrokerConnected(ok);
   }
 
   async listCapabilities(): Promise<{
@@ -731,6 +960,7 @@ export class AgentService implements OnModuleInit {
     decisionMode: AgentDecisionMode;
     opportunities: AgentAnalysis[];
     ranked: ReturnType<typeof rankOpportunitiesForDisplay>;
+    opportunityRanking: ReturnType<typeof assessOpportunityRanking>;
     added: Array<AgentAnalysis & { executedAt: number; quantity: number; status: 'APPROVED' }>;
     capabilityRequests: AgentCapabilityRequest[];
     disclaimer: string;
@@ -850,21 +1080,72 @@ export class AgentService implements OnModuleInit {
       autonomousAccepted: autonomous?.accepted ?? 0,
     };
 
+    const marketContextForRank = await this.fetchTiMarketContext();
+
+    const rankingCandidates = await Promise.all(
+      synced.map(async (row) => {
+        const [ml, crossSectional, multiHorizon, catalyst] = await Promise.all([
+          this.fetchTiMlPrediction(row.analysis.symbol),
+          this.fetchTiCrossSectional(row.analysis.symbol),
+          this.fetchTiMultiHorizon(row.analysis.symbol, row.analysis.setup?.expectedHoldingPeriod),
+          this.fetchTiCatalyst(row.analysis.symbol),
+        ]);
+        const decision = evaluateTrade({ analysis: row.analysis });
+        const snap = buildIntelligenceSnapshot({
+          analysis: row.analysis,
+          decision,
+          sourceDataTimestamp: row.analysis.generatedAt,
+          marketContext: marketContextForRank ?? undefined,
+          mlPrediction: ml,
+          crossSectional: crossSectional ?? undefined,
+          multiHorizon: multiHorizon ?? undefined,
+          catalyst: catalyst ?? undefined,
+        });
+        return {
+          opportunityId: row.id,
+          symbol: row.analysis.symbol,
+          snapshot: snap,
+          portfolioFit: 'GOOD' as const,
+          quality: row.analysis.scores.overall ?? 0,
+          expectedValueR: snap.expectedValue?.expectedValueR ?? 0,
+          signalScore: row.analysis.scores.overall ?? 0,
+          quantity: row.analysis.setup.positionSize ?? 0,
+        };
+      }),
+    );
+
+    const opportunityRanking = assessOpportunityRanking({
+      context: {
+        tradeHorizon: 'SWING_TRADE',
+        strategyTag: 'BREAKOUT',
+        timestamp: new Date().toISOString(),
+      },
+      candidates: rankingCandidates.map((c) => ({
+        opportunityId: c.opportunityId,
+        symbol: c.symbol,
+        snapshot: c.snapshot,
+        portfolioFit: c.portfolioFit,
+      })),
+    });
+    // Freeze cohort for subsequent human decisions — do not re-run ranking later.
+    this.lastOpportunityRanking = opportunityRanking;
+
     return {
       mode: this.mode,
       decisionMode: this.decisionMode,
       opportunities: synced.map((row) => row.analysis),
       ranked: rankOpportunitiesForDisplay(
-        synced.map((row) => ({
-          opportunityId: row.id,
-          symbol: row.analysis.symbol,
-          quality: row.analysis.scores.overall ?? 0,
-          expectedValueR: 0,
-          signalScore: row.analysis.scores.overall ?? 0,
-          quantity: row.analysis.setup.positionSize ?? 0,
-          portfolioFit: 'GOOD' as const,
+        rankingCandidates.map((c) => ({
+          opportunityId: c.opportunityId,
+          symbol: c.symbol,
+          quality: c.quality,
+          expectedValueR: c.expectedValueR,
+          signalScore: c.signalScore,
+          quantity: c.quantity,
+          portfolioFit: c.portfolioFit,
         })),
       ),
+      opportunityRanking,
       added,
       capabilityRequests: requests.filter(
         (row) => this.suggestions.get(row.id)?.status !== 'acknowledged',
@@ -1192,7 +1473,7 @@ export class AgentService implements OnModuleInit {
     }
     const symbolSector = this.resolveSymbolSector(symbol, portfolio, quote, fundamentals);
 
-    const pipeline = this.runDecisionPipeline(analysis, portfolio, {
+    const pipeline = await this.runDecisionPipeline(analysis, portfolio, {
       opportunityId: id,
       decisionId: id,
       quoteTimestamp: quote?.updatedAt,
@@ -1203,6 +1484,17 @@ export class AgentService implements OnModuleInit {
     const policyOutcome = pipeline.policy.outcome;
     if (opts?.autonomous) {
       if (policyOutcome !== 'AUTO_ACCEPTED') {
+        try {
+          this.ohSafety.record({
+            code: 'AUTONOMOUS_AUTHORIZATION_BLOCKED',
+            decisionId: id,
+            symbol: (setup.instrument || symbol)?.toUpperCase?.() ?? symbol,
+            message: `policy=${policyOutcome}`,
+            details: { reasonCodes: pipeline.policy.reasonCodes },
+          });
+        } catch {
+          /* observe-only */
+        }
         this.recordLedger(
           pipeline,
           'HUMAN_REQUIRED',
@@ -1257,6 +1549,17 @@ export class AgentService implements OnModuleInit {
     if (entryPrice > 0 && livePrice != null) {
       const deviationPct = (Math.abs(livePrice - entryPrice) / entryPrice) * 100;
       if (deviationPct > this.riskBudgets.maxPriceDeviationPct) {
+        this.ohExecution.record({
+          phase: 'ERROR',
+          decisionId: pipeline.decision.decisionId,
+          symbol: tradedSymbol,
+          expectedPrice: entryPrice,
+          fillPrice: livePrice,
+          priceDeviationPct: deviationPct,
+          ok: false,
+          diagnostic: 'PRICE_DEVIATION',
+          message: `Pre-submit price deviation ${deviationPct.toFixed(2)}%`,
+        });
         this.recordLedger(
           pipeline,
           'RISK_BLOCKED',
@@ -1275,6 +1578,14 @@ export class AgentService implements OnModuleInit {
 
     const lastSubmit = this.recentSubmits.get(tradedSymbol);
     if (lastSubmit != null && Date.now() - lastSubmit < DUPLICATE_ORDER_WINDOW_MS) {
+      this.ohExecution.record({
+        phase: 'ERROR',
+        decisionId: pipeline.decision.decisionId,
+        symbol: tradedSymbol,
+        ok: false,
+        diagnostic: 'DUPLICATE_ATTEMPT',
+        message: `Duplicate submit window ${DUPLICATE_ORDER_WINDOW_MS}ms`,
+      });
       this.recordLedger(
         pipeline,
         'RISK_BLOCKED',
@@ -1335,6 +1646,22 @@ export class AgentService implements OnModuleInit {
         pipeline.risk.allowed === true
           ? pipeline.risk.riskAmount
           : Math.abs((setup.entry ?? 0) - (setup.stopLoss ?? 0)) * quantity;
+      this.ohExecution.setBrokerConnected(this.mode === 'LIVE' ? this.brokerTestOk : true);
+      this.ohExecution.noteSubmitStarted({
+        decisionId,
+        symbol: tradedSymbol,
+        expectedQty: quantity,
+        expectedPrice: entryPrice > 0 ? entryPrice : undefined,
+      });
+      this.ohExecution.record({
+        phase: 'SUBMIT',
+        decisionId,
+        symbol: tradedSymbol,
+        expectedQty: quantity,
+        expectedPrice: entryPrice > 0 ? entryPrice : undefined,
+        ok: true,
+      });
+      const submitStarted = Date.now();
       const trade = await axios.post(
         `${this.autoTraderUrl}/trade/execute`,
         {
@@ -1356,6 +1683,42 @@ export class AgentService implements OnModuleInit {
           timeout: 30_000,
         },
       );
+      const submitAckMs = Date.now() - submitStarted;
+      const tradeData = trade.data as {
+        id?: string;
+        quantity?: number;
+        price?: number;
+        positionId?: string;
+      };
+      const orderId = tradeData?.id;
+      const actualQty = tradeData?.quantity ?? quantity;
+      const fillPrice = tradeData?.price ?? setup.entry ?? null;
+      const dev =
+        entryPrice > 0 && fillPrice != null ? priceDeviationPct(entryPrice, fillPrice) : null;
+      const fillDiagnostic =
+        actualQty !== quantity
+          ? ('QTY_MISMATCH' as const)
+          : dev != null && dev >= OH2_PRICE_DEVIATION_PCT
+            ? ('PRICE_DEVIATION' as const)
+            : undefined;
+      this.ohExecution.record({
+        phase: 'FILL',
+        decisionId,
+        orderId,
+        positionId: tradeData?.positionId,
+        symbol: tradedSymbol,
+        submitAckMs,
+        fillMs: submitAckMs,
+        e2eMs: submitAckMs,
+        expectedQty: quantity,
+        actualQty,
+        expectedPrice: entryPrice > 0 ? entryPrice : undefined,
+        fillPrice: fillPrice ?? undefined,
+        priceDeviationPct: dev,
+        ok: fillDiagnostic == null,
+        diagnostic: fillDiagnostic,
+      });
+      this.ohExecution.noteFailureStreak(0);
 
       this.execFailStreak = 0;
       rec.status = 'APPROVED';
@@ -1390,7 +1753,7 @@ export class AgentService implements OnModuleInit {
         {
           quantity,
           entryPrice: setup.entry ?? undefined,
-          orderId: (trade.data as { id?: string })?.id,
+          orderId,
           status: 'EXECUTED',
           plannedRiskAmount,
         },
@@ -1415,6 +1778,18 @@ export class AgentService implements OnModuleInit {
       };
     } catch (error) {
       this.execFailStreak += 1;
+      this.ohExecution.noteFailureStreak(this.execFailStreak);
+      const diagnostic = diagnosticFromExecutionError(error);
+      this.ohExecution.record({
+        phase: 'ERROR',
+        decisionId: pipeline.decision.decisionId,
+        symbol: tradedSymbol,
+        expectedQty: quantity,
+        expectedPrice: entryPrice > 0 ? entryPrice : undefined,
+        ok: false,
+        diagnostic,
+        message: error instanceof Error ? error.message : 'Trade execution failed',
+      });
       if (this.execFailStreak >= EXEC_FAIL_CIRCUIT && this.decisionMode === 'AUTONOMOUS') {
         this.decisionMode = 'APPROVAL';
         this.persistState();
@@ -1510,7 +1885,7 @@ export class AgentService implements OnModuleInit {
     return fromHolding;
   }
 
-  private runDecisionPipeline(
+  private async runDecisionPipeline(
     analysis: AgentAnalysis,
     portfolio: PortfolioSnapshot,
     opts: {
@@ -1520,7 +1895,7 @@ export class AgentService implements OnModuleInit {
       quantityOverride?: number;
       symbolSector?: string | null;
     },
-  ): {
+  ): Promise<{
     decision: TradeDecision;
     risk: RiskVerdict;
     portfolio: PortfolioVerdict;
@@ -1528,20 +1903,48 @@ export class AgentService implements OnModuleInit {
     budgetSnapshot: DecisionBudgetSnapshot;
     /** Observe-only — never passed into Risk / Portfolio / Policy / Gate. */
     intelligenceSnapshot: import('@stockpred/shared-types').IntelligenceSnapshot;
-  } {
-    const decision = evaluateTrade({
-      analysis,
-      opportunityId: opts.opportunityId,
-      decisionId: opts.decisionId,
-      quoteTimestamp: opts.quoteTimestamp,
-    });
+  }> {
+    const pipelineStarted = Date.now();
+    const stages: import('@stockpred/shared-types').OhStageTimingMs[] = [];
+
+    const tradeTimed = timeSync(() =>
+      evaluateTrade({
+        analysis,
+        opportunityId: opts.opportunityId,
+        decisionId: opts.decisionId,
+        quoteTimestamp: opts.quoteTimestamp,
+      }),
+    );
+    const decision = tradeTimed.value;
+    stages.push(ohStage('evaluateTrade', tradeTimed.ms));
+
+    const tiTimed = await timeAsync(() =>
+      Promise.all([
+        this.fetchTiMarketContext(),
+        this.fetchTiMlPrediction(analysis.symbol),
+        this.fetchTiCrossSectional(analysis.symbol),
+        this.fetchTiMultiHorizon(analysis.symbol, analysis.setup?.expectedHoldingPeriod),
+        this.fetchTiCatalyst(analysis.symbol),
+      ]),
+    );
+    const [marketContext, mlPrediction, crossSectional, multiHorizon, catalyst] = tiTimed.value;
+    stages.push(ohStage('tiFetch', tiTimed.ms));
 
     // P4: capture intelligence for the ledger only — not fed into engines below.
-    const intelligenceSnapshot = buildIntelligenceSnapshot({
-      analysis,
-      decision,
-      sourceDataTimestamp: opts.quoteTimestamp ?? analysis.generatedAt,
-    });
+    const intelTimed = timeSync(() =>
+      buildIntelligenceSnapshot({
+        analysis,
+        decision,
+        sourceDataTimestamp: opts.quoteTimestamp ?? analysis.generatedAt,
+        marketContext: marketContext ?? undefined,
+        mlPrediction,
+        crossSectional: crossSectional ?? undefined,
+        multiHorizon: multiHorizon ?? undefined,
+        catalyst: catalyst ?? undefined,
+      }),
+    );
+    const intelligenceSnapshot = intelTimed.value;
+    stages.push(ohStage('intelligenceSnapshot', intelTimed.ms));
 
     const currentEquity = portfolio.equity || portfolio.capital;
     const dayStartEquity = portfolio.dayStartEquity ?? portfolio.equity ?? portfolio.capital;
@@ -1550,17 +1953,21 @@ export class AgentService implements OnModuleInit {
     const confidence = decision.confidence;
     const symbolSector = opts.symbolSector ?? null;
 
-    let risk = evaluateRisk({
-      decision,
-      capital: currentEquity,
-      cash: portfolio.cash,
-      riskPerTradePercent,
-      confidence,
-      tradingEnabled: this.tradingEnabled,
-      killSwitch: this.killSwitch,
-      dayStartEquity,
-      weekStartEquity,
-    });
+    const riskTimed = timeSync(() =>
+      evaluateRisk({
+        decision,
+        capital: currentEquity,
+        cash: portfolio.cash,
+        riskPerTradePercent,
+        confidence,
+        tradingEnabled: this.tradingEnabled,
+        killSwitch: this.killSwitch,
+        dayStartEquity,
+        weekStartEquity,
+      }),
+    );
+    let risk = riskTimed.value;
+    stages.push(ohStage('evaluateRisk', riskTimed.ms));
 
     if (risk.allowed && opts.quantityOverride != null && opts.quantityOverride >= 1) {
       const entry = decision.setup.entry ?? 0;
@@ -1577,25 +1984,33 @@ export class AgentService implements OnModuleInit {
       }
     }
 
-    const portVerdict = evaluatePortfolio({
-      decision,
-      risk,
-      portfolio,
-      maxOpenPositions: this.riskBudgets.maxOpenPositions,
-      maxNameExposurePct: this.riskBudgets.maxNameExposurePct,
-      maxSectorExposurePct: this.riskBudgets.maxSectorExposurePct,
-      cashReservePct: this.riskBudgets.cashReservePct,
-      symbolSector,
-    });
+    const portTimed = timeSync(() =>
+      evaluatePortfolio({
+        decision,
+        risk,
+        portfolio,
+        maxOpenPositions: this.riskBudgets.maxOpenPositions,
+        maxNameExposurePct: this.riskBudgets.maxNameExposurePct,
+        maxSectorExposurePct: this.riskBudgets.maxSectorExposurePct,
+        cashReservePct: this.riskBudgets.cashReservePct,
+        symbolSector,
+      }),
+    );
+    const portVerdict = portTimed.value;
+    stages.push(ohStage('evaluatePortfolio', portTimed.ms));
 
-    const policy = applyDecisionPolicy({
-      operatingMode: this.mode,
-      decisionMode: this.decisionMode,
-      eligibility: decision.eligibility,
-      risk,
-      portfolio: portVerdict,
-      liveAutoArmed: this.liveAutoEffective(),
-    });
+    const policyTimed = timeSync(() =>
+      applyDecisionPolicy({
+        operatingMode: this.mode,
+        decisionMode: this.decisionMode,
+        eligibility: decision.eligibility,
+        risk,
+        portfolio: portVerdict,
+        liveAutoArmed: this.liveAutoEffective(),
+      }),
+    );
+    const policy = policyTimed.value;
+    stages.push(ohStage('applyDecisionPolicy', policyTimed.ms));
 
     const quantityBeforeConfidence = risk.allowed
       ? (risk.quantityBeforeConfidence ?? risk.quantity)
@@ -1624,6 +2039,21 @@ export class AgentService implements OnModuleInit {
       cashReservePct: this.riskBudgets.cashReservePct,
     };
 
+    const totalMs = Date.now() - pipelineStarted;
+    stages.push(ohStage('pipelineTotal', totalMs));
+    this.ohMetrics.record({
+      sampleId: randomUUID(),
+      recordedAt: Date.now(),
+      kind: 'PIPELINE',
+      symbol: analysis.symbol,
+      decisionId: decision.decisionId,
+      opportunityId: opts.opportunityId,
+      stages,
+      totalMs,
+      quoteAgeMs: this.lastQuoteAgeMs,
+      ok: true,
+    });
+
     return { decision, risk, portfolio: portVerdict, policy, budgetSnapshot, intelligenceSnapshot };
   }
 
@@ -1649,6 +2079,11 @@ export class AgentService implements OnModuleInit {
     },
   ): DecisionLedgerEntry {
     const { decision, risk, portfolio, policy, budgetSnapshot, intelligenceSnapshot } = pipeline;
+    const rankingContext = stampRankingContextFromResult(
+      this.lastOpportunityRanking,
+      decision.opportunityId ?? '',
+      decision.symbol,
+    );
     return this.ledger.append({
       decisionId: decision.decisionId,
       opportunityId: decision.opportunityId,
@@ -1694,6 +2129,7 @@ export class AgentService implements OnModuleInit {
       humanDecision: evidence?.humanDecision,
       humanReasonCode: evidence?.humanReasonCode,
       gateResult: evidence?.gateResult,
+      rankingContext: rankingContext ?? undefined,
     });
   }
 
@@ -1901,20 +2337,290 @@ export class AgentService implements OnModuleInit {
         params: { page: 1, limit: 200, suggestion: 'ACTIONABLE', sort: 'confidence' },
         timeout: 20_000,
       });
-      return data.data ?? [];
+      const quotes = data.data ?? [];
+      try {
+        this.ohDataQuality.noteSourceReachable(true);
+        for (const q of quotes.slice(0, 25)) {
+          const issues = validateQuoteSample(q);
+          if (q?.updatedAt != null && Number.isFinite(q.updatedAt)) {
+            this.ohDataQuality.noteQuoteAge(Date.now() - q.updatedAt);
+          }
+          this.ohDataQuality.recordIssues('QUOTE', issues, { symbol: q?.symbol });
+        }
+      } catch {
+        /* OH-5 observe-only */
+      }
+      return quotes;
     } catch {
+      try {
+        this.ohDataQuality.noteSourceReachable(false);
+        this.ohDataQuality.recordIssues('SOURCE', validateQuoteSample(null));
+      } catch {
+        /* OH-5 observe-only */
+      }
       return [];
+    }
+  }
+
+  /** Quote RS + peer valuation for T1.4 (observe-only). */
+  private async fetchTiCrossSectional(symbol: string): Promise<{
+    rsVsNifty50?: number | null;
+    sector?: string | null;
+    peVsMedianPct?: number | null;
+    pbVsMedianPct?: number | null;
+    asOf?: string | number;
+  } | null> {
+    try {
+      const [quoteRes, peerRes] = await Promise.all([
+        axios.get(`${this.marketDataUrl}/stocks/${encodeURIComponent(symbol)}`, {
+          timeout: 5_000,
+          validateStatus: (s) => s >= 200 && s < 500,
+        }),
+        axios.get(`${this.marketDataUrl}/stocks/${encodeURIComponent(symbol)}/peer-valuation`, {
+          timeout: 5_000,
+          validateStatus: (s) => s >= 200 && s < 500,
+        }),
+      ]);
+      const quote = quoteRes.data as Record<string, unknown> | null;
+      const peer = peerRes.data as Record<string, unknown> | null;
+      const scanner = (quote?.scanner as Record<string, unknown> | undefined) ?? undefined;
+      const rs =
+        typeof quote?.relativeStrengthNifty50 === 'number'
+          ? quote.relativeStrengthNifty50
+          : typeof scanner?.relativeStrengthNifty50 === 'number'
+            ? scanner.relativeStrengthNifty50
+            : null;
+      const sector =
+        (typeof peer?.sector === 'string' ? peer.sector : null) ??
+        (typeof quote?.sector === 'string' ? quote.sector : null);
+      return {
+        rsVsNifty50: rs,
+        sector,
+        peVsMedianPct: typeof peer?.peVsMedianPct === 'number' ? peer.peVsMedianPct : null,
+        pbVsMedianPct: typeof peer?.pbVsMedianPct === 'number' ? peer.pbVsMedianPct : null,
+        asOf: Date.now(),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** MTF + daily closes for T1.5 multi-horizon agreement (observe-only). */
+  private async fetchTiMultiHorizon(
+    symbol: string,
+    expectedHoldingPeriod?: string | null,
+  ): Promise<{
+    tradeHorizon: ReturnType<typeof inferTradeHorizon>;
+    intendedSide: 'LONG';
+    closesByHorizon: Partial<Record<'M5' | 'M15' | 'H1' | 'H4' | 'D1' | 'W1', number[]>>;
+    sourceDataTimestamp?: string;
+    asOf?: number;
+  } | null> {
+    try {
+      const [mtfRes, dailyRes] = await Promise.all([
+        axios.get<MultiTimeframeCandles>(
+          `${this.marketDataUrl}/stocks/${encodeURIComponent(symbol)}/candles/mtf`,
+          {
+            params: { limit: 120 },
+            timeout: 8_000,
+            validateStatus: (s) => s >= 200 && s < 500,
+          },
+        ),
+        axios.get<Array<{ close?: number; timestamp?: number }>>(
+          `${this.marketDataUrl}/stocks/${encodeURIComponent(symbol)}/candles`,
+          {
+            params: { timeframe: Timeframe.ONE_DAY, limit: 120 },
+            timeout: 8_000,
+            validateStatus: (s) => s >= 200 && s < 500,
+          },
+        ),
+      ]);
+      const mtf = mtfRes.status < 300 ? mtfRes.data : null;
+      const daily = dailyRes.status < 300 && Array.isArray(dailyRes.data) ? dailyRes.data : [];
+      try {
+        this.ohDataQuality.noteSourceReachable(Boolean(mtf) || daily.length > 0);
+        if (mtf) {
+          for (const tf of ['1m', '5m', '15m', '1h'] as const) {
+            this.ohDataQuality.recordIssues('CANDLE', validateCandleSeries(mtf[tf], tf), {
+              symbol,
+              timeframe: tf,
+            });
+          }
+        }
+        this.ohDataQuality.recordIssues(
+          'CANDLE',
+          validateCandleSeries(daily as Array<{ close?: number; time?: number }>, '1d'),
+          { symbol, timeframe: '1d' },
+        );
+      } catch {
+        /* OH-5 observe-only */
+      }
+      if (!mtf && !daily.length) return null;
+
+      const closes = (bars: Array<{ close?: number }> | undefined): number[] =>
+        (bars ?? []).map((b) => Number(b.close)).filter((c) => Number.isFinite(c) && c > 0);
+
+      const h1 = closes(mtf?.['1h']);
+      const d1 = closes(daily);
+      const lastTs =
+        daily.length > 0
+          ? Number((daily[daily.length - 1] as { time?: number }).time)
+          : mtf?.['1h']?.length
+            ? Number(mtf['1h'][mtf['1h'].length - 1]?.time)
+            : undefined;
+
+      return {
+        tradeHorizon: inferTradeHorizon(expectedHoldingPeriod),
+        intendedSide: 'LONG',
+        closesByHorizon: {
+          M5: closes(mtf?.['5m']),
+          M15: closes(mtf?.['15m']),
+          H1: h1,
+          H4: approximateH4ClosesFromH1(h1),
+          D1: d1,
+          W1: approximateW1ClosesFromD1(d1),
+        },
+        sourceDataTimestamp:
+          lastTs != null && Number.isFinite(lastTs) ? new Date(lastTs).toISOString() : undefined,
+        asOf: Date.now(),
+      };
+    } catch {
+      try {
+        this.ohDataQuality.noteSourceReachable(false);
+        this.ohDataQuality.recordIssues(
+          'CANDLE',
+          [{ diagnostic: 'SOURCE_UNAVAILABLE', message: 'mtf fetch failed' }],
+          {
+            symbol,
+          },
+        );
+      } catch {
+        /* OH-5 observe-only */
+      }
+      return null;
+    }
+  }
+
+  /** MDS market context for TI regime engine (observe-only). */
+  private async fetchTiMarketContext(): Promise<{
+    scannerRegime?: string;
+    vixLevel?: number | null;
+    niftyChangePercent?: number | null;
+    breadthPercentAboveEma50?: number | null;
+    asOf?: string | number;
+  } | null> {
+    try {
+      const { data } = await axios.get<MarketContext>(`${this.marketDataUrl}/market/context`, {
+        timeout: 5_000,
+      });
+      try {
+        this.ohDataQuality.recordIssues('CONTEXT', validateMarketContext(data));
+      } catch {
+        /* OH-5 observe-only */
+      }
+      if (!data?.regime) return null;
+      return {
+        scannerRegime: String(data.regime),
+        vixLevel: data.vixLevel ?? null,
+        niftyChangePercent: data.niftyChangePercent ?? null,
+        breadthPercentAboveEma50: data.breadth?.percentAboveEma50 ?? null,
+        asOf: data.breadth?.asOf ?? Date.now(),
+      };
+    } catch {
+      try {
+        this.ohDataQuality.recordIssues('CONTEXT', validateMarketContext(null));
+      } catch {
+        /* OH-5 observe-only */
+      }
+      return null;
+    }
+  }
+
+  /** Usable ML prediction from MDS (fresh + drift-compatible). Observe-only. */
+  private async fetchTiMlPrediction(symbol: string): Promise<HorizonPrediction | null> {
+    try {
+      const { data } = await axios.get<Record<string, unknown> | null>(
+        `${this.marketDataUrl}/market/predictions/${encodeURIComponent(symbol)}`,
+        { timeout: 5_000, validateStatus: (status) => status >= 200 && status < 500 },
+      );
+      if (!data || typeof data !== 'object') return null;
+      const modelVersion = typeof data.modelVersion === 'string' ? data.modelVersion : null;
+      if (!modelVersion) return null;
+      const horizonRaw = String(data.horizon ?? PredictionHorizon.NEXT_DAY);
+      const horizon =
+        horizonRaw === PredictionHorizon.NEXT_WEEK
+          ? PredictionHorizon.NEXT_WEEK
+          : PredictionHorizon.NEXT_DAY;
+      const predictionTimestamp =
+        typeof data.predictionTimestamp === 'string' ? data.predictionTimestamp : undefined;
+      return {
+        symbol: String(data.symbol ?? symbol).toUpperCase(),
+        direction: String(data.direction ?? 'SIDEWAYS'),
+        confidence: Number(data.confidence ?? 0),
+        expectedMove: Number(data.expectedMove ?? 0),
+        horizon,
+        modelVersion,
+        modelId: typeof data.modelId === 'string' ? data.modelId : undefined,
+        generatedAt: predictionTimestamp
+          ? Date.parse(predictionTimestamp) || Date.now()
+          : Date.now(),
+        probabilities: data.probabilities as HorizonPrediction['probabilities'],
+        calibratedProbabilities:
+          data.calibratedProbabilities as HorizonPrediction['calibratedProbabilities'],
+        predictionTimestamp,
+        sourceDataTimestamp: (data.sourceDataTimestamp as string | null | undefined) ?? null,
+        expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : undefined,
+        featureVersion: typeof data.featureVersion === 'string' ? data.featureVersion : undefined,
+        datasetVersion: typeof data.datasetVersion === 'string' ? data.datasetVersion : undefined,
+        freshnessStatus: data.freshnessStatus as HorizonPrediction['freshnessStatus'],
+        driftStatus: data.driftStatus as HorizonPrediction['driftStatus'],
+        expectedReturn: (data.expectedReturn as number | null | undefined) ?? null,
+        expectedMfe: (data.expectedMfe as number | null | undefined) ?? null,
+        expectedMae: (data.expectedMae as number | null | undefined) ?? null,
+      };
+    } catch {
+      return null;
     }
   }
 
   private async fetchQuote(symbol: string): Promise<StockQuote | null> {
     try {
+      if (!symbol || String(symbol).trim() === '') {
+        try {
+          this.ohDataQuality.record({
+            kind: 'QUOTE',
+            ok: false,
+            diagnostic: 'SYMBOL_MAPPING_FAILED',
+            message: 'empty symbol',
+          });
+        } catch {
+          /* OH-5 observe-only */
+        }
+      }
       const { data } = await axios.get<StockQuote>(
         `${this.marketDataUrl}/stocks/${encodeURIComponent(symbol)}`,
         { timeout: 10_000 },
       );
+      try {
+        this.ohDataQuality.noteSourceReachable(true);
+        const issues = validateQuoteSample(data);
+        if (data?.updatedAt != null && Number.isFinite(data.updatedAt)) {
+          this.ohDataQuality.noteQuoteAge(Date.now() - data.updatedAt);
+        }
+        this.ohDataQuality.recordIssues('QUOTE', issues, {
+          symbol: data?.symbol ?? symbol,
+        });
+      } catch {
+        /* OH-5 observe-only */
+      }
       return data;
     } catch {
+      try {
+        this.ohDataQuality.noteSourceReachable(false);
+        this.ohDataQuality.recordIssues('QUOTE', validateQuoteSample(null), { symbol });
+      } catch {
+        /* OH-5 observe-only */
+      }
       return null;
     }
   }
@@ -1925,8 +2631,22 @@ export class AgentService implements OnModuleInit {
         `${this.marketDataUrl}/stocks/${encodeURIComponent(symbol)}/fundamentals`,
         { timeout: 10_000 },
       );
+      try {
+        this.ohDataQuality.recordIssues('FUNDAMENTAL', validateFundamentals(data), {
+          symbol,
+        });
+      } catch {
+        /* OH-5 observe-only */
+      }
       return data;
     } catch {
+      try {
+        this.ohDataQuality.recordIssues('FUNDAMENTAL', validateFundamentals(null), {
+          symbol,
+        });
+      } catch {
+        /* OH-5 observe-only */
+      }
       return null;
     }
   }
@@ -1937,10 +2657,56 @@ export class AgentService implements OnModuleInit {
         `${this.marketDataUrl}/stocks/${encodeURIComponent(symbol)}/alt-data`,
         { timeout: 10_000 },
       );
+      try {
+        if (data == null || data.missing === true) {
+          this.ohDataQuality.recordIssues(
+            'ALT',
+            [{ diagnostic: 'CONTEXT_MISSING', message: 'alt-data missing' }],
+            { symbol },
+          );
+        } else {
+          const asOf = data.news?.asOfDate ?? data.social?.asOfDate ?? data.macro?.asOfDate;
+          if (asOf == null || !Number.isFinite(asOf)) {
+            this.ohDataQuality.recordIssues(
+              'ALT',
+              [{ diagnostic: 'CONTEXT_MISSING', message: 'alt-data asOf missing' }],
+              { symbol },
+            );
+          } else {
+            this.ohDataQuality.recordIssues('ALT', [], { symbol });
+          }
+        }
+      } catch {
+        /* OH-5 observe-only */
+      }
       return data;
     } catch {
+      try {
+        this.ohDataQuality.recordIssues(
+          'ALT',
+          [{ diagnostic: 'SOURCE_UNAVAILABLE', message: 'alt-data fetch failed' }],
+          { symbol },
+        );
+      } catch {
+        /* OH-5 observe-only */
+      }
       return null;
     }
+  }
+
+  /**
+   * T1.7 catalyst candidates from published alt-data only (observe-only).
+   * Does not invent an upcoming earnings calendar.
+   */
+  private async fetchTiCatalyst(symbol: string): Promise<{
+    candidates: ReturnType<typeof candidatesFromAltData>;
+    decisionTimestamp: number;
+  } | null> {
+    const alt = await this.fetchAltData(symbol);
+    if (!alt || alt.missing) return null;
+    const candidates = candidatesFromAltData(alt);
+    if (!candidates.length) return null;
+    return { candidates, decisionTimestamp: Date.now() };
   }
 
   private async fetchPortfolio(
@@ -2142,6 +2908,13 @@ export class AgentService implements OnModuleInit {
       closedAt: input.closedAt ?? Date.now(),
       realizedR,
       plannedRiskAmount: plannedRisk,
+      outcomeKind: 'ACTUAL',
+      rankingContextId: decision.rankingContext?.rankingContextId,
+      netR: realizedR,
+      grossR: realizedR,
+      maeR: null,
+      mfeR: null,
+      pathMetricsStatus: 'UNAVAILABLE',
     });
     return { recorded: !duplicate, duplicate, decisionId: decision.decisionId };
   }
