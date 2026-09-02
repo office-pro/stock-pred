@@ -4,6 +4,7 @@ import { join } from 'path';
 import { DEFAULT_BREAKER_CONFIG, emptyBreakerMetrics, evaluateBreakers } from './circuit-breakers';
 import { applyDecisionPolicy } from './decision-policy';
 import { isLiveAutoEffectivelyArmed, readP5EvidenceUnlock } from './p5-evidence-unlock';
+import { P8_TENANT_DRAWDOWN_GLOBAL_ONLY } from '@stockpred/shared-types';
 import {
   DEFAULT_SCALE_CONFIG,
   TenantBreakerStore,
@@ -137,5 +138,12 @@ describe('Phase 8 — scale throughput (same brain)', () => {
     });
     expect(paper.outcome).toBe('AUTO_ACCEPTED');
     expect(DEFAULT_SCALE_CONFIG).not.toHaveProperty('outcome');
+  });
+
+  it('P8.1: autoPnlDrawdownPct is global-only per tenant snapshot', () => {
+    const store = new TenantBreakerStore();
+    store.recordAutoAccept('u1', 'b1');
+    expect(store.snapshot('u1', 'b1').autoPnlDrawdownPct).toBe(0);
+    expect(P8_TENANT_DRAWDOWN_GLOBAL_ONLY).toBe(true);
   });
 });

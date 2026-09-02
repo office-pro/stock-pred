@@ -118,6 +118,10 @@ export interface TenantBreakerCounters {
   dayKey: string;
   dailyAutoAcceptCount: number;
   consecutiveVetoCount: number;
+  /**
+   * Global-only metric — not populated per-tenant.
+   * Use AgentService global autoPnlDrawdownPct for observability/enforcement.
+   */
   autoPnlDrawdownPct: number;
 }
 

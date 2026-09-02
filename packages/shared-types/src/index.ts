@@ -19,3 +19,5 @@ export * from './thesis-intelligence';
 export * from './exit-intelligence';
 export * from './trade-lifecycle';
 export * from './t2-validation';
+export * from './p7-breakers';
+export * from './p8-scale';

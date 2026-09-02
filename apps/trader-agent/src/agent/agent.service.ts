@@ -54,6 +54,7 @@ import {
   isDecisionLedgerEntry,
   isDecisionOutcomeRecord,
 } from '@stockpred/shared-types';
+import type { P7AggregateState, P7BreakerSubState, P7Enforcement } from '@stockpred/shared-types';
 import {
   AGENT_CAPABILITY_DEFS,
   applyDecisionPolicy,
@@ -87,6 +88,10 @@ import {
   evaluatePortfolio,
   evaluateRisk,
   evaluateTrade,
+  buildP7BreakerMetrics,
+  emptyP7RecoveryStore,
+  evaluateP7BreakerSystem,
+  type CycleTimingMetrics,
   getEnv,
   getEnvNumber,
   isPortfolioSnapshot,
@@ -162,14 +167,10 @@ export class AgentService implements OnModuleInit {
   private lastQuoteAgeMs: number | null = 0;
   private lastScoreAbsZ: number | null = null;
   private lastSlippageAbsBps: number | null = null;
-  private qualityBandScore: number | null = null;
-  private qualityHistAvgR: number | null = null;
-  private qualityLiveAvgR: number | null = null;
-  private evHistAvgR: number | null = null;
-  private evLiveAvgR: number | null = null;
-  private calibrationDrift: number | null = null;
-  private regimeMismatchRate: number | null = null;
-  private executionDeterioration: number | null = null;
+  private readonly p7RecoveryStore = emptyP7RecoveryStore();
+  private lastP7AggregateState: P7AggregateState = 'INSUFFICIENT';
+  private lastP7Enforcement: P7Enforcement = 'NONE';
+  private lastP7SubStates: Partial<Record<string, P7BreakerSubState>> = {};
   private lastBreakerTripAt: number | null = null;
   private lastBreakerReasonCodes: DecisionReasonCode[] = [];
   private lastBreakerReasons: string[] = [];
@@ -177,15 +178,7 @@ export class AgentService implements OnModuleInit {
   /** Phase 8 throughput knobs (analysis parallel; accept sequential). */
   private readonly scaleConfig = loadScaleConfig();
   private readonly tenantBreakers = new TenantBreakerStore();
-  private lastCycleMetrics: {
-    scanMs: number;
-    analysisMs: number;
-    acceptMs: number;
-    symbolsScanned: number;
-    opportunitiesBuilt: number;
-    autonomousAttempted: number;
-    autonomousAccepted: number;
-  } | null = null;
+  private lastCycleMetrics: CycleTimingMetrics | null = null;
   private riskBudgets: AgentRiskBudgetConfig = { ...DEFAULT_AGENT_RISK_BUDGETS };
   /** Cached portfolio anchors for soak baselines (updated on portfolio fetch). */
   private lastPortfolioEquity = 0;
@@ -442,7 +435,10 @@ export class AgentService implements OnModuleInit {
     };
   }
 
-  getMode(): {
+  getMode(
+    userId?: string,
+    brandId?: string | null,
+  ): {
     tradingEnabled: boolean;
     mode: AgentMode;
     decisionMode: AgentDecisionMode;
@@ -469,7 +465,7 @@ export class AgentService implements OnModuleInit {
       liveAutoArmed: this.liveAutoArmed,
       liveAutoEffective: this.liveAutoEffective(),
       evidenceUnlock,
-      breakers: this.getBreakerStatus(),
+      breakers: this.getBreakerStatus(userId, brandId),
       scale: this.scaleConfig,
       lastCycleMetrics: this.lastCycleMetrics,
       disclaimer: AGENT_DISCLAIMER,
@@ -2118,7 +2114,6 @@ export class AgentService implements OnModuleInit {
         await this.approveRecommendation(id, userId, undefined, brandId, { autonomous: true });
         accepted += 1;
         this.tenantBreakers.recordAutoAccept(userId, brandId);
-        this.dailyAutoAcceptCount += 1;
       } catch {
         skipped += 1;
         this.tenantBreakers.recordVeto(userId, brandId);
@@ -3097,7 +3092,10 @@ export class AgentService implements OnModuleInit {
   }
 
   /** Phase 7 desk/API snapshot � stop status only; never authorizes. */
-  getBreakerStatus(): {
+  getBreakerStatus(
+    userId?: string,
+    brandId?: string | null,
+  ): {
     tripped: boolean;
     activeBreakers: string[];
     reasonCodes: DecisionReasonCode[];
@@ -3107,19 +3105,31 @@ export class AgentService implements OnModuleInit {
     lastTripReasons: string[];
     dailyAutoAcceptCount: number;
     consecutiveVetoCount: number;
+    aggregateState: P7AggregateState;
+    enforcement: P7Enforcement;
+    subStates: Partial<Record<string, P7BreakerSubState>>;
+    insufficientBreakers: string[];
   } {
     this.rollBreakerDayIfNeeded();
-    const evaluation = evaluateBreakers(this.collectBreakerMetrics());
+    const metrics = this.collectBreakerMetrics(userId, brandId);
+    const evaluation = evaluateBreakers(metrics, DEFAULT_BREAKER_CONFIG);
+    const tenant = userId ? this.tenantBreakers.get(userId, brandId) : null;
     return {
-      tripped: evaluation.tripped,
+      tripped: evaluation.tripped || this.lastP7Enforcement !== 'NONE',
       activeBreakers: evaluation.trips.map((t) => t.breakerId),
       reasonCodes: evaluation.reasonCodes,
       reasons: evaluation.reasons,
       lastTripAt: this.lastBreakerTripAt,
       lastTripReasonCodes: this.lastBreakerReasonCodes,
       lastTripReasons: this.lastBreakerReasons,
-      dailyAutoAcceptCount: this.dailyAutoAcceptCount,
-      consecutiveVetoCount: this.consecutiveVetoCount,
+      dailyAutoAcceptCount: tenant?.dailyAutoAcceptCount ?? this.dailyAutoAcceptCount,
+      consecutiveVetoCount: tenant?.consecutiveVetoCount ?? this.consecutiveVetoCount,
+      aggregateState: this.lastP7AggregateState,
+      enforcement: this.lastP7Enforcement,
+      subStates: this.lastP7SubStates,
+      insufficientBreakers: Object.entries(this.lastP7SubStates)
+        .filter(([, s]) => s === 'INSUFFICIENT')
+        .map(([k]) => k),
     };
   }
 
@@ -3135,7 +3145,7 @@ export class AgentService implements OnModuleInit {
     this.rollBreakerDayIfNeeded();
     const tenant = userId ? this.tenantBreakers.get(userId, brandId) : null;
     const brokerConnected = this.mode !== 'LIVE' || this.brokerTestOk;
-    return emptyBreakerMetrics({
+    const base = emptyBreakerMetrics({
       dailyAutoAcceptCount: tenant?.dailyAutoAcceptCount ?? this.dailyAutoAcceptCount,
       autoPnlDrawdownPct: tenant?.autoPnlDrawdownPct ?? this.autoPnlDrawdownPct,
       consecutiveVetoCount: tenant?.consecutiveVetoCount ?? this.consecutiveVetoCount,
@@ -3143,15 +3153,22 @@ export class AgentService implements OnModuleInit {
       brokerConnected,
       scoreAbsZ: this.lastScoreAbsZ,
       lastSlippageAbsBps: this.lastSlippageAbsBps,
-      qualityBandScore: this.qualityBandScore,
-      qualityHistAvgR: this.qualityHistAvgR,
-      qualityLiveAvgR: this.qualityLiveAvgR,
-      evHistAvgR: this.evHistAvgR,
-      evLiveAvgR: this.evLiveAvgR,
-      calibrationDrift: this.calibrationDrift,
-      regimeMismatchRate: this.regimeMismatchRate,
-      executionDeterioration: this.executionDeterioration,
     });
+    const records = this.ledger.listRaw(5_000);
+    const soakRunId = this.soakController?.getActiveRunId() ?? null;
+    const built = buildP7BreakerMetrics(base, { records, soakRunId }, this.p7RecoveryStore);
+    Object.assign(this.p7RecoveryStore, built.recovery);
+
+    const system = evaluateP7BreakerSystem({
+      metrics: built.breakerMetrics,
+      brokerConnected,
+      advancedSubStates: built.advancedSubStates,
+    });
+    this.lastP7AggregateState = system.aggregate;
+    this.lastP7Enforcement = system.enforcement;
+    this.lastP7SubStates = system.subStates;
+
+    return built.breakerMetrics;
   }
 
   /**
@@ -3159,11 +3176,13 @@ export class AgentService implements OnModuleInit {
    * Never sets liveAutoArmed and never returns AUTO_ACCEPTED.
    */
   private enforceBreakers(context: string, userId?: string, brandId?: string | null): boolean {
-    const evaluation = evaluateBreakers(
-      this.collectBreakerMetrics(userId, brandId),
-      DEFAULT_BREAKER_CONFIG,
-    );
-    if (!evaluation.tripped) {
+    const metrics = this.collectBreakerMetrics(userId, brandId);
+    const evaluation = evaluateBreakers(metrics, DEFAULT_BREAKER_CONFIG);
+    const shouldEnforce =
+      evaluation.tripped ||
+      this.lastP7Enforcement === 'FORCE_APPROVAL' ||
+      this.lastP7Enforcement === 'RESTRICT_AUTONOMOUS';
+    if (!shouldEnforce) {
       return false;
     }
     this.lastBreakerTripAt = Date.now();

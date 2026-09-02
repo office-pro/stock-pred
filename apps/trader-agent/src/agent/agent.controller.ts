@@ -161,8 +161,11 @@ export class AgentController {
   constructor(private readonly agent: AgentService) {}
 
   @Get('mode')
-  getMode(): ReturnType<AgentService['getMode']> {
-    return this.agent.getMode();
+  getMode(
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-brand-id') brandId?: string,
+  ): ReturnType<AgentService['getMode']> {
+    return this.agent.getMode(userId, brandId);
   }
 
   @Get('human-intel-metrics')
