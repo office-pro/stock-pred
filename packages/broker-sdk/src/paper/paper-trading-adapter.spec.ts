@@ -295,17 +295,19 @@ describe('PaperTradingAdapter', () => {
 
     test('emits authenticated event on login', (done) => {
       const newAdapter = new PaperTradingAdapter();
-      newAdapter.on('authenticated', (data: { brokerAccountId?: string }) => {
-        expect(data.brokerAccountId).toBeDefined();
+      newAdapter.on('authenticated', (data: unknown) => {
+        const payload = data as { brokerAccountId?: string };
+        expect(payload.brokerAccountId).toBeDefined();
         done();
       });
       void newAdapter.login();
     });
 
     test('emits order_placed event for pending orders', (done) => {
-      adapter.on('order_placed', (data: { orderId?: string; symbol?: string }) => {
-        expect(data.orderId).toBeDefined();
-        expect(data.symbol).toBe('RELIANCE');
+      adapter.on('order_placed', (data: unknown) => {
+        const payload = data as { orderId?: string; symbol?: string };
+        expect(payload.orderId).toBeDefined();
+        expect(payload.symbol).toBe('RELIANCE');
         done();
       });
 
@@ -321,9 +323,10 @@ describe('PaperTradingAdapter', () => {
     });
 
     test('emits order_filled event for executed orders', (done) => {
-      adapter.on('order_filled', (data: { orderId?: string; fillPrice?: number }) => {
-        expect(data.orderId).toBeDefined();
-        expect(data.fillPrice).toBeDefined();
+      adapter.on('order_filled', (data: unknown) => {
+        const payload = data as { orderId?: string; fillPrice?: number };
+        expect(payload.orderId).toBeDefined();
+        expect(payload.fillPrice).toBeDefined();
         done();
       });
 
