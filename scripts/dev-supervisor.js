@@ -20,6 +20,7 @@ const fs = require('fs');
 const http = require('http');
 const net = require('net');
 const path = require('path');
+const { isProtectedPid, processName } = require('./protected-pids');
 
 const ROOT = path.resolve(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'logs', 'dev');
@@ -212,6 +213,10 @@ function pidsOnPort(port) {
 
 function killPid(pid) {
   if (!pid || pid === process.pid) return;
+  if (isProtectedPid(pid)) {
+    log(`skipping Docker/system pid ${pid} (${processName(pid) || 'unknown'})`);
+    return;
+  }
   try {
     if (IS_WIN) {
       spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
@@ -229,11 +234,15 @@ function killPid(pid) {
 async function freePort(port) {
   const pids = pidsOnPort(port);
   for (const pid of pids) {
+    if (isProtectedPid(pid)) {
+      log(`leaving :${port} (Docker pid ${pid})`);
+      continue;
+    }
     log(`freeing :${port} (pid ${pid})`);
     killPid(pid);
   }
   const deadline = Date.now() + STOP_WAIT_MS;
-  while (Date.now() < deadline && pidsOnPort(port).length > 0) {
+  while (Date.now() < deadline && pidsOnPort(port).some((pid) => !isProtectedPid(pid))) {
     await sleep(200);
   }
 }
@@ -363,10 +372,27 @@ function buildIfNeeded(spec) {
   }
 }
 
+function closeServiceLog(runtime, child, logStream) {
+  if (runtime.logStream !== logStream) return;
+  runtime.logStream = null;
+  try {
+    child.stdout?.unpipe(logStream);
+    child.stderr?.unpipe(logStream);
+  } catch {
+    /* ignore */
+  }
+  try {
+    logStream.end();
+  } catch {
+    /* ignore */
+  }
+}
+
 function spawnChild(runtime, spec, env) {
   ensureDir(LOG_DIR);
   const logPath = path.join(LOG_DIR, `${spec.name}.log`);
   const logStream = fs.createWriteStream(logPath, { flags: 'a' });
+  logStream.on('error', () => {});
   logStream.write(`\n---- start ${new Date().toISOString()} ----\n${commandLine(spec)}\n`);
   const child = spawn(spec.cmd, spec.args, {
     cwd: spec.cwd,
@@ -376,9 +402,8 @@ function spawnChild(runtime, spec, env) {
   });
   child.stdout.pipe(logStream, { end: false });
   child.stderr.pipe(logStream, { end: false });
-  child.on('exit', () => {
-    logStream.end();
-  });
+  runtime.logStream = logStream;
+  child.on('close', () => closeServiceLog(runtime, child, logStream));
   runtime.child = child;
   runtime.logPath = logPath;
   runtime.startedAt = Date.now();
@@ -395,9 +420,18 @@ function spawnChild(runtime, spec, env) {
 async function stopChild(runtime) {
   runtime.stopping = true;
   const child = runtime.child;
+  const logStream = runtime.logStream;
   runtime.child = null;
+  runtime.logStream = null;
   if (child && child.pid) {
     killPid(child.pid);
+  }
+  if (logStream) {
+    try {
+      logStream.end();
+    } catch {
+      /* ignore */
+    }
   }
   await freePort(runtime.spec.port);
   await sleep(400);
@@ -615,6 +649,11 @@ async function stopAll() {
       log(`stopping supervisor pid ${pid}`);
       killPid(pid);
       await sleep(1000);
+    }
+    try {
+      fs.unlinkSync(PID_FILE);
+    } catch {
+      /* ignore */
     }
   }
   const pythonCmd = resolvePython();

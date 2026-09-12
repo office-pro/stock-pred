@@ -104,12 +104,17 @@ export type MarketDataSource = 'live' | 'cached' | 'listed' | 'simulated';
 export type IngestMode = 'LIVE_INGEST' | 'EOD_INGEST' | 'HISTORICAL_BACKFILL';
 
 /**
- * Session-aware freshness of a quote for consumers.
- * - LIVE: NSE cash session open and quote within live TTL
- * - CLOSED_MARKET: session closed (EOD/latest session OK for ML/analysis, not live entry)
- * - STALE: session open but quote older than live TTL (or missing timestamp)
+ * Session-aware freshness of a quote for consumers (labels only — not trade auth).
+ * - LIVE: NSE cash open and quote age ≤ 30s
+ * - DELAYED: NSE cash open and 30s < age ≤ Risk maxQuoteAgeMs (60s)
+ * - STALE: NSE cash open and age > 60s
+ * - CLOSED_MARKET: session closed (EOD OK for analysis, not live entry)
+ * - UNKNOWN: missing/invalid timestamp (never neutralize intelligence to “flat”)
+ *
+ * DELAYED is not an authorization state: evaluateTrade → Risk → Portfolio → Policy → Gate
+ * still run. Freshness alone does not block when age ≤ existing Risk maxQuoteAgeMs.
  */
-export type DataFreshnessStatus = 'LIVE' | 'CLOSED_MARKET' | 'STALE';
+export type DataFreshnessStatus = 'LIVE' | 'DELAYED' | 'CLOSED_MARKET' | 'STALE' | 'UNKNOWN';
 
 export type TradeSuggestion = 'BUY' | 'SELL' | 'HOLD';
 
@@ -154,9 +159,12 @@ export interface StockQuote extends StockInfo {
   updatedAt: number;
   /** Ingest path that produced this quote (optional; stamped by market-data). */
   ingestMode?: IngestMode;
-  /** Session-aware freshness — CLOSED_MARKET/STALE are never live-tradable. */
+  /** Session-aware freshness — STALE/UNKNOWN/CLOSED_MARKET are freshness-blocked for entry. */
   freshnessStatus?: DataFreshnessStatus;
-  /** True only when freshnessStatus === LIVE (does not bypass risk quote-age gate). */
+  /**
+   * True when freshness alone does not block (LIVE | DELAYED).
+   * Does not authorize trades — Risk still enforces maxQuoteAgeMs and full auth chain.
+   */
   liveUsable?: boolean;
 }
 

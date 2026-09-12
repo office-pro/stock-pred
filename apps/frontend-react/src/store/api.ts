@@ -261,7 +261,7 @@ export interface MlPromoteResponse {
 }
 
 export type MarketIngestMode = 'LIVE_INGEST' | 'EOD_INGEST' | 'HISTORICAL_BACKFILL';
-export type MarketQuoteStatus = 'LIVE' | 'CLOSED_MARKET' | 'STALE';
+export type MarketQuoteStatus = 'LIVE' | 'DELAYED' | 'CLOSED_MARKET' | 'STALE' | 'UNKNOWN';
 
 /** Ops contract from market-data — informational only; not trade authorization. */
 export interface MarketDataContract {
@@ -964,6 +964,21 @@ export const api = createApi({
     >({
       query: (body) => ({ url: '/brokers/test', method: 'POST', body }),
     }),
+    getP5EvidenceUnlock: builder.query<
+      {
+        unlocked: boolean;
+        overallDecision: 'GO' | 'NO-GO' | 'INCONCLUSIVE' | 'UNKNOWN';
+        path?: string;
+        exists?: boolean;
+        generatedAt?: string;
+        reason: string;
+        reasonCode?: string;
+      },
+      void
+    >({
+      query: () => '/agent/p5-evidence-unlock',
+      providesTags: ['AgentMode'],
+    }),
     getAgentMode: builder.query<
       {
         tradingEnabled: boolean;
@@ -980,7 +995,7 @@ export const api = createApi({
         liveAutoEffective: boolean;
         evidenceUnlock: {
           unlocked: boolean;
-          overallDecision: 'GO' | 'NO-GO' | 'UNKNOWN';
+          overallDecision: 'GO' | 'NO-GO' | 'INCONCLUSIVE' | 'UNKNOWN';
           reason: string;
           reasonCode?: string;
         };
@@ -1458,6 +1473,23 @@ export const api = createApi({
         disclaimer: string;
         waitIntelligenceById?: Record<string, WaitRecommendation>;
         thesisIntelligenceById?: Record<string, StructuredThesis>;
+        focusBatchId?: string | null;
+        opportunityProvenanceById?: Record<
+          string,
+          {
+            discoverySource: 'OFFLINE_PRESELECTED' | 'LIVE_DISCOVERED';
+            batchId?: string;
+            focusTier?: 1 | 2 | 3;
+            liveReady: boolean;
+            dataProvenance: {
+              dataAsOf: number;
+              receivedAt: number;
+              analysisAt: number;
+              dataAgeMs: number;
+              dataStatus: MarketQuoteStatus;
+            };
+          }
+        >;
       },
       { limit?: number } | void
     >({
@@ -1466,6 +1498,37 @@ export const api = createApi({
         return `/agent/opportunities?limit=${limit ?? 20}`;
       },
       providesTags: ['AgentOpportunities'],
+    }),
+    getFocusUniverseLatest: builder.query<
+      {
+        batchId: string;
+        generatedAt: number;
+        dataAsOf: number;
+        source: string;
+        dataStatus: string;
+        universeSize: number;
+        candidates: Array<{ symbol: string; focusTier: 1 | 2 | 3; rank: number }>;
+      } | null,
+      void
+    >({
+      query: () => `/agent/focus-universe/latest`,
+      providesTags: ['AgentOpportunities'],
+    }),
+    runOfflineFocusBatch: builder.mutation<
+      {
+        batchId: string;
+        generatedAt: number;
+        universeSize: number;
+        candidates: Array<{ symbol: string; focusTier: 1 | 2 | 3; rank: number }>;
+      },
+      { limit?: number } | void
+    >({
+      query: (arg) => ({
+        url: `/agent/focus-universe/run-offline?limit=${arg && 'limit' in arg && arg.limit ? arg.limit : 80}`,
+        method: 'POST',
+        body: {},
+      }),
+      invalidatesTags: ['AgentOpportunities'],
     }),
     getAgentAnalysis: builder.query<Record<string, unknown>, string>({
       query: (symbol) => `/agent/analysis/${symbol}`,
@@ -1699,6 +1762,7 @@ export const {
   useLoginToBrokerMutation,
   useLogoutFromBrokerMutation,
   useGetAgentModeQuery,
+  useGetP5EvidenceUnlockQuery,
   useGetAgentRiskBudgetsQuery,
   useGetAgentWalkForwardQuery,
   useSetAgentTradingEnabledMutation,
@@ -1723,6 +1787,8 @@ export const {
   useReopenAgentSuggestionMutation,
   useImplementAgentSuggestionMutation,
   useGetAgentOpportunitiesQuery,
+  useGetFocusUniverseLatestQuery,
+  useRunOfflineFocusBatchMutation,
   useGetAgentAnalysisQuery,
   useGetAgentPositionsQuery,
   useGetAgentTransactionsQuery,

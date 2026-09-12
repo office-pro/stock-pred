@@ -33,6 +33,7 @@ export * from './human-intel-metrics';
 export * from './p5-evidence-unlock';
 export * from './p5-outcome-stats';
 export * from './p5-ranking-stamp';
+export * from './focus-universe';
 export * from './p5-counterfactual';
 export * from './p5-validation-report';
 export * from './circuit-breakers';

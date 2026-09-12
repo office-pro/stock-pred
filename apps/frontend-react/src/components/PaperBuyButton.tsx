@@ -81,7 +81,7 @@ export default function PaperBuyButton({
         onClick={openDialog}
         data-testid={`paper-buy-${stock.symbol}`}
       >
-        Paper Buy
+        Manual paper buy
       </Button>
       <Dialog
         open={open}
@@ -90,11 +90,12 @@ export default function PaperBuyButton({
         maxWidth="xs"
         fullWidth
       >
-        <DialogTitle>Paper buy {stock.symbol}</DialogTitle>
+        <DialogTitle>Manual paper buy {stock.symbol}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Typography variant="body2" color="text.secondary">
-              Suggested size is {suggestedQty} shares (risk-based). Edit quantity before confirming.
+              Manual paper (not agent evidence). Suggested size is {suggestedQty} shares. Agent
+              ACTUAL path is Desk Approve only.
             </Typography>
             <TextField
               autoFocus

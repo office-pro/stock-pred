@@ -426,6 +426,14 @@ export interface DecisionLedgerEntry {
   thesisSnapshot?: import('./thesis-intelligence').ThesisSnapshot;
   /** T2.2 materialized current thesis view (from latest append-only event). */
   thesisReassessment?: import('./thesis-intelligence').StructuredThesis;
+  /**
+   * P5 Phase 3 resilience — FocusUniverseBatch → Opportunity → Decision trace.
+   * Observe-only; never feeds Risk / Portfolio / Policy / Gate.
+   */
+  discoverySource?: import('./focus-universe').OpportunityDiscoverySource;
+  batchId?: string;
+  dataProvenance?: import('./focus-universe').DataProvenance;
+  focusTier?: import('./focus-universe').FocusTier;
 }
 
 /** Closed-trade economics for calibration / soak (append-only via outcome records). */

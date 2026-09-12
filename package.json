@@ -41,6 +41,7 @@
     "scan:patterns": "npm run build -w @stockpred/pattern-engine && node apps/pattern-engine/dist/scan-history.js",
     "setup:npm": "bash scripts/setup-npm.sh",
     "check:deps": "node scripts/check-deps.js",
+    "free:ports": "node scripts/free-platform-ports.js",
     "clean": "node scripts/diagnose.js",
     "start:all": "node scripts/platform.js start",
     "start:all-stocks": "cmd /c \"set STOCK_UNIVERSE_MODE=full-universe && npm run start:all\"",

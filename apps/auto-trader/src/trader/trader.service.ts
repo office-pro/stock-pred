@@ -960,14 +960,14 @@ export class TraderService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  getMonitoringLogs(
+  async getMonitoringLogs(
     limit = 100,
     symbol?: string,
-  ): {
+  ): Promise<{
     events: import('./monitoring-log-store').MonitoringLogEvent[];
     meta: import('./monitoring-log-store').MonitoringLogMeta;
-  } {
-    const monitored = this.getMonitoredPositions();
+  }> {
+    const monitored = await this.getMonitoredPositions();
     return {
       events: this.monitoringLog.list(limit, symbol),
       meta: this.monitoringLog.meta(this.agentTradingEnabled, monitored.positions.length),

@@ -815,6 +815,35 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * P5 Focus handoff: prioritize live refresh for Focus Universe symbols (Tier1→2→3).
+   * Optimization only — not trade authorization.
+   */
+  async prioritizeFocusRefresh(symbols: string[]): Promise<{
+    requested: number;
+    refreshed: number;
+    missing: string[];
+  }> {
+    const missing: string[] = [];
+    let refreshed = 0;
+    for (const raw of symbols) {
+      const symbol = raw?.trim().toUpperCase();
+      if (!symbol) continue;
+      const state = this.stocks.get(symbol);
+      if (!state) {
+        missing.push(symbol);
+        continue;
+      }
+      this.watched.set(state.info.symbol, Date.now());
+      await Promise.race([
+        this.refreshSymbolLive(state),
+        new Promise<void>((resolve) => setTimeout(resolve, this.liveQuoteWaitMs)),
+      ]);
+      refreshed += 1;
+    }
+    return { requested: symbols.length, refreshed, missing };
+  }
+
+  /**
    * Pull the last listed trade for one symbol while it is on screen.
    * Throttled; concurrent callers share one in-flight Yahoo request.
    */
@@ -1202,7 +1231,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       sampleSymbol,
       sampleUpdatedAt,
       note: open
-        ? 'LIVE quotes require ingestMode=LIVE_INGEST and freshnessStatus=LIVE; risk still enforces 60s quote age. Data status is not trade authorization.'
+        ? 'LIVE/DELAYED require LIVE_INGEST + session open (LIVE≤30s, DELAYED≤60s). Risk still enforces 60s quote age. DELAYED is not authorization. Data status is not trade authorization.'
         : 'Session closed: EOD/historical data is for ML/analysis only — not live entry freshness. Data status is not trade authorization.',
     };
   }

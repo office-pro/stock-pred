@@ -26,9 +26,13 @@ import {
   rankQuotes,
 } from '../lib/quote-rank';
 import { INDEX_BASKET_SIZE, type IndexUniverseId, inIndexUniverse } from '../lib/index-universes';
-import { useGetPredictionAccuracyQuery, useGetStocksQuery } from '../store/api';
+import {
+  useGetMarketDataContractQuery,
+  useGetPredictionAccuracyQuery,
+  useGetStocksQuery,
+} from '../store/api';
 
-type DashboardTab = 'NSE' | 'BSE' | 'NIFTY50' | 'NIFTY100' | 'NIFTY500' | 'ALERTS' | 'BEST';
+type DashboardTab = 'NSE' | 'BSE' | 'NIFTY50' | 'NIFTY100' | 'NIFTY500' | 'ALERTS';
 type SuggestionFilter = 'ALL' | 'BUY' | 'SELL';
 type HorizonFilter = 'NEXT_DAY' | 'NEXT_WEEK';
 
@@ -47,13 +51,11 @@ function tabNoun(tab: DashboardTab): string {
   if (tab === 'NIFTY100') return 'Nifty 100';
   if (tab === 'NIFTY500') return 'Nifty 500';
   if (tab === 'ALERTS') return 'focus';
-  if (tab === 'BEST') return 'best pick';
   return tab;
 }
 
 function emptyTableMessage(
   alertsMode: boolean,
-  bestPickMode: boolean,
   suggestion: SuggestionFilter,
   exchange: DashboardTab,
   filters: RankFilter[],
@@ -64,11 +66,6 @@ function emptyTableMessage(
   }
   if (filters.includes('BULL')) {
     return 'No bull-run stocks on this tape (bull score 70+). Hydrate history or open the Scanner.';
-  }
-  if (bestPickMode) {
-    return suggestion === 'ALL'
-      ? 'No Best Picks yet. Names need 75%+ confidence and 2%+ target profit on both Buy and Sell. Use Alerts for the wider tape, or train models.'
-      : `No ${suggestion} Best Picks right now. Try All, or check Alerts.`;
   }
   if (alertsMode) {
     return suggestion === 'ALL'
@@ -85,7 +82,6 @@ function apiSort(filters: RankFilter[], tab: DashboardTab): string | undefined {
   if (filters.includes('PROFIT')) return 'profit';
   if (filters.includes('CONFIDENCE')) return 'confidence';
   if (filters.includes('BULL')) return 'bull';
-  if (tab === 'BEST') return 'profit';
   if (tab === 'ALERTS') return 'confidence';
   return undefined;
 }
@@ -93,7 +89,6 @@ function apiSort(filters: RankFilter[], tab: DashboardTab): string | undefined {
 function tabFromSearch(): DashboardTab {
   const tab = new URLSearchParams(window.location.search).get('tab');
   if (tab === 'alerts') return 'ALERTS';
-  if (tab === 'best') return 'BEST';
   if (tab === 'nifty50') return 'NIFTY50';
   if (tab === 'nifty100') return 'NIFTY100';
   if (tab === 'nifty500') return 'NIFTY500';
@@ -116,10 +111,10 @@ export default function DashboardPage(): JSX.Element {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const alertsMode = exchange === 'ALERTS';
-  const bestPickMode = exchange === 'BEST';
+  const bestPickMode = false;
   const universe = universeForTab(exchange);
   const indexMode = Boolean(universe);
-  const focusMode = alertsMode || bestPickMode;
+  const focusMode = alertsMode;
   const clientRanked = focusMode || indexMode || rankFilters.length > 0 || suspicious !== 'ALL';
 
   const {
@@ -253,6 +248,7 @@ export default function DashboardPage(): JSX.Element {
   const horizonLabel = horizon === 'NEXT_WEEK' ? 'next-week' : 'next-day';
   const buyHit = accuracy?.byAction?.BUY?.hitRate;
   const scored = accuracy?.scoredCalls;
+  const { data: contract } = useGetMarketDataContractQuery(undefined, { pollingInterval: 15_000 });
 
   return (
     <>
@@ -263,29 +259,40 @@ export default function DashboardPage(): JSX.Element {
         alignItems={{ xs: 'stretch', sm: 'center' }}
         justifyContent="space-between"
       >
-        <Typography variant="h5" sx={{ fontWeight: 700 }}>
-          Market Dashboard
-        </Typography>
-        <AgentTradingToggle compact />
+        <Box>
+          <Typography variant="h4" sx={{ fontWeight: 700 }}>
+            Market
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            What is happening? Indices, tape, and session — not a decision surface.
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Chip
+            size="small"
+            color={contract?.nseCashSessionOpen ? 'success' : 'default'}
+            label={contract?.nseCashSessionOpen ? 'Session OPEN' : 'Session CLOSED'}
+          />
+          <Chip
+            size="small"
+            variant="outlined"
+            label={contract?.quoteStatus ?? 'Status Not available'}
+          />
+          <AgentTradingToggle compact />
+        </Stack>
       </Stack>
       <IndexCards />
       <MarketContextBar />
 
+      <Alert severity="info" variant="outlined" sx={{ mb: 2 }}>
+        Market Breadth intelligence is Not available (future backlog). Tape uses existing market
+        APIs only.
+      </Alert>
+
       {typeof buyHit === 'number' && (
         <Alert severity="info" sx={{ mb: 2 }} data-testid="accuracy-banner">
-          {horizonLabel} model track record
-          {accuracy?.source === 'time_series_holdout' ? ' (last-year holdout, trees)' : ''}:{' '}
-          {accuracy?.overallHitRate}% of {scored ?? 0} scored calls were labeled correctly (Buy
-          ideas {buyHit}% right). Chips blend the ML forecast with stock trend and Nifty: they must
-          not fight, and a weak model on a flat tape stays Hold. Paper size is 1% of ₹1 Cr capital.
-          This is not investment advice.
-        </Alert>
-      )}
-      {accuracy == null && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          ML models are not scored yet, so the Alerts Buy/Sell list uses EMA/MACD trend (and the
-          70-point rule signal when it fires). Train models (`npm run train:ml`) to blend in the
-          forecast. Chips will not use today&apos;s already-printed move.
+          {horizonLabel} model track record: {accuracy?.overallHitRate}% of {scored ?? 0} scored
+          calls (Buy {buyHit}%). Display only — not trade authorization.
         </Alert>
       )}
 
@@ -302,7 +309,6 @@ export default function DashboardPage(): JSX.Element {
           <Tab value="NIFTY100" label={`Nifty 100 stocks (${INDEX_BASKET_SIZE.nifty100})`} />
           <Tab value="NIFTY500" label={`Nifty 500 stocks (${INDEX_BASKET_SIZE.nifty500})`} />
           <Tab value="ALERTS" label="Alerts" />
-          <Tab value="BEST" label="Best Pick" />
         </Tabs>
       </Box>
 
@@ -315,13 +321,7 @@ export default function DashboardPage(): JSX.Element {
       >
         <TextField
           size="small"
-          placeholder={
-            bestPickMode
-              ? 'Search best picks...'
-              : alertsMode
-                ? 'Search alerts...'
-                : `Search ${tabNoun(exchange)} stocks...`
-          }
+          placeholder={alertsMode ? 'Search alerts...' : `Search ${tabNoun(exchange)} stocks...`}
           value={search}
           onChange={(event) => {
             setSearch(event.target.value);
@@ -410,27 +410,16 @@ export default function DashboardPage(): JSX.Element {
         </Typography>
       </Stack>
 
-      {bestPickMode && (
-        <Alert severity="info" sx={{ mb: 2 }} data-testid="best-pick-banner">
-          Best Pick keeps Buy and Sell names that clear both a high-confidence bar (75%+) and a high
-          target-profit bar (2%+ vs entry). Max profit, Max confidence, and Bull run can be
-          combined; with Max profit on, the highest Profit % is always first. This is not investment
-          advice.
-        </Alert>
-      )}
       {indexMode && universe && (
         <Alert severity="info" sx={{ mb: 2 }} data-testid="index-banner">
           Showing NSE names in the {tabNoun(exchange)} basket ({INDEX_BASKET_SIZE[universe]}) as of
           the last index snapshot. Missing rows usually mean the symbol is not in the live book yet.
-          This is not investment advice.
         </Alert>
       )}
       {alertsMode && (
         <Alert severity="info" sx={{ mb: 2 }} data-testid="alerts-banner">
-          Focus list: Buy and Sell chips ranked by confidence. ML is used when models are trained;
-          otherwise EMA/MACD trend fills the list. Click <b>Paper Buy</b> to open a lot in the paper
-          book (₹1 Cr cash). Open lots and cash live under Paper book. Click the row for chart
-          history. This is not investment advice.
+          Tape alerts only — not the agent evidence path. Manual Paper Buy is classic paper; agent
+          ACTUAL evidence requires Desk Approve. Prefer Prep → Desk for trading decisions.
         </Alert>
       )}
       {provenance && provenance.simulated > 0 && (
@@ -461,14 +450,7 @@ export default function DashboardPage(): JSX.Element {
       )}
       {!isLoading && stocks.length === 0 && (
         <Alert severity="info">
-          {emptyTableMessage(
-            alertsMode,
-            bestPickMode,
-            suggestion,
-            exchange,
-            rankFilters,
-            suspicious,
-          )}
+          {emptyTableMessage(alertsMode, suggestion, exchange, rankFilters, suspicious)}
         </Alert>
       )}
 

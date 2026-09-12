@@ -47,9 +47,17 @@ const INGEST_MODE_LEGEND: { mode: MarketIngestMode; blurb: string }[] = [
 ];
 
 const QUOTE_STATUS_LEGEND: { status: MarketQuoteStatus; blurb: string }[] = [
-  { status: 'LIVE', blurb: 'NSE cash open and sample quote age ≤ 60s.' },
+  { status: 'LIVE', blurb: 'NSE cash open and sample quote age ≤ 30s.' },
+  {
+    status: 'DELAYED',
+    blurb: 'NSE cash open and 30s < age ≤ 60s — not an auth state; Risk still applies.',
+  },
   { status: 'CLOSED_MARKET', blurb: 'Session closed — OK for ML/analysis, not live entry.' },
-  { status: 'STALE', blurb: 'Session open but quote too old or missing timestamp.' },
+  {
+    status: 'STALE',
+    blurb: 'Session open but quote age > 60s — Risk DATA_STALE blocks execution.',
+  },
+  { status: 'UNKNOWN', blurb: 'Missing/invalid timestamp — labeled, never neutralized to flat.' },
 ];
 
 const FALLBACK_INGEST_JOBS: MlJobCatalogItem[] = [
@@ -117,7 +125,9 @@ function quoteChipColor(
 ): 'success' | 'warning' | 'error' | 'default' {
   if (status !== active) return 'default';
   if (status === 'LIVE') return 'success';
+  if (status === 'DELAYED') return 'warning';
   if (status === 'CLOSED_MARKET') return 'warning';
+  if (status === 'UNKNOWN') return 'default';
   return 'error';
 }
 

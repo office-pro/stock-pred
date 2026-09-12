@@ -809,6 +809,30 @@ export class ApiController {
     });
   }
 
+  @Get('agent/focus-universe/latest')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentFocusUniverseLatest(@Req() request: AuthenticatedRequest): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/focus-universe/latest', {
+      headers: identityHeaders(request.user),
+    });
+  }
+
+  @Post('agent/focus-universe/run-offline')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentFocusUniverseRunOffline(
+    @Query('limit') limit?: string,
+    @Req() request?: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post(
+      'traderAgent',
+      `/agent/focus-universe/run-offline?limit=${encodeURIComponent(limit ?? '80')}`,
+      {},
+      { headers: identityHeaders(request?.user) },
+    );
+  }
+
   @Get('agent/analysis/:symbol')
   @UseGuards(ViewsGuard)
   @Views(AppView.AGENT)

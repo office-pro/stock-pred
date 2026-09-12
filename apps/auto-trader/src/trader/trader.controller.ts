@@ -145,10 +145,10 @@ export class TraderController {
   monitoringLogs(
     @Query('limit', new DefaultValuePipe(80), ParseIntPipe) limit = 80,
     @Query('symbol') symbol?: string,
-  ): {
+  ): Promise<{
     events: unknown[];
     meta: unknown;
-  } {
+  }> {
     return this.trader.getMonitoringLogs(Math.min(limit, 200), symbol);
   }
 

@@ -4,6 +4,10 @@ import { useAppSelector } from '../store';
 
 const ROUTE_VIEWS: { prefix: string; view: AppView }[] = [
   { prefix: '/agent', view: AppView.AGENT },
+  { prefix: '/prep', view: AppView.AGENT },
+  { prefix: '/evidence', view: AppView.AGENT },
+  { prefix: '/advanced/', view: AppView.AGENT },
+  { prefix: '/book', view: AppView.PORTFOLIO },
   { prefix: '/scanner', view: AppView.SCANNER },
   { prefix: '/signals', view: AppView.SIGNALS },
   { prefix: '/predictions', view: AppView.PREDICTIONS },
@@ -15,6 +19,7 @@ const ROUTE_VIEWS: { prefix: string; view: AppView }[] = [
   { prefix: '/admin/users', view: AppView.ADMIN_USERS },
   { prefix: '/admin/brand', view: AppView.BRAND_SETTINGS },
   { prefix: '/admin/brands', view: AppView.SUPERADMIN_BRANDS },
+  { prefix: '/market', view: AppView.DASHBOARD },
   { prefix: '/', view: AppView.DASHBOARD },
 ];
 

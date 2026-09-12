@@ -241,6 +241,18 @@ export class MarketController {
     return this.market.getDataContract();
   }
 
+  /**
+   * P5 Focus handoff — prioritize live quote refresh (Tier order from caller).
+   * Optimization only; not trade authorization.
+   */
+  @Post('market/focus-refresh')
+  prioritizeFocusRefresh(
+    @Body() body: { symbols?: string[] },
+  ): Promise<{ requested: number; refreshed: number; missing: string[] }> {
+    const symbols = Array.isArray(body?.symbols) ? body.symbols : [];
+    return this.market.prioritizeFocusRefresh(symbols);
+  }
+
   /** ML Lab Phase 4 — observational ML → TI usability bridge (not trade auth). */
   @Get('market/ml-ti-bridge')
   getMlTiBridge(): ReturnType<MarketService['getMlTiBridge']> {

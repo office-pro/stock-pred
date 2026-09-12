@@ -1,4 +1,7 @@
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Box,
   Button,
@@ -12,8 +15,6 @@ import {
   LinearProgress,
   Paper,
   Stack,
-  Tab,
-  Tabs,
   Table,
   TableBody,
   TableCell,
@@ -21,19 +22,20 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tab,
+  Tabs,
   ToggleButton,
   ToggleButtonGroup,
   Typography,
 } from '@mui/material';
-import { useMemo, useState } from 'react';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import type {
-  StructuredThesis,
-  ExitRecommendation,
-  TradeLifecycleSnapshot,
-} from '@stockpred/shared-types';
+import type { StructuredThesis, TradeLifecycleSnapshot } from '@stockpred/shared-types';
 import AgentTradingToggle from '../components/AgentTradingToggle';
 import AgentSuggestionCards from '../components/AgentSuggestionCards';
+import DeskThreePane from '../components/DeskThreePane';
+import OpportunityIntelligencePanel from '../components/OpportunityIntelligencePanel';
 import { authErrorMessage } from '../lib/auth-errors';
 import {
   useApproveAgentRecommendationMutation,
@@ -91,27 +93,6 @@ function TradeLifecyclePanel({ lifecycle }: { lifecycle: TradeLifecycleSnapshot 
                 : `${e.detail ?? e.source} [context]`,
             )
             .join(' · ')}
-        </Typography>
-      ) : null}
-    </Box>
-  );
-}
-
-function ExitIntelligencePanel({ exit }: { exit: ExitRecommendation }) {
-  return (
-    <Box sx={{ mt: 0.5, p: 1, borderRadius: 1, bgcolor: 'action.hover' }}>
-      <Typography variant="caption" fontWeight={700} display="block">
-        Exit recommendation: {exit.action} — advisory
-      </Typography>
-      <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
-        {exit.summary}
-      </Typography>
-      <Typography variant="caption" display="block" color="text.secondary">
-        Codes: {exit.reasonCodes.join(', ') || '—'}
-      </Typography>
-      {exit.evidence.length > 0 ? (
-        <Typography variant="caption" display="block" color="text.secondary">
-          Evidence: {exit.evidence.map((e) => e.message).join(' · ')}
         </Typography>
       ) : null}
     </Box>
@@ -271,7 +252,6 @@ function fmtDuration(ms: number): string {
 }
 
 export default function AgentDeskPage(): JSX.Element {
-  const [symbol, setSymbol] = useState('');
   const { data: modeData, refetch: refetchMode } = useGetAgentModeQuery(undefined, {
     pollingInterval: 15_000,
   });
@@ -337,6 +317,7 @@ export default function AgentDeskPage(): JSX.Element {
   const [oppsTab, setOppsTab] = useState<'new' | 'added'>('new');
   const [decisionDrawerOpen, setDecisionDrawerOpen] = useState(false);
   const [decisionLookupId, setDecisionLookupId] = useState<string | undefined>(undefined);
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
 
   const { data: decisionsData, refetch: refetchDecisions } = useGetAgentDecisionsQuery(
     { limit: 30, decisionId: decisionLookupId },
@@ -360,6 +341,20 @@ export default function AgentDeskPage(): JSX.Element {
     }
     return map;
   }, [opportunityRanking]);
+
+  useEffect(() => {
+    const first = opportunityRanking?.rankings?.[0]?.symbol ?? opportunities[0]?.symbol ?? null;
+    if (!first) return;
+    if (!selectedSymbol || !opportunities.some((o) => o.symbol === selectedSymbol)) {
+      setSelectedSymbol(first);
+    }
+  }, [opportunityRanking, opportunities, selectedSymbol]);
+
+  const selectedOpp = useMemo(
+    () => opportunities.find((o) => o.symbol === selectedSymbol) ?? opportunities[0] ?? null,
+    [opportunities, selectedSymbol],
+  );
+  const selectedRank = selectedOpp ? rankingBySymbol.get(selectedOpp.symbol) : undefined;
   const waitByOpportunityId = opps?.waitIntelligenceById ?? {};
   const thesisByOpportunityId = opps?.thesisIntelligenceById ?? {};
   const approvable = useMemo(() => opportunities.filter(isApprovable), [opportunities]);
@@ -391,14 +386,6 @@ export default function AgentDeskPage(): JSX.Element {
         : bulkBusy
           ? 'Bulk approve in progress…'
           : null;
-
-  const cash = Number(portfolio?.cash ?? 0);
-  const cheapestEntry = Math.min(
-    ...approvable.map((row) => Number(row.setup.entry) || Number.POSITIVE_INFINITY),
-    Number.POSITIVE_INFINITY,
-  );
-  const cashTooLow =
-    approvable.length > 0 && Number.isFinite(cheapestEntry) && cash < cheapestEntry;
 
   const toTargets = (rows: OpportunityRow[]): ApproveTarget[] =>
     rows.filter(isApprovable).map((row) => ({
@@ -485,13 +472,41 @@ export default function AgentDeskPage(): JSX.Element {
 
   return (
     <>
-      <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
-        Trader Agent
+      <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5 }}>
+        Intelligent Trading Desk
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Professional trading desk — investigates existing app data, proposes setups, manages paper
-        exits. LIVE uses the same path after explicit arming. {modeData?.disclaimer}
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+        What should I do? Best Opportunities (backend order) → Intelligence → Decision. Approve
+        calls the existing auth chain only. {modeData?.disclaimer}
       </Typography>
+
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+        <Chip size="small" label={`Mode ${mode}`} color={mode === 'LIVE' ? 'error' : 'default'} />
+        <Chip size="small" variant="outlined" label={`Decision ${decisionMode}`} />
+        <Chip
+          size="small"
+          component={RouterLink}
+          to="/evidence"
+          clickable
+          label={`P5 ${modeData?.evidenceUnlock?.overallDecision ?? 'UNKNOWN'}`}
+          color={modeData?.evidenceUnlock?.unlocked ? 'success' : 'default'}
+        />
+        <Chip
+          size="small"
+          variant="outlined"
+          label={
+            modeData?.evidenceUnlock?.unlocked
+              ? 'P6 ARM ELIGIBLE (human on Trading Controls)'
+              : 'P6 LOCKED'
+          }
+        />
+        <Button size="small" component={RouterLink} to="/prep" variant="text">
+          Prep / Focus
+        </Button>
+        <Button size="small" component={RouterLink} to="/book" variant="text">
+          Book
+        </Button>
+      </Stack>
 
       <AgentTradingToggle />
 
@@ -532,318 +547,355 @@ export default function AgentDeskPage(): JSX.Element {
         </Stack>
       )}
 
-      {walkForwardData?.report && (
-        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-            Agent walk-forward (read-only)
-          </Typography>
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
-            <Chip
-              size="small"
-              color={walkForwardData.report.verdict.technical === 'PASS' ? 'success' : 'error'}
-              label={`Technical ${walkForwardData.report.verdict.technical}`}
-            />
-            <Chip
-              size="small"
-              color={
-                walkForwardData.report.verdict.trading === 'FAIL'
-                  ? 'error'
-                  : walkForwardData.report.verdict.trading === 'STRONG'
-                    ? 'success'
-                    : 'default'
-              }
-              label={`Trading ${walkForwardData.report.verdict.trading}`}
-            />
-            <Chip
-              size="small"
-              variant="outlined"
-              label={`Gross ₹${Math.round(walkForwardData.report.grossPerformance.grossPnl).toLocaleString('en-IN')}`}
-            />
-            <Chip
-              size="small"
-              variant="outlined"
-              label={`Net ₹${Math.round(walkForwardData.report.netPerformance.netPnl).toLocaleString('en-IN')}`}
-            />
-          </Stack>
-          <Typography variant="caption" color="text.secondary" display="block">
-            Funnel: {walkForwardData.report.funnel.candidates} candidates →{' '}
-            {walkForwardData.report.funnel.autonomousEligible} eligible →{' '}
-            {walkForwardData.report.funnel.autoAccepted} auto →{' '}
-            {walkForwardData.report.funnel.filled} filled
-            {walkForwardData.report.funnel.gateBlocked > 0
-              ? ` · ${walkForwardData.report.funnel.gateBlocked} gate-blocked`
-              : ''}
-          </Typography>
-        </Paper>
-      )}
-
-      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          justifyContent="space-between"
-          alignItems={{ sm: 'center' }}
-          spacing={1}
-          sx={{ mb: 1.5 }}
-        >
-          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-            PAPER soak
-          </Typography>
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <Button
-              size="small"
-              variant="contained"
-              disabled={
-                mode !== 'PAPER' ||
-                soakData?.soak?.state === 'RUNNING' ||
-                startSoakState.isLoading ||
-                !tradingOn
-              }
-              onClick={async () => {
-                try {
-                  await startSoak({ targetDurationMs: 24 * 60 * 60 * 1000 }).unwrap();
-                  await refetchSoak();
-                  setToastSeverity('success');
-                  setToast('Soak started (PAPER)');
-                } catch (error) {
-                  setToastSeverity('error');
-                  setToast(authErrorMessage(error, 'Could not start soak'));
-                }
-              }}
-            >
-              Start
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              disabled={soakData?.soak?.state !== 'RUNNING' || stopSoakState.isLoading}
-              onClick={async () => {
-                try {
-                  await stopSoak().unwrap();
-                  await refetchSoak();
-                  setToastSeverity('info');
-                  setToast('Soak stopped');
-                } catch (error) {
-                  setToastSeverity('error');
-                  setToast(authErrorMessage(error, 'Could not stop soak'));
-                }
-              }}
-            >
-              Stop
-            </Button>
-            <Button
-              size="small"
-              color="warning"
-              variant="outlined"
-              disabled={soakData?.soak?.state !== 'RUNNING' || waiveSoakState.isLoading}
-              onClick={async () => {
-                try {
-                  await waiveSoak({ reason: 'Operator waive from desk' }).unwrap();
-                  await refetchSoak();
-                  setToastSeverity('info');
-                  setToast('Soak waived');
-                } catch (error) {
-                  setToastSeverity('error');
-                  setToast(authErrorMessage(error, 'Could not waive soak'));
-                }
-              }}
-            >
-              Waive
-            </Button>
-          </Stack>
-        </Stack>
-        {soakData?.soak ? (
-          <>
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
-              <Chip
-                size="small"
-                color={
-                  soakData.soak.state === 'RUNNING'
-                    ? 'info'
-                    : soakData.soak.state === 'PASSED'
-                      ? 'success'
-                      : soakData.soak.state === 'KILLED'
-                        ? 'error'
+      <Accordion id="ops" disableGutters sx={{ mb: 2 }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography fontWeight={600}>Ops ▾ — Soak, walk-forward, suggestions</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          {walkForwardData?.report && (
+            <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                Agent walk-forward (read-only)
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+                <Chip
+                  size="small"
+                  color={walkForwardData.report.verdict.technical === 'PASS' ? 'success' : 'error'}
+                  label={`Technical ${walkForwardData.report.verdict.technical}`}
+                />
+                <Chip
+                  size="small"
+                  color={
+                    walkForwardData.report.verdict.trading === 'FAIL'
+                      ? 'error'
+                      : walkForwardData.report.verdict.trading === 'STRONG'
+                        ? 'success'
                         : 'default'
-                }
-                label={soakData.soak.state}
-              />
-              <Chip size="small" variant="outlined" label={soakData.soak.soakRunId} />
-              <Chip
-                size="small"
-                variant="outlined"
-                label={
-                  soakData.soak.state === 'RUNNING'
-                    ? `${fmtDuration(Date.now() - soakData.soak.startedAt)} / ${fmtDuration(soakData.soak.targetDurationMs)}`
-                    : `Ended · target ${fmtDuration(soakData.soak.targetDurationMs)}`
-                }
-              />
-              <Chip
-                size="small"
-                variant="outlined"
-                label={`Baseline ₹${Math.round(soakData.soak.baseline.equity).toLocaleString('en-IN')}`}
-              />
+                  }
+                  label={`Trading ${walkForwardData.report.verdict.trading}`}
+                />
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={`Gross ₹${Math.round(walkForwardData.report.grossPerformance.grossPnl).toLocaleString('en-IN')}`}
+                />
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={`Net ₹${Math.round(walkForwardData.report.netPerformance.netPnl).toLocaleString('en-IN')}`}
+                />
+              </Stack>
+              <Typography variant="caption" color="text.secondary" display="block">
+                Funnel: {walkForwardData.report.funnel.candidates} candidates →{' '}
+                {walkForwardData.report.funnel.autonomousEligible} eligible →{' '}
+                {walkForwardData.report.funnel.autoAccepted} auto →{' '}
+                {walkForwardData.report.funnel.filled} filled
+                {walkForwardData.report.funnel.gateBlocked > 0
+                  ? ` · ${walkForwardData.report.funnel.gateBlocked} gate-blocked`
+                  : ''}
+              </Typography>
+            </Paper>
+          )}
+
+          <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              justifyContent="space-between"
+              alignItems={{ sm: 'center' }}
+              spacing={1}
+              sx={{ mb: 1.5 }}
+            >
+              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                PAPER soak
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Button
+                  size="small"
+                  variant="contained"
+                  disabled={
+                    mode !== 'PAPER' ||
+                    soakData?.soak?.state === 'RUNNING' ||
+                    startSoakState.isLoading ||
+                    !tradingOn
+                  }
+                  onClick={async () => {
+                    try {
+                      await startSoak({ targetDurationMs: 24 * 60 * 60 * 1000 }).unwrap();
+                      await refetchSoak();
+                      setToastSeverity('success');
+                      setToast('Soak started (PAPER)');
+                    } catch (error) {
+                      setToastSeverity('error');
+                      setToast(authErrorMessage(error, 'Could not start soak'));
+                    }
+                  }}
+                >
+                  Start
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  disabled={soakData?.soak?.state !== 'RUNNING' || stopSoakState.isLoading}
+                  onClick={async () => {
+                    try {
+                      await stopSoak().unwrap();
+                      await refetchSoak();
+                      setToastSeverity('info');
+                      setToast('Soak stopped');
+                    } catch (error) {
+                      setToastSeverity('error');
+                      setToast(authErrorMessage(error, 'Could not stop soak'));
+                    }
+                  }}
+                >
+                  Stop
+                </Button>
+                <Button
+                  size="small"
+                  color="warning"
+                  variant="outlined"
+                  disabled={soakData?.soak?.state !== 'RUNNING' || waiveSoakState.isLoading}
+                  onClick={async () => {
+                    try {
+                      await waiveSoak({ reason: 'Operator waive from desk' }).unwrap();
+                      await refetchSoak();
+                      setToastSeverity('info');
+                      setToast('Soak waived');
+                    } catch (error) {
+                      setToastSeverity('error');
+                      setToast(authErrorMessage(error, 'Could not waive soak'));
+                    }
+                  }}
+                >
+                  Waive
+                </Button>
+              </Stack>
             </Stack>
-            {soakData.soak.killCode ? (
-              <Alert severity="error" sx={{ mb: 1 }}>
-                Kill {soakData.soak.killClass}/{soakData.soak.killCode}:{' '}
-                {soakData.soak.killReason || '—'}
+            {soakData?.soak ? (
+              <>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+                  <Chip
+                    size="small"
+                    color={
+                      soakData.soak.state === 'RUNNING'
+                        ? 'info'
+                        : soakData.soak.state === 'PASSED'
+                          ? 'success'
+                          : soakData.soak.state === 'KILLED'
+                            ? 'error'
+                            : 'default'
+                    }
+                    label={soakData.soak.state}
+                  />
+                  <Chip size="small" variant="outlined" label={soakData.soak.soakRunId} />
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={
+                      soakData.soak.state === 'RUNNING'
+                        ? `${fmtDuration(Date.now() - soakData.soak.startedAt)} / ${fmtDuration(soakData.soak.targetDurationMs)}`
+                        : `Ended · target ${fmtDuration(soakData.soak.targetDurationMs)}`
+                    }
+                  />
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={`Baseline ₹${Math.round(soakData.soak.baseline.equity).toLocaleString('en-IN')}`}
+                  />
+                </Stack>
+                {soakData.soak.killCode ? (
+                  <Alert severity="error" sx={{ mb: 1 }}>
+                    Kill {soakData.soak.killClass}/{soakData.soak.killCode}:{' '}
+                    {soakData.soak.killReason || '—'}
+                  </Alert>
+                ) : null}
+                {soakData.soak.waiveReason ? (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    display="block"
+                    sx={{ mb: 1 }}
+                  >
+                    Waive: {soakData.soak.waiveReason}
+                  </Typography>
+                ) : null}
+              </>
+            ) : (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                No active soak. Start only in PAPER with trading enabled. Soak can stop autonomy; it
+                never authorizes trades.
+              </Typography>
+            )}
+            {soakReport ? (
+              <Alert severity="info" sx={{ mb: 1 }}>
+                PHASE_4_STATUS={soakReport.phase4Status} · net ₹
+                {Math.round(soakReport.performance.netPnl).toLocaleString('en-IN')} · outcomes{' '}
+                {soakReport.technicalChecklist.outcomesComplete ? 'complete' : 'incomplete'}
               </Alert>
             ) : null}
-            {soakData.soak.waiveReason ? (
-              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-                Waive: {soakData.soak.waiveReason}
-              </Typography>
+
+            {opsData ? (
+              <Box sx={{ mt: 1.5 }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  display="block"
+                  sx={{ mb: 0.5 }}
+                >
+                  Ops
+                </Typography>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+                  <Chip size="small" label={`${fmtNum(opsData.acceptsPerDay, 1)} accepts/day`} />
+                  <Chip
+                    size="small"
+                    label={`Veto ${
+                      opsData.candidates > 0
+                        ? fmtPct(
+                            (opsData.riskVeto + opsData.portfolioVeto + opsData.gateVeto) /
+                              opsData.candidates,
+                          )
+                        : '—'
+                    }`}
+                  />
+                  <Chip size="small" label={`Circuits ${opsData.circuitTrips}`} />
+                  <Chip size="small" label={`Avg hold ${fmtMs(opsData.avgHoldMs)}`} />
+                  <Chip
+                    size="small"
+                    label={`AUTO gross ₹${Math.round(opsData.autoGrossPnl).toLocaleString('en-IN')}`}
+                  />
+                  <Chip
+                    size="small"
+                    label={`AUTO net ₹${Math.round(opsData.autoNetPnl).toLocaleString('en-IN')}`}
+                  />
+                  <Chip size="small" label={`Avg R ${fmtNum(opsData.avgR)}`} />
+                  <Chip size="small" label={`Median R ${fmtNum(opsData.medianR)}`} />
+                </Stack>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  display="block"
+                  sx={{ mb: 0.5 }}
+                >
+                  Funnel
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  {opsData.candidates} candidates → {opsData.eligible} eligible → {opsData.riskVeto}{' '}
+                  risk blocked → {opsData.portfolioVeto} portfolio blocked → {opsData.gateVeto} gate
+                  blocked → {opsData.accepted} accepted → {opsData.filled} filled
+                </Typography>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  display="block"
+                  sx={{ mb: 0.5 }}
+                >
+                  Latency
+                </Typography>
+                <Typography variant="body2">
+                  signal→decision {fmtMs(opsData.latency.signalToDecisionMs)} · decision→submit{' '}
+                  {fmtMs(opsData.latency.decisionToSubmitMs)} · submit→fill{' '}
+                  {fmtMs(opsData.latency.submitToFillMs)}
+                </Typography>
+              </Box>
             ) : null}
-          </>
-        ) : (
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            No active soak. Start only in PAPER with trading enabled. Soak can stop autonomy; it
-            never authorizes trades.
-          </Typography>
-        )}
-        {soakReport ? (
-          <Alert severity="info" sx={{ mb: 1 }}>
-            PHASE_4_STATUS={soakReport.phase4Status} · net ₹
-            {Math.round(soakReport.performance.netPnl).toLocaleString('en-IN')} · outcomes{' '}
-            {soakReport.technicalChecklist.outcomesComplete ? 'complete' : 'incomplete'}
-          </Alert>
-        ) : null}
 
-        {opsData ? (
-          <Box sx={{ mt: 1.5 }}>
-            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
-              Ops
-            </Typography>
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
-              <Chip size="small" label={`${fmtNum(opsData.acceptsPerDay, 1)} accepts/day`} />
-              <Chip
-                size="small"
-                label={`Veto ${
-                  opsData.candidates > 0
-                    ? fmtPct(
-                        (opsData.riskVeto + opsData.portfolioVeto + opsData.gateVeto) /
-                          opsData.candidates,
-                      )
-                    : '—'
-                }`}
-              />
-              <Chip size="small" label={`Circuits ${opsData.circuitTrips}`} />
-              <Chip size="small" label={`Avg hold ${fmtMs(opsData.avgHoldMs)}`} />
-              <Chip
-                size="small"
-                label={`AUTO gross ₹${Math.round(opsData.autoGrossPnl).toLocaleString('en-IN')}`}
-              />
-              <Chip
-                size="small"
-                label={`AUTO net ₹${Math.round(opsData.autoNetPnl).toLocaleString('en-IN')}`}
-              />
-              <Chip size="small" label={`Avg R ${fmtNum(opsData.avgR)}`} />
-              <Chip size="small" label={`Median R ${fmtNum(opsData.medianR)}`} />
-            </Stack>
-            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
-              Funnel
-            </Typography>
-            <Typography variant="body2" sx={{ mb: 1 }}>
-              {opsData.candidates} candidates → {opsData.eligible} eligible → {opsData.riskVeto}{' '}
-              risk blocked → {opsData.portfolioVeto} portfolio blocked → {opsData.gateVeto} gate
-              blocked → {opsData.accepted} accepted → {opsData.filled} filled
-            </Typography>
-            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
-              Latency
-            </Typography>
-            <Typography variant="body2">
-              signal→decision {fmtMs(opsData.latency.signalToDecisionMs)} · decision→submit{' '}
-              {fmtMs(opsData.latency.decisionToSubmitMs)} · submit→fill{' '}
-              {fmtMs(opsData.latency.submitToFillMs)}
-            </Typography>
-          </Box>
-        ) : null}
+            {calibrationData ? (
+              <Box sx={{ mt: 2 }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  display="block"
+                  sx={{ mb: 0.5 }}
+                >
+                  Calibration by score
+                </Typography>
+                <Alert severity="warning" sx={{ mb: 1, py: 0.5 }}>
+                  Confidence ≠ calibrated probability. {calibrationData.disclaimer}
+                </Alert>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Band</TableCell>
+                        <TableCell align="right">N</TableCell>
+                        <TableCell align="right">Hit</TableCell>
+                        <TableCell align="right">Avg R</TableCell>
+                        <TableCell align="right">Med R</TableCell>
+                        <TableCell align="right">PF</TableCell>
+                        <TableCell align="right">Avg P&L%</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {(calibrationData.byScore ?? []).map((row) => (
+                        <TableRow key={row.band}>
+                          <TableCell>{row.band}</TableCell>
+                          <TableCell align="right">{row.n}</TableCell>
+                          <TableCell align="right">{fmtPct(row.hitRate)}</TableCell>
+                          <TableCell align="right">{fmtNum(row.avgR)}</TableCell>
+                          <TableCell align="right">{fmtNum(row.medianR)}</TableCell>
+                          <TableCell align="right">{fmtNum(row.profitFactor)}</TableCell>
+                          <TableCell align="right">{fmtNum(row.avgPnlPercent)}</TableCell>
+                        </TableRow>
+                      ))}
+                      {(calibrationData.byScore?.length ?? 0) === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7}>
+                            <Typography variant="caption" color="text.secondary">
+                              No closed outcomes in this soak yet.
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      ) : null}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+            ) : null}
 
-        {calibrationData ? (
-          <Box sx={{ mt: 2 }}>
-            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
-              Calibration by score
-            </Typography>
-            <Alert severity="warning" sx={{ mb: 1, py: 0.5 }}>
-              Confidence ≠ calibrated probability. {calibrationData.disclaimer}
-            </Alert>
-            <TableContainer>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Band</TableCell>
-                    <TableCell align="right">N</TableCell>
-                    <TableCell align="right">Hit</TableCell>
-                    <TableCell align="right">Avg R</TableCell>
-                    <TableCell align="right">Med R</TableCell>
-                    <TableCell align="right">PF</TableCell>
-                    <TableCell align="right">Avg P&L%</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {(calibrationData.byScore ?? []).map((row) => (
-                    <TableRow key={row.band}>
-                      <TableCell>{row.band}</TableCell>
-                      <TableCell align="right">{row.n}</TableCell>
-                      <TableCell align="right">{fmtPct(row.hitRate)}</TableCell>
-                      <TableCell align="right">{fmtNum(row.avgR)}</TableCell>
-                      <TableCell align="right">{fmtNum(row.medianR)}</TableCell>
-                      <TableCell align="right">{fmtNum(row.profitFactor)}</TableCell>
-                      <TableCell align="right">{fmtNum(row.avgPnlPercent)}</TableCell>
-                    </TableRow>
-                  ))}
-                  {(calibrationData.byScore?.length ?? 0) === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={7}>
-                        <Typography variant="caption" color="text.secondary">
-                          No closed outcomes in this soak yet.
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  ) : null}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Box>
-        ) : null}
+            {compareData?.rows?.length ? (
+              <Box sx={{ mt: 2 }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  display="block"
+                  sx={{ mb: 0.5 }}
+                >
+                  P3 walk-forward vs P4 soak
+                </Typography>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Metric</TableCell>
+                        <TableCell align="right">Walk-forward</TableCell>
+                        <TableCell align="right">Paper soak</TableCell>
+                        <TableCell align="right">Δ</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {compareData.rows.map((row) => (
+                        <TableRow key={row.metric}>
+                          <TableCell>{row.metric}</TableCell>
+                          <TableCell align="right">{fmtNum(row.walkForward, 3)}</TableCell>
+                          <TableCell align="right">{fmtNum(row.paperSoak, 3)}</TableCell>
+                          <TableCell align="right">{fmtNum(row.delta, 3)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+            ) : null}
+          </Paper>
 
-        {compareData?.rows?.length ? (
-          <Box sx={{ mt: 2 }}>
-            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
-              P3 walk-forward vs P4 soak
-            </Typography>
-            <TableContainer>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Metric</TableCell>
-                    <TableCell align="right">Walk-forward</TableCell>
-                    <TableCell align="right">Paper soak</TableCell>
-                    <TableCell align="right">Δ</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {compareData.rows.map((row) => (
-                    <TableRow key={row.metric}>
-                      <TableCell>{row.metric}</TableCell>
-                      <TableCell align="right">{fmtNum(row.walkForward, 3)}</TableCell>
-                      <TableCell align="right">{fmtNum(row.paperSoak, 3)}</TableCell>
-                      <TableCell align="right">{fmtNum(row.delta, 3)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Box>
-        ) : null}
-      </Paper>
-
-      <AgentSuggestionCards
-        onToast={(message) => {
-          setToastSeverity('info');
-          setToast(message);
-        }}
-      />
+          <AgentSuggestionCards
+            onToast={(message) => {
+              setToastSeverity('info');
+              setToast(message);
+            }}
+          />
+        </AccordionDetails>
+      </Accordion>
 
       {!tradingOn && (
         <Alert severity="warning" sx={{ mb: 2 }}>
@@ -852,146 +904,18 @@ export default function AgentDeskPage(): JSX.Element {
         </Alert>
       )}
 
-      <Stack
-        direction={{ xs: 'column', md: 'row' }}
-        spacing={2}
-        sx={{ mb: 2, opacity: tradingOn ? 1 : 0.45 }}
-        flexWrap="wrap"
-      >
-        <ToggleButtonGroup
-          exclusive
-          size="small"
-          disabled={!tradingOn}
-          value={mode}
-          onChange={async (_e, value: 'RESEARCH' | 'PAPER' | 'LIVE' | null) => {
-            if (!value) return;
-            try {
-              if (value === 'LIVE') {
-                await setMode({ mode: 'LIVE', confirmLive: 'ARM LIVE' }).unwrap();
-              } else {
-                await setMode({ mode: value }).unwrap();
-              }
-              await refetchMode();
-              setToastSeverity('info');
-              setToast(`Mode set to ${value}`);
-            } catch (error) {
-              setToastSeverity('error');
-              setToast(authErrorMessage(error, 'Could not change mode'));
-            }
-          }}
-        >
-          <ToggleButton value="RESEARCH">Research</ToggleButton>
-          <ToggleButton value="PAPER">Paper</ToggleButton>
-          <ToggleButton value="LIVE" color="error">
-            Live
-          </ToggleButton>
-        </ToggleButtonGroup>
-        <ToggleButtonGroup
-          exclusive
-          size="small"
-          disabled={!tradingOn}
-          value={decisionMode}
-          onChange={async (_e, value: 'APPROVAL' | 'AUTONOMOUS' | null) => {
-            if (!value) return;
-            try {
-              await setDecisionMode({ decisionMode: value }).unwrap();
-              await refetchMode();
-              setToastSeverity('info');
-              setToast(
-                value === 'AUTONOMOUS'
-                  ? 'Autonomous on (PAPER only) — risk + portfolio + policy must still pass'
-                  : 'Approval required for each trade',
-              );
-            } catch (error) {
-              setToastSeverity('error');
-              setToast(authErrorMessage(error, 'Could not change decision mode'));
-            }
-          }}
-        >
-          <ToggleButton value="APPROVAL">Approval</ToggleButton>
-          <ToggleButton value="AUTONOMOUS" color="warning">
-            Autonomous
-          </ToggleButton>
-        </ToggleButtonGroup>
-        <Button
-          size="small"
-          color={modeData?.killSwitch ? 'success' : 'error'}
-          variant="outlined"
-          disabled={!tradingOn}
-          onClick={async () => {
-            try {
-              await setKill({ enabled: !modeData?.killSwitch }).unwrap();
-              await refetchMode();
-            } catch (error) {
-              setToastSeverity('error');
-              setToast(authErrorMessage(error, 'Could not update kill switch'));
-            }
-          }}
-        >
-          {modeData?.killSwitch ? 'Clear kill switch' : 'Kill switch'}
-        </Button>
-        <Button
-          size="small"
-          color={modeData?.liveAutoEffective ? 'warning' : 'inherit'}
-          variant={modeData?.liveAutoArmed ? 'contained' : 'outlined'}
-          disabled={!tradingOn || modeData?.killSwitch}
-          onClick={async () => {
-            try {
-              if (modeData?.liveAutoArmed) {
-                await setLiveAutoArm({ armed: false }).unwrap();
-                setToastSeverity('info');
-                setToast('LIVE AUTONOMOUS disarmed — LIVE stays HUMAN_REQUIRED');
-              } else {
-                await setLiveAutoArm({
-                  armed: true,
-                  confirmLiveAuto: 'ARM LIVE AUTONOMOUS',
-                }).unwrap();
-                setToastSeverity('info');
-                setToast('LIVE AUTONOMOUS armed (requires P5 Evidence GO to be effective)');
-              }
-              await refetchMode();
-            } catch (error) {
-              setToastSeverity('error');
-              setToast(
-                authErrorMessage(
-                  error,
-                  'Could not ARM/DISARM LIVE AUTONOMOUS (evidence GO required to arm)',
-                ),
-              );
-            }
-          }}
-        >
-          {modeData?.liveAutoArmed ? 'DISARM LIVE AUTONOMOUS' : 'ARM LIVE AUTONOMOUS'}
-        </Button>
-        {modeData?.evidenceUnlock && !modeData.evidenceUnlock.unlocked ? (
-          <Chip
-            size="small"
-            color="default"
-            label={`P5 evidence ${modeData.evidenceUnlock.overallDecision} — auto ARM blocked`}
-          />
-        ) : null}
-        {modeData?.liveAutoEffective ? (
-          <Chip size="small" color="warning" label="LIVE AUTONOMOUS effective" />
-        ) : null}
-        {modeData?.breakers?.tripped ? (
-          <Chip
-            size="small"
-            color="error"
-            label={`Breakers tripped: ${(modeData.breakers.reasonCodes ?? []).slice(0, 3).join(', ') || 'STOP'}`}
-            title={(modeData.breakers.reasons ?? []).join(' · ')}
-          />
-        ) : (
-          <Chip size="small" color="default" variant="outlined" label="Breakers clear" />
-        )}
-        {modeData?.scale ? (
-          <Chip
-            size="small"
-            variant="outlined"
-            label={`Scale scan ${modeData.scale.maxSymbolsScanned} / auto ${modeData.scale.maxAutonomousAcceptsPerCycle} / workers ${modeData.scale.analysisConcurrency}`}
-          />
-        ) : null}
+      {toast && (
+        <Alert severity={toastSeverity} sx={{ mb: 2 }} onClose={() => setToast(null)}>
+          {toast}
+        </Alert>
+      )}
+
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
         <Button size="small" variant="outlined" onClick={() => refetchOpps()} disabled={isFetching}>
           Refresh opportunities
+        </Button>
+        <Button size="small" variant="outlined" component={RouterLink} to="/prep">
+          Prep / Focus
         </Button>
         <Button
           size="small"
@@ -1004,574 +928,529 @@ export default function AgentDeskPage(): JSX.Element {
         >
           View decisions
         </Button>
-        {decisionMode === 'AUTONOMOUS' && mode === 'PAPER' && tradingOn ? (
-          <Chip size="small" color="warning" label="PAPER autonomous — eligibility ≠ auto-buy" />
-        ) : null}
-        {modeData?.liveArming?.blockers?.length ? (
-          <Chip
-            size="small"
-            color="warning"
-            label={`LIVE blockers: ${modeData.liveArming.blockers.join(' · ')}`}
-          />
-        ) : null}
       </Stack>
 
-      {toast && (
-        <Alert severity={toastSeverity} sx={{ mb: 2 }} onClose={() => setToast(null)}>
-          {toast}
-        </Alert>
-      )}
-
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
-        <TextField
-          size="small"
-          placeholder="Analyze symbol…"
-          value={symbol}
-          onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-        />
-        <Button
-          component={RouterLink}
-          to={symbol ? `/stocks/${symbol}` : '/'}
-          variant="outlined"
-          disabled={!symbol}
-        >
-          Open chart
-        </Button>
-      </Stack>
-
-      <Stack
-        direction={{ xs: 'column', sm: 'row' }}
-        spacing={1}
-        alignItems={{ sm: 'center' }}
-        justifyContent="space-between"
-        sx={{ mb: 1 }}
-      >
-        <Box>
-          <Typography variant="subtitle1" fontWeight={600}>
-            Opportunities
-          </Typography>
-          <Typography variant="caption" color="text.secondary" display="block">
-            Paper cash ₹{cash.toLocaleString('en-IN')} ·{' '}
-            {positions?.positions?.length ?? portfolio?.openPositions ?? 0} open lot(s). Approve-all
-            splits cash across the batch (max ~5% per name).
-          </Typography>
-          {approveBlockReason && oppsTab === 'new' && (
-            <Typography variant="caption" color="warning.main" display="block" sx={{ mt: 0.25 }}>
-              Approve disabled — {approveBlockReason}.
-            </Typography>
-          )}
-          {!approveBlockReason && cashTooLow && oppsTab === 'new' && (
-            <Typography variant="caption" color="error.main" display="block" sx={{ mt: 0.25 }}>
-              Cash is too low to buy any listed name (need ≥ ₹
-              {cheapestEntry.toLocaleString('en-IN')}
-              ). Sell lots or reset paper capital first.
-            </Typography>
-          )}
-        </Box>
-        {oppsTab === 'new' && (
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+      <DeskThreePane
+        rankings={opportunityRanking?.rankings ?? []}
+        rankingContextLabel={[
+          opportunityRanking?.context.tradeHorizon,
+          opportunityRanking?.engineVersion,
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+        noClearWinner={Boolean(opportunityRanking?.noClearWinner)}
+        selectedSymbol={selectedSymbol}
+        onSelectSymbol={setSelectedSymbol}
+        selectedOpp={selectedOpp}
+        selectedRank={selectedRank}
+        canApprove={Boolean(selectedOpp && isApprovable(selectedOpp))}
+        approvalsBlocked={approvalsBlocked}
+        approveBlockReason={approveBlockReason}
+        onApprove={() => {
+          if (!selectedOpp || !isApprovable(selectedOpp)) return;
+          setApproveTarget({
+            id: selectedOpp.recommendationId!,
+            symbol: selectedOpp.symbol,
+            suggestedQty: suggestedQty(selectedOpp),
+            entry: Number(selectedOpp.setup.entry),
+          });
+          setApproveQty(String(suggestedQty(selectedOpp)));
+        }}
+        onWait={() => {
+          if (!selectedOpp?.recommendationId) return;
+          void wait({ id: selectedOpp.recommendationId, reason: 'WAIT_FOR_CONFIRMATION' })
+            .unwrap()
+            .then(() => {
+              setToastSeverity('success');
+              setToast(`Waiting on ${selectedOpp.symbol}`);
+            })
+            .catch((error: unknown) => {
+              setToastSeverity('error');
+              setToast(authErrorMessage(error, 'Wait failed'));
+            });
+        }}
+        onReject={() => {
+          if (!selectedOpp?.recommendationId) return;
+          void reject({ id: selectedOpp.recommendationId, reason: 'HUMAN_REJECT' })
+            .unwrap()
+            .then(() => {
+              setToastSeverity('success');
+              setToast(`Rejected ${selectedOpp.symbol}`);
+            })
+            .catch((error: unknown) => {
+              setToastSeverity('error');
+              setToast(authErrorMessage(error, 'Reject failed'));
+            });
+        }}
+        waitBusy={waitState.isLoading}
+        rejectBusy={rejectState.isLoading}
+        tradingControls={
+          <Stack spacing={1.5} sx={{ opacity: tradingOn ? 1 : 0.45 }}>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              fullWidth
+              disabled={!tradingOn}
+              value={mode}
+              onChange={async (_e, value: 'RESEARCH' | 'PAPER' | 'LIVE' | null) => {
+                if (!value) return;
+                try {
+                  if (value === 'LIVE') {
+                    await setMode({ mode: 'LIVE', confirmLive: 'ARM LIVE' }).unwrap();
+                  } else {
+                    await setMode({ mode: value }).unwrap();
+                  }
+                  await refetchMode();
+                  setToastSeverity('info');
+                  setToast(`Mode set to ${value}`);
+                } catch (error) {
+                  setToastSeverity('error');
+                  setToast(authErrorMessage(error, 'Could not change mode'));
+                }
+              }}
+            >
+              <ToggleButton value="RESEARCH">Research</ToggleButton>
+              <ToggleButton value="PAPER">Paper</ToggleButton>
+              <ToggleButton value="LIVE" color="error">
+                Live
+              </ToggleButton>
+            </ToggleButtonGroup>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              fullWidth
+              disabled={!tradingOn}
+              value={decisionMode}
+              onChange={async (_e, value: 'APPROVAL' | 'AUTONOMOUS' | null) => {
+                if (!value) return;
+                try {
+                  await setDecisionMode({ decisionMode: value }).unwrap();
+                  await refetchMode();
+                } catch (error) {
+                  setToastSeverity('error');
+                  setToast(authErrorMessage(error, 'Could not change decision mode'));
+                }
+              }}
+            >
+              <ToggleButton value="APPROVAL">Approval</ToggleButton>
+              <ToggleButton value="AUTONOMOUS" color="warning">
+                Autonomous
+              </ToggleButton>
+            </ToggleButtonGroup>
             <Button
+              size="small"
+              fullWidth
+              color={modeData?.killSwitch ? 'success' : 'error'}
+              variant="outlined"
+              disabled={!tradingOn}
+              onClick={async () => {
+                try {
+                  await setKill({ enabled: !modeData?.killSwitch }).unwrap();
+                  await refetchMode();
+                } catch (error) {
+                  setToastSeverity('error');
+                  setToast(authErrorMessage(error, 'Could not update kill switch'));
+                }
+              }}
+            >
+              {modeData?.killSwitch ? 'Clear kill switch' : 'Kill switch'}
+            </Button>
+            <Button
+              size="small"
+              fullWidth
+              color={modeData?.liveAutoEffective ? 'warning' : 'inherit'}
+              variant={modeData?.liveAutoArmed ? 'contained' : 'outlined'}
+              disabled={!tradingOn || modeData?.killSwitch}
+              onClick={async () => {
+                try {
+                  if (modeData?.liveAutoArmed) {
+                    await setLiveAutoArm({ armed: false }).unwrap();
+                    setToastSeverity('info');
+                    setToast('LIVE AUTONOMOUS disarmed');
+                  } else {
+                    await setLiveAutoArm({
+                      armed: true,
+                      confirmLiveAuto: 'ARM LIVE AUTONOMOUS',
+                    }).unwrap();
+                    setToastSeverity('info');
+                    setToast('LIVE AUTONOMOUS armed (P5 GO required to be effective)');
+                  }
+                  await refetchMode();
+                } catch (error) {
+                  setToastSeverity('error');
+                  setToast(authErrorMessage(error, 'Could not ARM/DISARM'));
+                }
+              }}
+            >
+              {modeData?.liveAutoArmed ? 'DISARM LIVE AUTONOMOUS' : 'ARM LIVE AUTONOMOUS'}
+            </Button>
+            <Chip
+              size="small"
+              component={RouterLink}
+              to="/evidence"
+              clickable
+              label={`P5 ${modeData?.evidenceUnlock?.overallDecision ?? 'UNKNOWN'}`}
+            />
+            <Chip
               size="small"
               variant="outlined"
-              disabled={approvalsBlocked || selectedApprovable.length === 0}
-              title={approveBlockReason ?? undefined}
-              onClick={() => setBulkTargets(toTargets(selectedApprovable))}
-            >
-              Approve selected ({selectedApprovable.length})
-            </Button>
-            <Button
-              size="small"
-              variant="contained"
-              disabled={approvalsBlocked || approvable.length === 0}
-              title={approveBlockReason ?? undefined}
-              onClick={() => setBulkTargets(toTargets(approvable))}
-            >
-              Approve all ({approvable.length})
-            </Button>
+              label={modeData?.evidenceUnlock?.unlocked ? 'P6 ARM ELIGIBLE' : 'P6 LOCKED'}
+            />
           </Stack>
-        )}
-      </Stack>
+        }
+      />
 
-      <Tabs
-        value={oppsTab}
-        onChange={(_, value: 'new' | 'added') => setOppsTab(value)}
-        sx={{ mb: 1, borderBottom: 1, borderColor: 'divider' }}
-      >
-        <Tab value="new" label={`New (${opportunities.length})`} />
-        <Tab value="added" label={`Added (${added.length})`} />
-      </Tabs>
-
-      {bulkProgress && oppsTab === 'new' && (
-        <Box sx={{ mb: 1 }}>
-          <Typography variant="caption" color="text.secondary">
-            Approving {bulkProgress.done}/{bulkProgress.total}…
-          </Typography>
-          <LinearProgress
-            variant="determinate"
-            value={(bulkProgress.done / Math.max(bulkProgress.total, 1)) * 100}
-            sx={{ mt: 0.5 }}
-          />
-        </Box>
-      )}
-
-      {oppsTab === 'new' && opportunityRanking ? (
-        <Paper variant="outlined" sx={{ mb: 2, p: 1.5 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-            Attention shortlist
-            {opportunityRanking.noClearWinner ? ' — no clear winner under current context' : ''}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-            {opportunityRanking.context.tradeHorizon}
-            {opportunityRanking.context.strategyTag
-              ? ` · ${opportunityRanking.context.strategyTag}`
-              : ''}{' '}
-            · lexicographic precedence (not a RankingScore) · advisory only
-          </Typography>
-          <Stack spacing={1}>
-            {opportunityRanking.rankings.slice(0, 5).map((r) => {
-              const above = r.pairwiseReasons.find((p) => p.polarity === 'ABOVE');
-              const whyAbove = above?.evidence[0]?.message;
-              const concern = r.weaknesses[0]?.message;
-              return (
-                <Box key={r.opportunityId}>
-                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                    <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                      #{r.rank} {r.symbol}
-                    </Typography>
-                    <Chip size="small" label={r.dominance} variant="outlined" />
-                    {r.stale ? <Chip size="small" color="warning" label="STALE" /> : null}
-                    {r.dataCompleteness !== 'COMPLETE' ? (
-                      <Chip size="small" color="warning" label={r.dataCompleteness} />
-                    ) : null}
-                  </Stack>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    {whyAbove
-                      ? `vs ${above!.peerSymbol}: ${whyAbove}`
-                      : (r.strengths[0]?.message ?? 'Context-scoped attention only')}
-                    {concern ? ` · concern: ${concern}` : ''}
-                  </Typography>
-                </Box>
-              );
-            })}
-          </Stack>
-        </Paper>
-      ) : null}
-
-      {oppsTab === 'new' ? (
-        <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell padding="checkbox">
-                  <Checkbox
-                    size="small"
-                    indeterminate={someSelected}
-                    checked={allSelected}
-                    disabled={approvableIds.length === 0 || bulkBusy}
-                    onChange={toggleSelectAll}
-                    inputProps={{ 'aria-label': 'Select all approvable buys' }}
-                  />
-                </TableCell>
-                <TableCell>Symbol</TableCell>
-                <TableCell>Decision</TableCell>
-                <TableCell>Attention</TableCell>
-                <TableCell align="right">Score</TableCell>
-                <TableCell align="right">Size</TableCell>
-                <TableCell>Thesis</TableCell>
-                <TableCell align="center">Action</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {opportunities.map((row) => {
-                const canApprove = isApprovable(row);
-                const id = row.recommendationId;
-                const rankRow = rankingBySymbol.get(row.symbol);
-                return (
-                  <TableRow key={`${row.symbol}-${row.recommendationId ?? row.symbol}`}>
+      <Accordion disableGutters sx={{ mb: 2 }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography fontWeight={600}>Batch opportunities table</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Tabs
+            value={oppsTab}
+            onChange={(_, value: 'new' | 'added') => setOppsTab(value)}
+            sx={{ mb: 1, borderBottom: 1, borderColor: 'divider' }}
+          >
+            <Tab value="new" label={`New (${opportunities.length})`} />
+            <Tab value="added" label={`Added (${added.length})`} />
+          </Tabs>
+          {oppsTab === 'new' && (
+            <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+              <Button
+                size="small"
+                variant="outlined"
+                disabled={approvalsBlocked || selectedApprovable.length === 0}
+                onClick={() => setBulkTargets(toTargets(selectedApprovable))}
+              >
+                Approve selected ({selectedApprovable.length})
+              </Button>
+              <Button
+                size="small"
+                variant="contained"
+                disabled={approvalsBlocked || approvable.length === 0}
+                onClick={() => setBulkTargets(toTargets(approvable))}
+              >
+                Approve all ({approvable.length})
+              </Button>
+            </Stack>
+          )}
+          {oppsTab === 'new' ? (
+            <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
                     <TableCell padding="checkbox">
                       <Checkbox
                         size="small"
-                        disabled={!canApprove || bulkBusy}
-                        checked={Boolean(id && selectedIds.has(id))}
-                        onChange={() => id && toggleSelected(id)}
-                        inputProps={{ 'aria-label': `Select ${row.symbol}` }}
+                        indeterminate={someSelected}
+                        checked={allSelected}
+                        disabled={approvableIds.length === 0 || bulkBusy}
+                        onChange={toggleSelectAll}
+                        inputProps={{ 'aria-label': 'Select all approvable buys' }}
                       />
                     </TableCell>
-                    <TableCell>
-                      <Typography
-                        component={RouterLink}
-                        to={`/stocks/${row.symbol}`}
-                        sx={{ fontWeight: 700, textDecoration: 'none' }}
-                      >
-                        {row.symbol}
-                      </Typography>
-                      {row.missingCapabilities?.length ? (
-                        <Typography variant="caption" display="block" color="warning.main">
-                          missing {row.missingCapabilities.join(', ')}
-                        </Typography>
-                      ) : null}
-                    </TableCell>
-                    <TableCell>
-                      <Chip size="small" label={row.decision.replaceAll('_', ' ')} />
-                    </TableCell>
-                    <TableCell>
-                      {rankRow ? (
-                        <Typography variant="caption" display="block">
-                          #{rankRow.rank} · {rankRow.dominance}
-                          {rankRow.stale ? ' · STALE' : ''}
-                        </Typography>
-                      ) : (
-                        <Typography variant="caption" color="text.secondary">
-                          —
-                        </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell align="right">{row.scores.overall}</TableCell>
-                    <TableCell align="right">
-                      {row.setup.positionSize > 0
-                        ? row.setup.positionSize
-                        : isApprovable(row)
-                          ? '1*'
-                          : '—'}
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="caption">{row.thesis}</Typography>
-                      {row.recommendationId && waitByOpportunityId[row.recommendationId] ? (
-                        <WaitIntelligencePanel wait={waitByOpportunityId[row.recommendationId]} />
-                      ) : null}
-                      {row.recommendationId && thesisByOpportunityId[row.recommendationId] ? (
-                        <ThesisIntelligencePanel
-                          thesis={thesisByOpportunityId[row.recommendationId]}
-                        />
-                      ) : null}
-                    </TableCell>
-                    <TableCell align="center">
-                      <Stack direction="row" spacing={0.5} justifyContent="center">
-                        <Button
-                          size="small"
-                          variant="contained"
-                          disabled={approvalsBlocked || !canApprove || approveState.isLoading}
-                          title={approveBlockReason ?? undefined}
-                          onClick={() => {
-                            if (!tradingOn) {
-                              setToastSeverity('error');
-                              setToast('Enable AI agent trading first, then approve.');
-                              return;
-                            }
-                            if (!row.recommendationId) return;
-                            const suggested = suggestedQty(row);
-                            setApproveTarget({
-                              id: row.recommendationId,
-                              symbol: row.symbol,
-                              suggestedQty: suggested,
-                              entry: Number(row.setup.entry),
-                            });
-                            setApproveQty(String(suggested));
-                          }}
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          disabled={!row.recommendationId || waitState.isLoading}
-                          onClick={() => {
-                            if (!row.recommendationId) return;
-                            void wait({
-                              id: row.recommendationId,
-                              reason: 'WAIT_FOR_CONFIRMATION',
-                            })
-                              .unwrap()
-                              .then(() => {
-                                setToastSeverity('success');
-                                setToast(`Waiting on ${row.symbol}`);
-                              })
-                              .catch((error: unknown) => {
-                                setToastSeverity('error');
-                                setToast(authErrorMessage(error, 'Wait failed'));
-                              });
-                          }}
-                        >
-                          Wait
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="error"
-                          disabled={!row.recommendationId || rejectState.isLoading}
-                          onClick={() => {
-                            if (!row.recommendationId) return;
-                            void reject({
-                              id: row.recommendationId,
-                              reason: 'HUMAN_REJECT',
-                            })
-                              .unwrap()
-                              .then(() => {
-                                setToastSeverity('success');
-                                setToast(`Rejected ${row.symbol}`);
-                              })
-                              .catch((error: unknown) => {
-                                setToastSeverity('error');
-                                setToast(authErrorMessage(error, 'Reject failed'));
-                              });
-                          }}
-                        >
-                          Reject
-                        </Button>
-                      </Stack>
-                    </TableCell>
+                    <TableCell>Symbol</TableCell>
+                    <TableCell>Decision</TableCell>
+                    <TableCell>Attention</TableCell>
+                    <TableCell align="right">Score</TableCell>
+                    <TableCell align="right">Size</TableCell>
+                    <TableCell>Thesis</TableCell>
+                    <TableCell align="center">Action</TableCell>
                   </TableRow>
-                );
-              })}
-              {opportunities.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7}>
-                    <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-                      No new opportunities. Approved names move to Added; refresh after market data
-                      is up.
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      ) : (
-        <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Symbol</TableCell>
-                <TableCell>Decision</TableCell>
-                <TableCell align="right">Qty</TableCell>
-                <TableCell align="right">Entry</TableCell>
-                <TableCell align="right">Score</TableCell>
-                <TableCell>Approved</TableCell>
-                <TableCell>Thesis</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {added.map((row) => (
-                <TableRow key={`${row.symbol}-${row.recommendationId ?? row.executedAt}`}>
-                  <TableCell>
-                    <Typography
-                      component={RouterLink}
-                      to={`/stocks/${row.symbol}`}
-                      sx={{ fontWeight: 700, textDecoration: 'none' }}
-                    >
-                      {row.symbol}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip size="small" color="success" label="APPROVED" />
-                  </TableCell>
-                  <TableCell align="right">{row.quantity}</TableCell>
-                  <TableCell align="right">
-                    {row.setup.entry != null
-                      ? `₹${Number(row.setup.entry).toLocaleString('en-IN')}`
-                      : '—'}
-                  </TableCell>
-                  <TableCell align="right">{row.scores.overall}</TableCell>
-                  <TableCell>
-                    <Typography variant="caption" color="text.secondary">
-                      {new Date(row.executedAt).toLocaleString()}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="caption">{row.thesis}</Typography>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {added.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7}>
-                    <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-                      Nothing added yet. Approve a suggestion under New to see it here.
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
+                </TableHead>
+                <TableBody>
+                  {opportunities.map((row) => {
+                    const canApprove = isApprovable(row);
+                    const id = row.recommendationId;
+                    const rankRow = rankingBySymbol.get(row.symbol);
+                    return (
+                      <TableRow key={`${row.symbol}-${row.recommendationId ?? row.symbol}`}>
+                        <TableCell padding="checkbox">
+                          <Checkbox
+                            size="small"
+                            disabled={!canApprove || bulkBusy}
+                            checked={Boolean(id && selectedIds.has(id))}
+                            onChange={() => id && toggleSelected(id)}
+                            inputProps={{ 'aria-label': `Select ${row.symbol}` }}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Typography
+                            component={RouterLink}
+                            to={`/stocks/${row.symbol}`}
+                            sx={{ fontWeight: 700, textDecoration: 'none' }}
+                          >
+                            {row.symbol}
+                          </Typography>
+                          {row.recommendationId &&
+                          opps?.opportunityProvenanceById?.[row.recommendationId] ? (
+                            <Stack
+                              direction="row"
+                              spacing={0.5}
+                              flexWrap="wrap"
+                              useFlexGap
+                              sx={{ mt: 0.5 }}
+                            >
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                label={
+                                  opps.opportunityProvenanceById[row.recommendationId]
+                                    .discoverySource === 'OFFLINE_PRESELECTED'
+                                    ? 'OFFLINE_PRESELECTED'
+                                    : 'LIVE_DISCOVERED'
+                                }
+                              />
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                label={
+                                  opps.opportunityProvenanceById[row.recommendationId]
+                                    .dataProvenance.dataStatus
+                                }
+                              />
+                              {opps.opportunityProvenanceById[row.recommendationId].focusTier !=
+                              null ? (
+                                <Chip
+                                  size="small"
+                                  variant="outlined"
+                                  label={`T${opps.opportunityProvenanceById[row.recommendationId].focusTier}`}
+                                />
+                              ) : null}
+                              <Typography variant="caption" color="text.secondary">
+                                age{' '}
+                                {fmtMs(
+                                  opps.opportunityProvenanceById[row.recommendationId]
+                                    .dataProvenance.dataAgeMs,
+                                )}
+                                {opps.opportunityProvenanceById[row.recommendationId].liveReady
+                                  ? ''
+                                  : ' · not LIVE_READY'}
+                              </Typography>
+                            </Stack>
+                          ) : null}
+                          {row.missingCapabilities?.length ? (
+                            <Typography variant="caption" display="block" color="warning.main">
+                              missing {row.missingCapabilities.join(', ')}
+                            </Typography>
+                          ) : null}
+                        </TableCell>
+                        <TableCell>
+                          <Chip size="small" label={row.decision.replaceAll('_', ' ')} />
+                        </TableCell>
+                        <TableCell>
+                          {rankRow ? (
+                            <Typography variant="caption" display="block">
+                              #{rankRow.rank} · {rankRow.dominance}
+                              {rankRow.stale ? ' · STALE' : ''}
+                            </Typography>
+                          ) : (
+                            <Typography variant="caption" color="text.secondary">
+                              —
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="right">{row.scores.overall}</TableCell>
+                        <TableCell align="right">
+                          {row.setup.positionSize > 0
+                            ? row.setup.positionSize
+                            : isApprovable(row)
+                              ? '1*'
+                              : '—'}
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="caption">{row.thesis}</Typography>
+                          <OpportunityIntelligencePanel
+                            dimensions={rankRow?.dimensions}
+                            thesis={row.thesis}
+                            decision={row.decision}
+                            mlLabel={null}
+                          />
+                          {row.recommendationId && waitByOpportunityId[row.recommendationId] ? (
+                            <WaitIntelligencePanel
+                              wait={waitByOpportunityId[row.recommendationId]}
+                            />
+                          ) : null}
+                          {row.recommendationId && thesisByOpportunityId[row.recommendationId] ? (
+                            <ThesisIntelligencePanel
+                              thesis={thesisByOpportunityId[row.recommendationId]}
+                            />
+                          ) : null}
+                        </TableCell>
+                        <TableCell align="center">
+                          <Stack direction="row" spacing={0.5} justifyContent="center">
+                            <Button
+                              size="small"
+                              variant="contained"
+                              disabled={approvalsBlocked || !canApprove || approveState.isLoading}
+                              title={approveBlockReason ?? undefined}
+                              onClick={() => {
+                                if (!tradingOn) {
+                                  setToastSeverity('error');
+                                  setToast('Enable AI agent trading first, then approve.');
+                                  return;
+                                }
+                                if (!row.recommendationId) return;
+                                const suggested = suggestedQty(row);
+                                setApproveTarget({
+                                  id: row.recommendationId,
+                                  symbol: row.symbol,
+                                  suggestedQty: suggested,
+                                  entry: Number(row.setup.entry),
+                                });
+                                setApproveQty(String(suggested));
+                              }}
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              disabled={!row.recommendationId || waitState.isLoading}
+                              onClick={() => {
+                                if (!row.recommendationId) return;
+                                void wait({
+                                  id: row.recommendationId,
+                                  reason: 'WAIT_FOR_CONFIRMATION',
+                                })
+                                  .unwrap()
+                                  .then(() => {
+                                    setToastSeverity('success');
+                                    setToast(`Waiting on ${row.symbol}`);
+                                  })
+                                  .catch((error: unknown) => {
+                                    setToastSeverity('error');
+                                    setToast(authErrorMessage(error, 'Wait failed'));
+                                  });
+                              }}
+                            >
+                              Wait
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="error"
+                              disabled={!row.recommendationId || rejectState.isLoading}
+                              onClick={() => {
+                                if (!row.recommendationId) return;
+                                void reject({
+                                  id: row.recommendationId,
+                                  reason: 'HUMAN_REJECT',
+                                })
+                                  .unwrap()
+                                  .then(() => {
+                                    setToastSeverity('success');
+                                    setToast(`Rejected ${row.symbol}`);
+                                  })
+                                  .catch((error: unknown) => {
+                                    setToastSeverity('error');
+                                    setToast(authErrorMessage(error, 'Reject failed'));
+                                  });
+                              }}
+                            >
+                              Reject
+                            </Button>
+                          </Stack>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {opportunities.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7}>
+                        <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+                          No new opportunities. Approved names move to Added; refresh after market
+                          data is up.
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : (
+            <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Symbol</TableCell>
+                    <TableCell>Decision</TableCell>
+                    <TableCell align="right">Qty</TableCell>
+                    <TableCell align="right">Entry</TableCell>
+                    <TableCell align="right">Score</TableCell>
+                    <TableCell>Approved</TableCell>
+                    <TableCell>Thesis</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {added.map((row) => (
+                    <TableRow key={`${row.symbol}-${row.recommendationId ?? row.executedAt}`}>
+                      <TableCell>
+                        <Typography
+                          component={RouterLink}
+                          to={`/stocks/${row.symbol}`}
+                          sx={{ fontWeight: 700, textDecoration: 'none' }}
+                        >
+                          {row.symbol}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip size="small" color="success" label="APPROVED" />
+                      </TableCell>
+                      <TableCell align="right">{row.quantity}</TableCell>
+                      <TableCell align="right">
+                        {row.setup.entry != null
+                          ? `₹${Number(row.setup.entry).toLocaleString('en-IN')}`
+                          : '—'}
+                      </TableCell>
+                      <TableCell align="right">{row.scores.overall}</TableCell>
+                      <TableCell>
+                        <Typography variant="caption" color="text.secondary">
+                          {new Date(row.executedAt).toLocaleString()}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="caption">{row.thesis}</Typography>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {added.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7}>
+                        <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+                          Nothing added yet. Approve a suggestion under New to see it here.
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </AccordionDetails>
+      </Accordion>
 
-      <Stack
-        direction="row"
-        alignItems="baseline"
-        spacing={1}
-        sx={{ mb: 1 }}
-        flexWrap="wrap"
-        useFlexGap
-      >
-        <Typography variant="subtitle1" fontWeight={600}>
-          Monitored paper lots ({positions?.positions?.length ?? 0})
-        </Typography>
-        <Chip
-          size="small"
-          color={positions?.agentTradingEnabled || tradingOn ? 'success' : 'default'}
-          label={
-            positions?.agentTradingEnabled || tradingOn
-              ? 'Exit mode: agent policy'
-              : 'Exit mode: classic stop/target'
-          }
-        />
-        {positions?.killSwitch && <Chip size="small" color="error" label="Kill switch" />}
-      </Stack>
-      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-        Every open paper lot auto-trader is watching on market ticks (all user books + system book).
-      </Typography>
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Symbol</TableCell>
-              <TableCell>Book</TableCell>
-              <TableCell align="right">Qty</TableCell>
-              <TableCell align="right">Entry</TableCell>
-              <TableCell align="right">Last</TableCell>
-              <TableCell align="right">Stop</TableCell>
-              <TableCell align="right">Target</TableCell>
-              <TableCell>Monitoring</TableCell>
-              <TableCell align="right">uPnL</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {(positions?.positions ?? []).map((lot) => (
-              <TableRow key={`${lot.bookKey ?? 'sys'}-${lot.symbol}`}>
-                <TableCell>
-                  <Typography
-                    component={RouterLink}
-                    to={`/stocks/${lot.symbol}`}
-                    variant="body2"
-                    fontWeight={600}
-                    sx={{ color: 'primary.main', textDecoration: 'none' }}
-                  >
-                    {lot.symbol}
-                  </Typography>
-                </TableCell>
-                <TableCell>
-                  <Typography variant="caption" color="text.secondary">
-                    {lot.userId ? `user ${lot.userId.slice(0, 8)}…` : 'system'}
-                  </Typography>
-                </TableCell>
-                <TableCell align="right">{lot.quantity}</TableCell>
-                <TableCell align="right">{lot.entryPrice}</TableCell>
-                <TableCell align="right">{lot.currentPrice}</TableCell>
-                <TableCell align="right">{lot.stopLoss}</TableCell>
-                <TableCell align="right">{lot.target}</TableCell>
-                <TableCell>
-                  <Chip
-                    size="small"
-                    color={lot.exitMode === 'AGENT_POLICY' ? 'success' : 'default'}
-                    label={lot.exitMode === 'AGENT_POLICY' ? 'Agent policy' : 'Stop/target'}
-                  />
-                  <Typography variant="caption" display="block" color="text.secondary">
-                    {lot.policyNote}
-                  </Typography>
-                  {lot.exitIntelligence ? (
-                    <ExitIntelligencePanel exit={lot.exitIntelligence} />
-                  ) : null}
-                </TableCell>
-                <TableCell align="right">{lot.unrealizedPnl}</TableCell>
-              </TableRow>
-            ))}
-            {(positions?.positions ?? []).length === 0 && (
-              <TableRow>
-                <TableCell colSpan={9}>
-                  <Box sx={{ py: 2 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      No open paper lots to monitor. Approve a BUY here or open lots from Paper
-                      book.
-                    </Typography>
-                  </Box>
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
-
-      <Typography variant="subtitle1" fontWeight={600} sx={{ mt: 3, mb: 0.5 }}>
-        Transaction audit ({txAudit?.transactions?.length ?? 0})
-      </Typography>
-      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-        Your agent buys and sells with fill price and why each side was taken (thesis on buy, exit
-        policy on sell).
-      </Typography>
-      <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>When</TableCell>
-              <TableCell>Symbol</TableCell>
-              <TableCell>Side</TableCell>
-              <TableCell align="right">Qty</TableCell>
-              <TableCell align="right">Price</TableCell>
-              <TableCell align="right">PnL</TableCell>
-              <TableCell>Why</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {(txAudit?.transactions ?? []).map((tx) => (
-              <TableRow key={tx.id}>
-                <TableCell>
-                  <Typography variant="caption" color="text.secondary">
-                    {new Date(tx.timestamp).toLocaleString()}
-                  </Typography>
-                </TableCell>
-                <TableCell>
-                  <Typography
-                    component={RouterLink}
-                    to={`/stocks/${tx.symbol}`}
-                    variant="body2"
-                    fontWeight={700}
-                    sx={{ textDecoration: 'none' }}
-                  >
-                    {tx.symbol}
-                  </Typography>
-                </TableCell>
-                <TableCell>
-                  <Chip
-                    size="small"
-                    color={tx.side === 'BUY' ? 'success' : 'warning'}
-                    label={tx.side}
-                  />
-                </TableCell>
-                <TableCell align="right">{tx.quantity}</TableCell>
-                <TableCell align="right">
-                  ₹{Number(tx.price).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                </TableCell>
-                <TableCell align="right">
-                  {tx.pnl == null
-                    ? '—'
-                    : `${tx.pnl >= 0 ? '+' : ''}₹${Number(tx.pnl).toLocaleString('en-IN', {
-                        maximumFractionDigits: 2,
-                      })}`}
-                </TableCell>
-                <TableCell sx={{ maxWidth: 420 }}>
-                  <Typography variant="caption" fontWeight={600} display="block">
-                    {tx.reason}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {tx.explanation}
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            ))}
-            {(txAudit?.transactions ?? []).length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7}>
-                  <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-                    No agent transactions yet for this user. Approve a suggestion to open the audit
-                    trail.
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          justifyContent="space-between"
+          alignItems={{ sm: 'center' }}
+          spacing={1}
+        >
+          <Box>
+            <Typography variant="subtitle1" fontWeight={600}>
+              Book summary
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {positions?.positions?.length ?? 0} open agent lot(s) ·{' '}
+              {txAudit?.transactions?.length ?? 0} recent transaction(s). Full positions, exit
+              intel, and journal live on Book.
+            </Typography>
+          </Box>
+          <Button component={RouterLink} to="/book" variant="contained" size="small">
+            Open Book
+          </Button>
+        </Stack>
+      </Paper>
 
       <Dialog
         open={Boolean(approveTarget)}

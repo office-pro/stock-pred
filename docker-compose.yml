@@ -15,7 +15,7 @@ x-node-env: &node-env
   JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret}
   JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret}
   CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
-  STOCK_UNIVERSE_MODE: ${STOCK_UNIVERSE_MODE:-full-universe}
+  STOCK_UNIVERSE_MODE: ${STOCK_UNIVERSE_MODE:-quick-start}
   AUTH_SERVICE_URL: http://auth-service:3001
   MARKET_DATA_SERVICE_URL: http://market-data-service:3002
   SIGNAL_ENGINE_URL: http://signal-engine:3003
@@ -83,7 +83,8 @@ services:
       test: ['CMD-SHELL', '/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list']
       interval: 10s
       timeout: 10s
-      retries: 12
+      retries: 18
+      start_period: 90s
 
   # ------------------------------------------------------ migrations + seed
   migrate:
@@ -96,7 +97,7 @@ services:
         APP: api-gateway
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-stockpred}:${POSTGRES_PASSWORD:-stockpred}@postgres:5432/${POSTGRES_DB:-stockpred}?schema=public
-      STOCK_UNIVERSE_MODE: ${STOCK_UNIVERSE_MODE:-full-universe}
+      STOCK_UNIVERSE_MODE: ${STOCK_UNIVERSE_MODE:-quick-start}
     command: >
       sh -c "npx prisma migrate deploy --schema packages/database/prisma/schema.prisma
       && node packages/database/dist/seed.js"
@@ -115,7 +116,8 @@ services:
     environment:
       <<: *node-env
       MARKET_DATA_SERVICE_PORT: '3002'
-      MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-simulated}
+      MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-yahoo}
+      QUOTE_REFRESH_INTERVAL_MS: ${QUOTE_REFRESH_INTERVAL_MS:-15000}
       TICK_INTERVAL_MS: ${TICK_INTERVAL_MS:-1000}
     ports: ['3002:3002']
     depends_on:
@@ -209,7 +211,8 @@ services:
       # Optional: enable Agent desk "Implement" via Cursor SDK inside the container.
       CURSOR_API_KEY: ${CURSOR_API_KEY:-}
       CURSOR_AGENT_MODEL: ${CURSOR_AGENT_MODEL:-composer-2.5}
-      REPO_ROOT: ${REPO_ROOT:-/workspace}
+      # Bind-mount path inside the container (do not pass host Windows REPO_ROOT).
+      REPO_ROOT: /workspace
     volumes:
       # Mount monorepo so Cursor SDK local agents can edit the host checkout.
       - .:/workspace

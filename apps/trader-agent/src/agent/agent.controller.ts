@@ -23,6 +23,7 @@ import type {
   AgentRiskBudgetConfig,
   AgentWalkForwardReport,
   DecisionLedgerEntry,
+  FocusUniverseBatch,
   PortfolioSnapshot,
 } from '@stockpred/shared-types';
 import { AgentService } from './agent.service';
@@ -303,6 +304,23 @@ export class AgentController {
     disclaimer: string;
   }> {
     return this.agent.getOpportunities(Math.min(limit, 50), userId, brandId);
+  }
+
+  /** Latest FocusUniverseBatch artifact (optimization-only — not authorization). */
+  @Get('focus-universe/latest')
+  focusUniverseLatest(): FocusUniverseBatch | null {
+    return this.agent.getFocusUniverseLatest();
+  }
+
+  /**
+   * Offline intelligence batch → FocusUniverseBatch.
+   * Read-only: no ledger / Risk / Policy / Gate / orders.
+   */
+  @Post('focus-universe/run-offline')
+  runOfflineFocusBatch(
+    @Query('limit', new DefaultValuePipe(80), ParseIntPipe) limit = 80,
+  ): Promise<FocusUniverseBatch> {
+    return this.agent.runOfflineFocusBatch(Math.min(limit, 200));
   }
 
   @Get('analysis/:symbol')

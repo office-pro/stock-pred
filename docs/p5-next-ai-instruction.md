@@ -50,17 +50,37 @@ P6:
 - DecisionPolicy LIVE branch: implemented
 - Activation: BLOCKED while P5 Evidence = NO-GO
 
-**DO NOT IMPLEMENT NEW P5/P6 FEATURES.**
+**DO NOT IMPLEMENT NEW P5/P6 FEATURES** except the **scoped Phase 3–4 resilience support** locked below.
+
+**Scoped unlock (Phase 3–4 resilience only):**
+
+```text
+ALLOWED:
+- DELAYED / UNKNOWN freshness labels (Risk 60s unchanged)
+- Read-only offline FocusUniverseBatch (EOD/cached → rank → artifact)
+- Live handoff refresh priority (Tier1→2→3) — optimization only
+- discoverySource / batchId / dataProvenance stamps on Opportunity → DecisionLedger
+- Desk provenance display + probe checks
+- Phase 4 resilience checklist UNDER existing O/I/L/C (no fifth gate)
+
+FORBIDDEN (unchanged):
+- RankingScore / score/100 / Focus-as-authorization
+- Offline batch writing ledger / calling Risk|Portfolio|Policy|Gate / orders / fills
+- DELAYED bypassing auth engines
+- Using offline snapshot as APPROVE decision snapshot
+- Changing P5 floors / verdict formula / P6 ARM
+- Fabricating ACTUAL / realizedR
+```
 
 **DO NOT MODIFY:**
 
-- RiskEngine
+- RiskEngine (except existing 60s DATA_STALE must remain)
 - PortfolioEngine
 - DecisionPolicy
 - Gate
 - liveAutoArmed behavior
 - P6 ARM logic
-- execution path
+- execution path thresholds
 
 ---
 

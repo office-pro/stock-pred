@@ -225,12 +225,6 @@ export default function StockDetailPage(): JSX.Element {
   const sessionCount = visibleCandles.length || candles?.length || patterns?.barCount || 0;
 
   const paperAction = stock?.suggestion ?? 'HOLD';
-  const alertSeverity =
-    paperAction === 'BUY' || patterns?.outlook === 'GROW'
-      ? 'success'
-      : paperAction === 'SELL' || patterns?.outlook === 'FALL'
-        ? 'warning'
-        : 'info';
 
   useEffect(() => {
     const applyHeight = (): void => {
@@ -297,7 +291,8 @@ export default function StockDetailPage(): JSX.Element {
         holding={paperLot}
       />
 
-      <Alert severity={alertSeverity} sx={{ mb: 2 }} data-testid="detail-alert">
+      <Alert severity="warning" sx={{ mb: 2 }} data-testid="detail-alert">
+        <strong>Manual paper (not agent evidence).</strong>{' '}
         {paperAction === 'BUY' || paperAction === 'SELL' ? (
           <>
             Paper <b>{paperAction}</b> at ₹{fmtPrice(stock?.entry)} · target ₹

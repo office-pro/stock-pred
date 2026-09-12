@@ -311,6 +311,37 @@ const snapshot = {
     safety: classification.TECHNICAL_SAFETY,
   },
   classification,
+  resilienceEvidence: {
+    note: 'Observe-only under O/I/L/C — does not change floors or verdict formula.',
+    offlineBatchArtifact: existsSync(
+      join(dataDir, 'focus-universe-latest.json'),
+    ),
+    focusUniverseGenerated: existsSync(
+      join(dataDir, 'focus-universe-latest.json'),
+    ),
+    discoverySourceCounts: (() => {
+      const counts = { OFFLINE_PRESELECTED: 0, LIVE_DISCOVERED: 0, unset: 0 };
+      for (const e of decisionEntries) {
+        if (e.discoverySource === 'OFFLINE_PRESELECTED') counts.OFFLINE_PRESELECTED += 1;
+        else if (e.discoverySource === 'LIVE_DISCOVERED') counts.LIVE_DISCOVERED += 1;
+        else counts.unset += 1;
+      }
+      return counts;
+    })(),
+    dataStatusCounts: (() => {
+      const counts = {};
+      for (const e of decisionEntries) {
+        const s = e.dataProvenance?.dataStatus ?? 'unset';
+        counts[s] = (counts[s] ?? 0) + 1;
+      }
+      return counts;
+    })(),
+    floorsUnchanged: {
+      minReviewed: 20,
+      minActualFills: 10,
+      minQualityVsRealizedRSamples: 10,
+    },
+  },
   overallDecision,
   reviewerRationale:
     overallDecision === 'GO'

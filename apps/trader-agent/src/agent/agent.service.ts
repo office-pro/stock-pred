@@ -53,6 +53,8 @@ import {
   TradeLifecycleSnapshot,
   isDecisionLedgerEntry,
   isDecisionOutcomeRecord,
+  FocusUniverseBatch,
+  OpportunityEvidenceProvenance,
 } from '@stockpred/shared-types';
 import type { P7AggregateState, P7BreakerSubState, P7Enforcement } from '@stockpred/shared-types';
 import {
@@ -75,6 +77,12 @@ import {
   rankOpportunitiesForDisplay,
   assessOpportunityRanking,
   stampRankingContextFromResult,
+  assignFocusCandidates,
+  buildDataProvenance,
+  buildOpportunityEvidenceProvenance,
+  prioritizeSymbolsForLiveRefresh,
+  isNseCashSessionOpen,
+  classifyQuoteStatus,
   buildCapabilityStatuses,
   buildIntelligenceSnapshot,
   candidatesFromAltData,
@@ -132,6 +140,7 @@ import { AgentStateStore } from './agent-state-store';
 import { DecisionLedgerStore } from './decision-ledger-store';
 import { OpportunityRepository } from './opportunity-repository';
 import { AgentTransactionAuditor } from './transaction-auditor';
+import { readFocusUniverseLatest, writeFocusUniverseBatch } from './focus-universe-store';
 import {
   cursorSdkConfigured,
   cursorSdkInstalled,
@@ -207,6 +216,10 @@ export class AgentService implements OnModuleInit {
   private readonly ledger = new DecisionLedgerStore();
   /** Frozen T1.8 ranking batch from the latest getOpportunities call — never re-ranked at decision time. */
   private lastOpportunityRanking: ReturnType<typeof assessOpportunityRanking> | null = null;
+  /** Latest FocusUniverseBatch (optimization-only; never authorization). */
+  private lastFocusBatch: FocusUniverseBatch | null = null;
+  /** Provenance stamped per opportunity id at getOpportunities / offline→live handoff. */
+  private readonly opportunityProvenance = new Map<string, OpportunityEvidenceProvenance>();
   private readonly opportunitiesDb = new OpportunityRepository();
   private readonly transactionAuditor = new AgentTransactionAuditor();
 
@@ -1059,6 +1072,205 @@ export class AgentService implements OnModuleInit {
     }
   }
 
+  /**
+   * Read latest FocusUniverseBatch artifact (optimization-only).
+   */
+  getFocusUniverseLatest(): FocusUniverseBatch | null {
+    const batch = readFocusUniverseLatest();
+    this.lastFocusBatch = batch;
+    return batch;
+  }
+
+  /**
+   * Offline intelligence batch — STRICTLY READ-ONLY.
+   * EOD/cached quotes → analyze → RankingContext lex order → FocusUniverseBatch artifact.
+   * MUST NOT: ledger, human decisions, evaluateTrade auth chain, Risk/Portfolio/Policy/Gate,
+   * orders, fills, outcomes, or syncPending opportunities.
+   */
+  async runOfflineFocusBatch(limit = 80): Promise<FocusUniverseBatch> {
+    const generatedAt = Date.now();
+    const quotes = await this.fetchCachedUniverseQuotes(limit);
+    const scanCap = Math.min(this.scaleConfig.maxSymbolsScanned, Math.max(limit, 20));
+    const candidates = quotes.slice(0, scanCap);
+
+    const analyzed = await mapPool(
+      candidates,
+      this.scaleConfig.analysisConcurrency,
+      async (quote) =>
+        this.analyzeSymbol(quote.symbol, {
+          quote,
+          portfolio: null,
+          statuses: [],
+          requests: [],
+        }),
+    );
+
+    const rankingCandidates = analyzed.map((analysis, i) => {
+      // Read-only: do NOT call evaluateTrade / Risk / Portfolio / Policy / Gate.
+      const stubDecision: TradeDecision = {
+        decisionId: `offline-${analysis.symbol}-${i}`,
+        symbol: analysis.symbol,
+        intent: 'BUY',
+        eligibility: 'HUMAN_ONLY',
+        signalScore: analysis.scores.overall,
+        confidence: analysis.setup.confidence,
+        scores: analysis.scores,
+        strategy: analysis.setup.instrument || 'COMPOSITE',
+        marketRegime: analysis.marketRegime,
+        thesis: analysis.thesis,
+        counterThesis: analysis.counterThesis,
+        invalidation: analysis.invalidation,
+        reasons: [],
+        reasonCodes: [],
+        setup: {
+          entry: analysis.setup.entry,
+          stopLoss: analysis.setup.stopLoss,
+          target1: analysis.setup.target1,
+          target2: analysis.setup.target2,
+          target3: analysis.setup.target3,
+          riskReward: analysis.setup.riskReward,
+          recommendedQty: analysis.setup.positionSize,
+        },
+        quoteTimestamp: analysis.generatedAt,
+        createdAt: generatedAt,
+        ttlMs: 30 * 60_000,
+      };
+      const snap = buildIntelligenceSnapshot({
+        analysis,
+        decision: stubDecision,
+        sourceDataTimestamp: analysis.generatedAt,
+      });
+      return {
+        opportunityId: stubDecision.decisionId,
+        symbol: analysis.symbol,
+        snapshot: snap,
+        portfolioFit: 'GOOD' as const,
+        analysis,
+        quote: candidates.find((q) => q.symbol.toUpperCase() === analysis.symbol.toUpperCase()),
+      };
+    });
+
+    const opportunityRanking = assessOpportunityRanking({
+      context: {
+        tradeHorizon: 'SWING_TRADE',
+        strategyTag: 'BREAKOUT',
+        timestamp: new Date(generatedAt).toISOString(),
+      },
+      candidates: rankingCandidates.map((c) => ({
+        opportunityId: c.opportunityId,
+        symbol: c.symbol,
+        snapshot: c.snapshot,
+        portfolioFit: c.portfolioFit,
+      })),
+    });
+
+    const dataAsOf = candidates.reduce((max, q) => {
+      const t = q.updatedAt;
+      return t != null && Number.isFinite(t) && t > max ? t : max;
+    }, 0);
+    const dataStatus = classifyQuoteStatus(dataAsOf > 0 ? dataAsOf : null, generatedAt);
+
+    const batch = assignFocusCandidates({
+      batchId: `FOCUS-${generatedAt}`,
+      generatedAt,
+      dataAsOf: dataAsOf > 0 ? dataAsOf : generatedAt,
+      source: 'EOD_CACHED',
+      dataStatus,
+      universeSize: candidates.length,
+      ranked: opportunityRanking.rankings.map((r) => {
+        const row = rankingCandidates.find((c) => c.opportunityId === r.opportunityId);
+        return {
+          symbol: r.symbol,
+          rank: r.rank,
+          opportunityId: r.opportunityId,
+          rankingEngineVersion: opportunityRanking.engineVersion,
+          calculationVersion: opportunityRanking.calculationVersion,
+          tradeHorizon: opportunityRanking.context.tradeHorizon,
+          strategyTag: opportunityRanking.context.strategyTag,
+          thesis: row?.analysis.thesis,
+          decision: row?.analysis.decision,
+          overallScore: row?.analysis.scores.overall,
+          dataAsOf: row?.quote?.updatedAt ?? dataAsOf,
+        };
+      }),
+    });
+
+    writeFocusUniverseBatch(batch);
+    this.lastFocusBatch = batch;
+    return batch;
+  }
+
+  private stampLiveProvenanceForOpportunity(
+    opportunityId: string,
+    symbol: string,
+    quote: StockQuote | null | undefined,
+  ): void {
+    const now = Date.now();
+    const dataProvenance = buildDataProvenance({
+      dataAsOf: quote?.updatedAt,
+      receivedAt: now,
+      analysisAt: now,
+      now,
+    });
+    const liveReady =
+      isNseCashSessionOpen(now) &&
+      (dataProvenance.dataStatus === 'LIVE' || dataProvenance.dataStatus === 'DELAYED');
+    const prev = this.opportunityProvenance.get(opportunityId);
+    const prov = buildOpportunityEvidenceProvenance({
+      batch: this.lastFocusBatch ?? readFocusUniverseLatest(),
+      symbol,
+      dataProvenance,
+      liveReady,
+    });
+    this.opportunityProvenance.set(opportunityId, {
+      ...prov,
+      discoverySource: prev?.discoverySource ?? prov.discoverySource,
+      batchId: prev?.batchId ?? prov.batchId,
+      focusTier: prev?.focusTier ?? prov.focusTier,
+    });
+  }
+
+  /** Cached/EOD universe for offline batch — does not force ACTIONABLE live filter. */
+  private async fetchCachedUniverseQuotes(limit: number): Promise<StockQuote[]> {
+    try {
+      const { data } = await axios.get<{ data: StockQuote[] }>(`${this.marketDataUrl}/stocks`, {
+        params: { page: 1, limit: Math.min(limit, 200), sort: 'symbol' },
+        timeout: 30_000,
+      });
+      return data.data ?? [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Offline → live handoff: prioritize MDS refresh Tier1→2→3.
+   * OFFLINE_PRESELECTED ≠ LIVE_READY until refresh + recalculation.
+   */
+  private async runFocusLiveHandoff(batch: FocusUniverseBatch): Promise<void> {
+    if (!isNseCashSessionOpen()) return;
+    const symbols = prioritizeSymbolsForLiveRefresh(batch).slice(0, 50);
+    if (symbols.length === 0) return;
+    try {
+      await axios.post(
+        `${this.marketDataUrl}/market/focus-refresh`,
+        { symbols },
+        { timeout: 120_000 },
+      );
+    } catch {
+      // Best-effort: per-symbol GET still marks watched + refreshes.
+      for (const symbol of symbols.slice(0, 15)) {
+        try {
+          await axios.get(`${this.marketDataUrl}/stocks/${encodeURIComponent(symbol)}`, {
+            timeout: 8_000,
+          });
+        } catch {
+          /* continue */
+        }
+      }
+    }
+  }
+
   async getOpportunities(
     limit = 20,
     userId?: string,
@@ -1077,6 +1289,8 @@ export class AgentService implements OnModuleInit {
     waitIntelligenceById?: Record<string, WaitRecommendation>;
     /** T2.2 advisory thesis reassessment by opportunity id (display only). */
     thesisIntelligenceById?: Record<string, StructuredThesis>;
+    focusBatchId?: string | null;
+    opportunityProvenanceById?: Record<string, OpportunityEvidenceProvenance>;
   }> {
     if (!userId) {
       throw new BadRequestException('x-user-id is required for per-user opportunities');
@@ -1089,7 +1303,25 @@ export class AgentService implements OnModuleInit {
     const held = new Set((portfolio?.holdings ?? []).map((lot) => lot.symbol.toUpperCase()));
     const alreadyAdded = await this.opportunitiesDb.addedSymbols(userId);
     const cash = portfolio?.cash ?? 0;
+
+    // Offline → live handoff: refresh Focus tiers before building opportunities for humans.
+    const focusBatch = readFocusUniverseLatest();
+    this.lastFocusBatch = focusBatch;
+    if (focusBatch && isNseCashSessionOpen()) {
+      await this.runFocusLiveHandoff(focusBatch);
+    }
+
     const quotes = await this.fetchActionableQuotes();
+    const focusOrder = focusBatch ? prioritizeSymbolsForLiveRefresh(focusBatch) : [];
+    const focusRank = new Map(focusOrder.map((s, i) => [s, i]));
+    quotes.sort((a, b) => {
+      const ai = focusRank.get(a.symbol.toUpperCase());
+      const bi = focusRank.get(b.symbol.toUpperCase());
+      if (ai != null && bi != null) return ai - bi;
+      if (ai != null) return -1;
+      if (bi != null) return 1;
+      return 0;
+    });
     const pendingBatch: Array<{ id: string; analysis: AgentAnalysis; expiresAt: Date }> = [];
     const cycleStarted = Date.now();
     const scanCap = Math.min(this.scaleConfig.maxSymbolsScanned, Math.max(limit * 3, 20));
@@ -1241,8 +1473,34 @@ export class AgentService implements OnModuleInit {
     });
     // Freeze cohort for subsequent human decisions — do not re-run ranking later.
     this.lastOpportunityRanking = opportunityRanking;
+    this.opportunityProvenance.clear();
 
     const now = Date.now();
+    const sessionOpen = isNseCashSessionOpen(now);
+    const opportunityProvenanceById: Record<string, OpportunityEvidenceProvenance> = {};
+    for (const row of synced) {
+      const quote = quotes.find(
+        (q) => q.symbol.toUpperCase() === row.analysis.symbol.toUpperCase(),
+      );
+      const dataProvenance = buildDataProvenance({
+        dataAsOf: quote?.updatedAt ?? row.analysis.generatedAt,
+        receivedAt: now,
+        analysisAt: row.analysis.generatedAt,
+        now,
+      });
+      const liveReady =
+        sessionOpen &&
+        (dataProvenance.dataStatus === 'LIVE' || dataProvenance.dataStatus === 'DELAYED');
+      const prov = buildOpportunityEvidenceProvenance({
+        batch: focusBatch,
+        symbol: row.analysis.symbol,
+        dataProvenance,
+        liveReady,
+      });
+      this.opportunityProvenance.set(row.id, prov);
+      opportunityProvenanceById[row.id] = prov;
+    }
+
     const waitIntelligenceById: Record<string, WaitRecommendation> = {};
     const thesisIntelligenceById: Record<string, StructuredThesis> = {};
     for (const c of rankingCandidates) {
@@ -1304,6 +1562,8 @@ export class AgentService implements OnModuleInit {
       autonomous,
       waitIntelligenceById,
       thesisIntelligenceById,
+      focusBatchId: focusBatch?.batchId ?? null,
+      opportunityProvenanceById,
     };
   }
 
@@ -1721,6 +1981,8 @@ export class AgentService implements OnModuleInit {
     }
 
     const quote = await this.fetchQuote(symbol);
+    // Correction 4: live refresh before human APPROVE — offline snapshot is never the decision snapshot.
+    this.stampLiveProvenanceForOpportunity(id, symbol, quote);
     let fundamentals: FundamentalView | null = null;
     const symbolSectorHint =
       (typeof quote?.sector === 'string' && quote.sector.trim() ? quote.sector.trim() : null) ??
@@ -2336,6 +2598,10 @@ export class AgentService implements OnModuleInit {
       gateResult?: GateResultSnapshot;
       waitIntelligence?: WaitRecommendation;
       analysis?: AgentAnalysis;
+      discoverySource?: OpportunityEvidenceProvenance['discoverySource'];
+      batchId?: string;
+      dataProvenance?: OpportunityEvidenceProvenance['dataProvenance'];
+      focusTier?: OpportunityEvidenceProvenance['focusTier'];
     },
   ): DecisionLedgerEntry {
     const { decision, risk, portfolio, policy, budgetSnapshot, intelligenceSnapshot } = pipeline;
@@ -2355,6 +2621,20 @@ export class AgentService implements OnModuleInit {
             strategyTag: decision.strategy,
           })
         : undefined;
+
+    const fromMap = decision.opportunityId
+      ? this.opportunityProvenance.get(decision.opportunityId)
+      : undefined;
+    const discoverySource = evidence?.discoverySource ?? fromMap?.discoverySource;
+    const batchId = evidence?.batchId ?? fromMap?.batchId;
+    const focusTier = evidence?.focusTier ?? fromMap?.focusTier;
+    const dataProvenance =
+      evidence?.dataProvenance ??
+      fromMap?.dataProvenance ??
+      buildDataProvenance({
+        dataAsOf: decision.quoteTimestamp,
+        now: Date.now(),
+      });
 
     const entry = this.ledger.append({
       decisionId: decision.decisionId,
@@ -2404,6 +2684,10 @@ export class AgentService implements OnModuleInit {
       rankingContext: rankingContext ?? undefined,
       waitIntelligence: evidence?.waitIntelligence,
       thesisSnapshot,
+      discoverySource,
+      batchId,
+      dataProvenance,
+      focusTier,
     });
 
     if (thesisSnapshot) {
