@@ -18,6 +18,7 @@ from .data import attach_alt_data, load_candles, load_market_context, load_unive
 from .features import FEATURE_COLUMNS, build_features
 from .models.ensemble import blend_probabilities, decide
 from .predict import get_models, missing_models_message, models_available
+from .price_policy import assert_same_mode, model_price_mode, require_canonical_candles
 from .universes import add_universe_arg, normalize_universe
 
 MIN_CONFIDENCE = 62.0
@@ -68,6 +69,14 @@ def backtest_symbol(symbol: str, horizon: str, models, market) -> List[dict]:
         candles = load_candles(symbol, 1500)
     except RuntimeError:
         return []
+    candle_mode = require_canonical_candles(candles, context=f"backtest:{symbol}")
+    trained_mode = model_price_mode(getattr(models, "metadata", None))
+    if trained_mode is not None:
+        assert_same_mode(
+            trained_mode,
+            candle_mode,
+            context=f"backtest:{symbol}:{horizon}:train_vs_bars",
+        )
     if len(candles) < SEQUENCE_LENGTH + bars + 10:
         return []
     features = build_features(candles, market, symbol=symbol)

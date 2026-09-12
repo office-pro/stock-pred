@@ -19,14 +19,30 @@ import { useAppSelector } from '../store';
 import {
   type MlJobCatalogItem,
   type MlJobKind,
+  type MlLifecycleStageStatus,
   type MlUniverseId,
   type MlUniverseOption,
   useCancelMlJobMutation,
   useGetMlJobQuery,
+  useGetMlLifecycleLatestQuery,
   useStartMlJobMutation,
 } from '../store/api';
 
 const FALLBACK_JOBS: MlJobCatalogItem[] = [
+  {
+    kind: 'ml_lifecycle_full',
+    title: 'Full ML lifecycle',
+    npm: 'python -m app.lifecycle --mode full',
+    blurb:
+      'Orchestrated M1–M4: ingest → train CANDIDATE → DQ → walk-forward → calibration → promote (gates) → predict ACTIVE → score. Promotion never forced. No trades.',
+  },
+  {
+    kind: 'ml_lifecycle_refresh',
+    title: 'Incremental ML refresh',
+    npm: 'python -m app.lifecycle --mode refresh',
+    blurb:
+      'Ingest latest → predict with ACTIVE models → score/monitor. No retrain/promote. Requires ACTIVE models.',
+  },
   {
     kind: 'run_all',
     title: 'Run all',
@@ -108,6 +124,12 @@ function ingestNpm(universe: MlUniverseId): string {
 }
 
 function npmFor(kind: MlJobKind, universe: MlUniverseId): string {
+  if (kind === 'ml_lifecycle_full') {
+    return `python -m app.lifecycle --mode full --universe ${universe}`;
+  }
+  if (kind === 'ml_lifecycle_refresh') {
+    return `python -m app.lifecycle --mode refresh --universe ${universe}`;
+  }
   if (kind === 'run_all') {
     return `python -m app.run_all --universe ${universe}`;
   }
@@ -144,6 +166,8 @@ function npmFor(kind: MlJobKind, universe: MlUniverseId): string {
 }
 
 const JOB_TITLES: Record<MlJobKind, string> = {
+  ml_lifecycle_full: 'Full ML lifecycle',
+  ml_lifecycle_refresh: 'Incremental ML refresh',
   run_all: 'Run all',
   ingest_fundamentals: 'Ingest fundamentals',
   ingest_alt_data: 'Ingest alternative data',
@@ -183,12 +207,37 @@ const STATUS_COLOR: Record<string, 'default' | 'info' | 'success' | 'error' | 'w
   cancelled: 'warning',
 };
 
+const STAGE_COLOR: Record<
+  MlLifecycleStageStatus,
+  'default' | 'info' | 'success' | 'error' | 'warning'
+> = {
+  PENDING: 'default',
+  RUNNING: 'info',
+  PASSED: 'success',
+  FAILED: 'error',
+  SKIPPED: 'default',
+  BLOCKED: 'warning',
+};
+
+function isWideCard(kind: MlJobKind): boolean {
+  return (
+    kind === 'run_all' ||
+    kind === 'ingest_alt_data' ||
+    kind === 'ml_lifecycle_full' ||
+    kind === 'ml_lifecycle_refresh'
+  );
+}
+
 export default function MlLabPage(): JSX.Element {
   const user = useAppSelector((state) => state.auth.user);
   const loggedIn = Boolean(user);
   const { data, isError } = useGetMlJobQuery(undefined, {
     skip: !loggedIn,
     pollingInterval: 800,
+  });
+  const { data: lifecycleData } = useGetMlLifecycleLatestQuery(undefined, {
+    skip: !loggedIn,
+    pollingInterval: 2000,
   });
   const [startJob, startState] = useStartMlJobMutation();
   const [cancelJob, cancelState] = useCancelMlJobMutation();
@@ -200,6 +249,7 @@ export default function MlLabPage(): JSX.Element {
   const universes = data?.universes?.length ? data.universes : FALLBACK_UNIVERSES;
   const selectedUniverse = universes.find((item) => item.id === universe) ?? FALLBACK_UNIVERSES[0];
   const logRef = useRef<HTMLPreElement | null>(null);
+  const lifecycleRun = lifecycleData?.run ?? null;
 
   useEffect(() => {
     if (logRef.current) {
@@ -209,14 +259,14 @@ export default function MlLabPage(): JSX.Element {
 
   return (
     <>
-      <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
-        ML Lab
+      <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+        Jobs
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Run the same jobs as the CLI, with live percent complete and a console of what Python is
-        doing. Pick a smaller universe for a quicker pass. One job at a time. Use{' '}
-        <b>Ingest alternative data</b> for macro/news/social, then train, then predict so Best Pick
-        picks up the new columns.
+        Prefer <b>Full ML lifecycle</b> for the staged ingest → train → validate → promote → predict
+        path, or <b>Incremental ML refresh</b> when ACTIVE models already exist. Component cards
+        remain for one-off jobs. Train still registers <b>CANDIDATE</b> only — promote is
+        gate-controlled and never forced. No BUY / SELL / ARM.
       </Typography>
       {!loggedIn && (
         <Alert severity="info" sx={{ mb: 2 }}>
@@ -233,12 +283,48 @@ export default function MlLabPage(): JSX.Element {
       )}
       {loggedIn && data && !modelsTrained && (
         <Alert severity="warning" sx={{ mb: 2 }} data-testid="models-missing-banner">
-          Predict needs trained direction models. Run <b>Train direction models</b> first (
+          Predict / refresh need trained (preferably ACTIVE) models. Run <b>Full ML lifecycle</b> or{' '}
+          <b>Train direction models</b> first (
           <Box component="code" sx={{ fontSize: 12 }}>
             {npmFor('train_all', universe)}
           </Box>
-          ). Nifty 50 train is enough to unlock Nifty 100/500 predict — the artifacts are shared.
+          ).
         </Alert>
+      )}
+
+      {lifecycleRun && (
+        <Card variant="outlined" sx={{ mb: 2 }} data-testid="lifecycle-stage-board">
+          <CardContent>
+            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ mb: 1 }}>
+              <Typography variant="subtitle1" fontWeight={700}>
+                Lifecycle stages
+              </Typography>
+              <Chip size="small" label={lifecycleRun.mode} color="primary" variant="outlined" />
+              <Chip size="small" label={lifecycleRun.status} />
+              <Chip size="small" variant="outlined" label={lifecycleRun.universe} />
+              <Typography variant="caption" color="text.secondary">
+                {lifecycleRun.runId.slice(0, 8)}…
+              </Typography>
+            </Stack>
+            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+              {lifecycleRun.stages.map((stage) => (
+                <Chip
+                  key={stage.id}
+                  size="small"
+                  color={STAGE_COLOR[stage.status] ?? 'default'}
+                  label={`${stage.id}: ${stage.status}`}
+                  title={stage.detail ?? undefined}
+                />
+              ))}
+            </Stack>
+            {lifecycleRun.stages.some((s) => s.detail) && (
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                Hover a stage chip for detail. Promote BLOCKED keeps CANDIDATE and skips ACTIVE
+                predict.
+              </Typography>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       <Card variant="outlined" sx={{ mb: 2 }}>
@@ -247,9 +333,8 @@ export default function MlLabPage(): JSX.Element {
             Universe
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Commands and job cards follow this picker. <b>Run all</b> is incremental (new sessions
-            only). Walk-forward, costed backtest, and unusual-activity stay on their own cards, or
-            use <Box component="code">--full</Box> for a cold rebuild.
+            Commands and job cards follow this picker. Lifecycle jobs reuse the same M1–M4 modules
+            as the component cards — they do not reimplement training or promote gates.
           </Typography>
           <ToggleButtonGroup
             exclusive
@@ -272,13 +357,10 @@ export default function MlLabPage(): JSX.Element {
           </Typography>
           <Stack spacing={0.25}>
             <Box component="code" sx={{ fontSize: 12, color: 'primary.main' }}>
-              {npmFor('run_all', universe)}
+              {npmFor('ml_lifecycle_full', universe)}
             </Box>
             <Box component="code" sx={{ fontSize: 12, color: 'primary.main' }}>
-              {ingestNpm(universe)}
-            </Box>
-            <Box component="code" sx={{ fontSize: 12, color: 'primary.main' }}>
-              {npmFor('ingest_alt_data', universe)}
+              {npmFor('ml_lifecycle_refresh', universe)}
             </Box>
             <Box component="code" sx={{ fontSize: 12, color: 'primary.main' }}>
               {npmFor('train_all', universe)}
@@ -292,12 +374,7 @@ export default function MlLabPage(): JSX.Element {
 
       <Grid container spacing={2} sx={{ mb: 2 }}>
         {catalog.map((item) => (
-          <Grid
-            item
-            xs={12}
-            md={item.kind === 'run_all' || item.kind === 'ingest_alt_data' ? 12 : 4}
-            key={item.kind}
-          >
+          <Grid item xs={12} md={isWideCard(item.kind) ? 12 : 4} key={item.kind}>
             <Card
               variant="outlined"
               sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}
@@ -326,13 +403,22 @@ export default function MlLabPage(): JSX.Element {
                     running ||
                     startState.isLoading ||
                     (item.kind === 'predict_all' && !modelsTrained) ||
-                    (item.kind === 'ml_backtest' && !modelsTrained)
+                    (item.kind === 'ml_backtest' && !modelsTrained) ||
+                    (item.kind === 'ml_lifecycle_refresh' && !modelsTrained)
                   }
-                  onClick={() => void startJob({ kind: item.kind, universe })}
+                  onClick={() => {
+                    void startJob({ kind: item.kind, universe }).then(() => {
+                      logRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    });
+                  }}
                 >
-                  {item.kind === 'run_all'
-                    ? `Run all · ${selectedUniverse.label}`
-                    : `Run ${selectedUniverse.label}`}
+                  {item.kind === 'ml_lifecycle_full'
+                    ? `Run full lifecycle · ${selectedUniverse.label}`
+                    : item.kind === 'ml_lifecycle_refresh'
+                      ? `Refresh predictions · ${selectedUniverse.label}`
+                      : item.kind === 'run_all'
+                        ? `Run all · ${selectedUniverse.label}`
+                        : `Run ${selectedUniverse.label}`}
                 </Button>
               </CardActions>
             </Card>
@@ -340,11 +426,11 @@ export default function MlLabPage(): JSX.Element {
         ))}
       </Grid>
 
-      <Card variant="outlined">
+      <Card variant="outlined" id="ml-lab-live-run" sx={{ scrollMarginTop: 16 }}>
         <CardContent>
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ mb: 1 }}>
             <Typography variant="subtitle1" fontWeight={700}>
-              Live run
+              Live console
             </Typography>
             {job ? (
               <Chip size="small" color={STATUS_COLOR[job.status] ?? 'default'} label={job.status} />

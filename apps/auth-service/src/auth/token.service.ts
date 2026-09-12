@@ -1,12 +1,22 @@
 import { createHash, randomUUID } from 'crypto';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
-import { AuthTokens, JwtPayload, UserRole } from '@stockpred/shared-types';
+import { AppView, AuthTokens, JwtPayload, UserRole, UserStatus } from '@stockpred/shared-types';
 import { getEnv, getEnvNumber } from '@stockpred/shared-utils';
 
 export interface RefreshPayload {
   sub: string;
   jti: string;
+}
+
+export interface TokenUser {
+  id: string;
+  email: string;
+  role: string;
+  brandId?: string | null;
+  allowedViews?: string[];
+  status?: string;
+  accessExpiresAt?: Date | string | null;
 }
 
 /** Issues and verifies access/refresh JWTs. Secrets come from env only. */
@@ -17,11 +27,15 @@ export class TokenService {
   private readonly accessTtl = getEnvNumber('JWT_ACCESS_TTL_SECONDS', 604800);
   private readonly refreshTtl = getEnvNumber('JWT_REFRESH_TTL_SECONDS', 604800);
 
-  issueTokens(user: { id: string; email: string; role: string }): AuthTokens & { jti: string } {
+  issueTokens(user: TokenUser): AuthTokens & { jti: string } {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role as UserRole,
+      brandId: user.brandId ?? null,
+      views: (user.allowedViews ?? []) as AppView[],
+      status: (user.status as UserStatus) || UserStatus.ACTIVE,
+      accessExpiresAt: user.accessExpiresAt ? new Date(user.accessExpiresAt).toISOString() : null,
     };
     const jti = randomUUID();
     const accessToken = jwt.sign(payload, this.accessSecret, { expiresIn: this.accessTtl });

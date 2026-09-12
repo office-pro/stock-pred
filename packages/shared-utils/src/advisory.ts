@@ -6,7 +6,7 @@ import { evaluateSignal } from './signal-rules';
 
 export const ADVISORY_MIN_CONFIDENCE = 55;
 export const ADVISORY_MIN_BARS = 40;
-export const DEFAULT_PAPER_CAPITAL = 1_000_000;
+export const DEFAULT_PAPER_CAPITAL = 10_000_000;
 /** After blending ML + trend, the chip only fires at or above this score. */
 export const ADVISORY_BLEND_THRESHOLD = 62;
 export const STOCK_TREND_BONUS = 10;

@@ -38,6 +38,10 @@ COPY --from=pruned /repo/packages ./packages
 COPY --from=pruned /repo/apps/${APP} ./apps/${APP}
 COPY --from=pruned /repo/package.json ./package.json
 
+# Writable runtime data for non-root `node` (Focus Universe, ledger, soak).
+USER root
+RUN mkdir -p ./apps/${APP}/data && chown -R node:node ./apps/${APP}/data
+
 # Non-root runtime (security spec).
 USER node
 

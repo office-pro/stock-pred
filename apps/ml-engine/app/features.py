@@ -8,6 +8,9 @@ from typing import Callable, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+from .pit import assert_joined_panel_pit, assert_panel_schema
+
+FEATURE_SET_VERSION = "features.v1.4"
 
 FEATURE_COLUMNS = [
     "return_1d",
@@ -341,6 +344,7 @@ def join_asof_panel(
         snaps = panel.copy()
     if snaps.empty or "available_at" not in snaps.columns:
         return empty
+    assert_panel_schema(snaps, context=f"asof_panel:{missing_flag}")
     snaps = snaps.dropna(subset=["available_at"]).copy()
     snaps["available_at"] = pd.to_datetime(snaps["available_at"], utc=True, errors="coerce")
     snaps = snaps.dropna(subset=["available_at"]).sort_values("available_at")
@@ -371,6 +375,7 @@ def join_asof_panel(
         values = pd.to_numeric(merged[column], errors="coerce")
         values = values.where(has, np.nan)
         out[column] = clipper(column, values).fillna(0.0).to_numpy()
+    assert_joined_panel_pit(out["time"], merged, context=f"asof_panel:{missing_flag}")
     return merged
 
 
@@ -572,22 +577,44 @@ def forward_returns(close: pd.Series, horizon_bars: int) -> pd.Series:
 
 
 def make_dataset(features: pd.DataFrame, horizon_bars: int, threshold: float):
-    """Drop warmup/uncomputable rows; return (X, y, forward_returns, times_ms)."""
-    labels = label_direction(features["close"], horizon_bars, threshold)
-    fwd = forward_returns(features["close"], horizon_bars)
-    data = features[FEATURE_COLUMNS].copy()
+    """Drop warmup/uncomputable rows; return (X, y, forward_returns, times_ms, path_targets).
+
+    ``path_targets`` holds M3 regression labels: forwardReturn, MFE, MAE.
+    """
+    from .path_labels import path_label_frame
+    from .price_policy import drop_rows_missing_adjusted
+
+    frame = drop_rows_missing_adjusted(features)
+    labels = label_direction(frame["close"], horizon_bars, threshold)
+    fwd = forward_returns(frame["close"], horizon_bars)
+    paths = path_label_frame(frame, horizon_bars)
+    data = frame[FEATURE_COLUMNS].copy()
     data = data.fillna(0.0)
-    mask = data.notna().all(axis=1) & (labels >= 0)
+    mask = (
+        data.notna().all(axis=1)
+        & (labels >= 0)
+        & paths["forwardReturn"].notna()
+        & paths["maxFavorableExcursion"].notna()
+        & paths["maxAdverseExcursion"].notna()
+    )
     times = (
-        features.loc[mask, "time"].to_numpy(dtype="int64")
-        if "time" in features.columns
+        frame.loc[mask, "time"].to_numpy(dtype="int64")
+        if "time" in frame.columns
         else np.zeros(int(mask.sum()), dtype="int64")
     )
+    path_targets = {
+        "forwardReturn": paths.loc[mask, "forwardReturn"].to_numpy(dtype="float32"),
+        "maxFavorableExcursion": paths.loc[mask, "maxFavorableExcursion"].to_numpy(
+            dtype="float32"
+        ),
+        "maxAdverseExcursion": paths.loc[mask, "maxAdverseExcursion"].to_numpy(dtype="float32"),
+    }
     return (
         data[mask].to_numpy(dtype="float32"),
         labels[mask].to_numpy(dtype="int64"),
         fwd[mask].to_numpy(dtype="float32"),
         times,
+        path_targets,
     )
 
 

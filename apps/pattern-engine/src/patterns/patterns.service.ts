@@ -96,14 +96,13 @@ export class PatternsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getPatternsForSymbol(symbol: string, limit: number): Promise<unknown> {
-    const candles = await this.store.ensureHistory(symbol);
+    // Always refresh from market-data so post-ingest technical history is visible.
+    const candles = await this.store.ensureHistory(symbol, true);
+    this.briefingMemo.clear();
     const lastStamp = candles[candles.length - 1]?.time ?? 0;
     const memoKey = `${symbol}|${candles.length}|${lastStamp}`;
-    let briefing = this.briefingMemo.get(memoKey)?.payload;
-    if (!briefing) {
-      briefing = composePatternBriefing(symbol, candles);
-      this.briefingMemo.set(memoKey, { stamp: lastStamp, payload: briefing });
-    }
+    const briefing = composePatternBriefing(symbol, candles);
+    this.briefingMemo.set(memoKey, { stamp: lastStamp, payload: briefing });
 
     let history: unknown[] = [];
     try {

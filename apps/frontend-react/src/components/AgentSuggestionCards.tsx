@@ -1,0 +1,306 @@
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardActions,
+  CardContent,
+  Chip,
+  LinearProgress,
+  Stack,
+  Typography,
+} from '@mui/material';
+import { authErrorMessage } from '../lib/auth-errors';
+import {
+  useAckAgentSuggestionMutation,
+  useGetAgentSuggestionsQuery,
+  useImplementAgentSuggestionMutation,
+  useReopenAgentSuggestionMutation,
+} from '../store/api';
+
+const priorityColor = (priority: string): 'default' | 'warning' | 'error' | 'info' => {
+  if (priority === 'blocker') return 'error';
+  if (priority === 'high') return 'warning';
+  if (priority === 'medium') return 'info';
+  return 'default';
+};
+
+const statusLabel = (status: string): string => {
+  switch (status) {
+    case 'open':
+      return 'Open';
+    case 'brief_ready':
+      return 'Brief ready';
+    case 'acknowledged':
+      return 'Acknowledged';
+    case 'implementing':
+      return 'Implementing…';
+    case 'completed':
+      return 'Completed';
+    case 'failed':
+      return 'Failed';
+    default:
+      return status;
+  }
+};
+
+export default function AgentSuggestionCards({
+  onToast,
+}: {
+  onToast?: (message: string) => void;
+}): JSX.Element {
+  const { data, isFetching, refetch } = useGetAgentSuggestionsQuery(undefined, {
+    pollingInterval: 3_000,
+  });
+  const [ack, ackState] = useAckAgentSuggestionMutation();
+  const [reopen, reopenState] = useReopenAgentSuggestionMutation();
+  const [implement, implementState] = useImplementAgentSuggestionMutation();
+
+  const suggestions = data?.suggestions ?? [];
+  const active = suggestions.filter(
+    (row) => row.status !== 'acknowledged' && row.status !== 'completed',
+  );
+  const acknowledged = suggestions.filter((row) => row.status === 'acknowledged');
+  const anyImplementing = active.some((row) => row.status === 'implementing');
+  const busy = implementState.isLoading || ackState.isLoading || reopenState.isLoading;
+
+  const runImplement = async (id: string, title: string) => {
+    try {
+      const result = await implement({ id }).unwrap();
+      onToast?.(
+        result.resultSummary ||
+          (result.taskBriefPath
+            ? `Implement started — brief at ${result.taskBriefPath}`
+            : `Implement started for ${title}`),
+      );
+      await refetch();
+    } catch (error) {
+      onToast?.(authErrorMessage(error, `Could not implement ${title}`));
+    }
+  };
+
+  return (
+    <Box sx={{ mb: 3 }} data-testid="agent-suggestion-cards">
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1}
+        alignItems={{ sm: 'center' }}
+        justifyContent="space-between"
+        sx={{ mb: 1 }}
+      >
+        <Typography variant="subtitle1" fontWeight={700}>
+          Capability suggestions
+        </Typography>
+        <Button size="small" variant="outlined" onClick={() => refetch()} disabled={isFetching}>
+          Refresh
+        </Button>
+      </Stack>
+
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+        Gaps the agent detected in the app stack (not trade ideas). <b>Implement</b> launches a
+        Cursor agent on this repo when <code>CURSOR_API_KEY</code> is set; otherwise a task brief is
+        written under <code>.cursor/agent-tasks/</code>.
+      </Typography>
+
+      {data && !data.cursorSdk.configured && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Set <code>CURSOR_API_KEY</code> in <code>.env</code> and restart trader-agent to run
+          Implement via Cursor SDK. Without it, Implement still writes a retained task brief.
+        </Alert>
+      )}
+
+      {data?.cursorSdk.configured && !data.cursorSdk.installed && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          <code>CURSOR_API_KEY</code> is set but <code>@cursor/sdk</code> is not installed in
+          trader-agent. Run <code>npm install</code> in <code>apps/trader-agent</code> and restart.
+        </Alert>
+      )}
+
+      {active.some((row) => row.status === 'brief_ready') && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Implement wrote a task brief (no Cursor API key / SDK run). Open the brief path on the
+          card in Cursor Agent, or retry Implement after setting <code>CURSOR_API_KEY</code>.
+        </Alert>
+      )}
+
+      {anyImplementing && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Cursor is building — progress updates every few seconds below.
+        </Alert>
+      )}
+
+      {active.length === 0 && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          No open capability gaps right now.
+        </Alert>
+      )}
+
+      <Stack spacing={1.5}>
+        {active.map((card) => (
+          <Card key={card.id} variant="outlined">
+            {card.status === 'implementing' && <LinearProgress />}
+            <CardContent sx={{ pb: 1 }}>
+              <Stack
+                direction="row"
+                spacing={1}
+                alignItems={{ sm: 'center' }}
+                flexWrap="wrap"
+                sx={{ mb: 1 }}
+              >
+                <Typography fontWeight={700}>{card.title}</Typography>
+                <Chip size="small" label={card.priority} color={priorityColor(card.priority)} />
+                <Chip size="small" variant="outlined" label={statusLabel(card.status)} />
+                <Chip size="small" label={card.suggestedOwner} />
+              </Stack>
+              <Typography variant="body2" color="text.secondary">
+                {card.whyNeeded}
+              </Typography>
+              {card.taskBriefPath && (
+                <Typography variant="caption" display="block" sx={{ mt: 1 }}>
+                  Brief: <code>{card.taskBriefPath}</code>
+                </Typography>
+              )}
+              {(card.cursorAgentId || card.cursorRunId) && (
+                <Typography variant="caption" display="block" color="text.secondary">
+                  {card.cursorAgentId && (
+                    <>
+                      agent <code>{card.cursorAgentId}</code>{' '}
+                    </>
+                  )}
+                  {card.cursorRunId && (
+                    <>
+                      run <code>{card.cursorRunId}</code>
+                    </>
+                  )}
+                </Typography>
+              )}
+              {card.resultSummary && card.status !== 'implementing' && (
+                <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                  {card.resultSummary}
+                </Typography>
+              )}
+              {card.lastError && (
+                <Typography variant="caption" color="error" display="block" sx={{ mt: 0.5 }}>
+                  {card.lastError}
+                </Typography>
+              )}
+              {(card.progressLog?.length || card.status === 'implementing') && (
+                <Box
+                  sx={{
+                    mt: 1.5,
+                    p: 1.25,
+                    borderRadius: 1,
+                    bgcolor: 'action.hover',
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                    fontSize: 12,
+                    maxHeight: 220,
+                    overflow: 'auto',
+                    whiteSpace: 'pre-wrap',
+                  }}
+                  data-testid={`agent-progress-${card.id}`}
+                >
+                  <Typography variant="caption" fontWeight={700} display="block" sx={{ mb: 0.5 }}>
+                    Build progress
+                  </Typography>
+                  {(card.progressLog && card.progressLog.length > 0
+                    ? card.progressLog
+                    : ['Waiting for Cursor stream…']
+                  ).map((line, index) => (
+                    <Box key={`${card.id}-log-${index}`} component="div">
+                      {line}
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </CardContent>
+            <CardActions sx={{ px: 2, pb: 1.5 }}>
+              <Button
+                size="small"
+                variant="contained"
+                disabled={busy || card.status === 'implementing'}
+                onClick={() => runImplement(card.id, card.title)}
+              >
+                {card.status === 'implementing'
+                  ? 'Working…'
+                  : card.status === 'failed'
+                    ? 'Retry implement'
+                    : card.status === 'brief_ready'
+                      ? 'Re-run implement'
+                      : 'Implement'}
+              </Button>
+              <Button
+                size="small"
+                disabled={busy || card.status === 'implementing'}
+                onClick={async () => {
+                  try {
+                    await ack({ id: card.id }).unwrap();
+                    onToast?.(`Acknowledged: ${card.title}`);
+                    await refetch();
+                  } catch (error) {
+                    onToast?.(authErrorMessage(error, `Could not acknowledge ${card.title}`));
+                  }
+                }}
+              >
+                Ack
+              </Button>
+            </CardActions>
+          </Card>
+        ))}
+      </Stack>
+
+      {acknowledged.length > 0 && (
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+            Acknowledged ({acknowledged.length}) — reopen to work them again
+          </Typography>
+          <Stack spacing={1}>
+            {acknowledged.map((card) => (
+              <Card key={`ack-${card.id}`} variant="outlined" sx={{ opacity: 0.9 }}>
+                <CardContent sx={{ py: 1.25, '&:last-child': { pb: 1.25 } }}>
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={1}
+                    alignItems={{ sm: 'center' }}
+                    justifyContent="space-between"
+                  >
+                    <Box>
+                      <Typography fontWeight={600}>{card.title}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {card.suggestedOwner} · {card.priority}
+                      </Typography>
+                    </Box>
+                    <Stack direction="row" spacing={1}>
+                      <Button
+                        size="small"
+                        disabled={busy}
+                        onClick={async () => {
+                          try {
+                            await reopen({ id: card.id }).unwrap();
+                            onToast?.(`Reopened: ${card.title}`);
+                            await refetch();
+                          } catch (error) {
+                            onToast?.(authErrorMessage(error, `Could not reopen ${card.title}`));
+                          }
+                        }}
+                      >
+                        Reopen
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        disabled={busy}
+                        onClick={() => runImplement(card.id, card.title)}
+                      >
+                        Implement
+                      </Button>
+                    </Stack>
+                  </Stack>
+                </CardContent>
+              </Card>
+            ))}
+          </Stack>
+        </Box>
+      )}
+    </Box>
+  );
+}

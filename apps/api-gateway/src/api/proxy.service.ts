@@ -10,6 +10,7 @@ export type ServiceName =
   | 'mlEngine'
   | 'backtest'
   | 'autoTrader'
+  | 'traderAgent'
   | 'notifications';
 
 /** Thin HTTP fan-out to internal services with consistent error mapping. */
@@ -23,6 +24,7 @@ export class ProxyService {
     backtest: getEnv('BACKTEST_SERVICE_URL', 'http://localhost:3005'),
     autoTrader: getEnv('AUTO_TRADER_URL', 'http://localhost:3006'),
     notifications: getEnv('NOTIFICATION_SERVICE_URL', 'http://localhost:3007'),
+    traderAgent: getEnv('TRADER_AGENT_URL', 'http://localhost:3008'),
     mlEngine: getEnv('ML_ENGINE_URL', 'http://localhost:8000'),
   };
 
@@ -37,6 +39,19 @@ export class ProxyService {
     config?: AxiosRequestConfig,
   ): Promise<T> {
     return this.request<T>(service, { ...config, method: 'POST', url: path, data: body });
+  }
+
+  async patch<T>(
+    service: ServiceName,
+    path: string,
+    body?: unknown,
+    config?: AxiosRequestConfig,
+  ): Promise<T> {
+    return this.request<T>(service, { ...config, method: 'PATCH', url: path, data: body });
+  }
+
+  async delete<T>(service: ServiceName, path: string, config?: AxiosRequestConfig): Promise<T> {
+    return this.request<T>(service, { ...config, method: 'DELETE', url: path });
   }
 
   private async request<T>(service: ServiceName, config: AxiosRequestConfig): Promise<T> {

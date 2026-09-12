@@ -97,6 +97,25 @@ export interface StockInfo {
  */
 export type MarketDataSource = 'live' | 'cached' | 'listed' | 'simulated';
 
+/**
+ * How market data was ingested into the canonical store.
+ * LIVE_INGEST is the only mode that can produce LIVE-fresh quotes for trading.
+ */
+export type IngestMode = 'LIVE_INGEST' | 'EOD_INGEST' | 'HISTORICAL_BACKFILL';
+
+/**
+ * Session-aware freshness of a quote for consumers (labels only — not trade auth).
+ * - LIVE: NSE cash open and quote age ≤ 30s
+ * - DELAYED: NSE cash open and 30s < age ≤ Risk maxQuoteAgeMs (60s)
+ * - STALE: NSE cash open and age > 60s
+ * - CLOSED_MARKET: session closed (EOD OK for analysis, not live entry)
+ * - UNKNOWN: missing/invalid timestamp (never neutralize intelligence to “flat”)
+ *
+ * DELAYED is not an authorization state: evaluateTrade → Risk → Portfolio → Policy → Gate
+ * still run. Freshness alone does not block when age ≤ existing Risk maxQuoteAgeMs.
+ */
+export type DataFreshnessStatus = 'LIVE' | 'DELAYED' | 'CLOSED_MARKET' | 'STALE' | 'UNKNOWN';
+
 export type TradeSuggestion = 'BUY' | 'SELL' | 'HOLD';
 
 /** Actionable paper-trading levels derived from ML + ATR. */
@@ -138,6 +157,15 @@ export interface StockQuote extends StockInfo {
   scanner?: BullRunSnapshot | null;
   manipulation?: ManipulationSnapshot | null;
   updatedAt: number;
+  /** Ingest path that produced this quote (optional; stamped by market-data). */
+  ingestMode?: IngestMode;
+  /** Session-aware freshness — STALE/UNKNOWN/CLOSED_MARKET are freshness-blocked for entry. */
+  freshnessStatus?: DataFreshnessStatus;
+  /**
+   * True when freshness alone does not block (LIVE | DELAYED).
+   * Does not authorize trades — Risk still enforces maxQuoteAgeMs and full auth chain.
+   */
+  liveUsable?: boolean;
 }
 
 /** Index quote for the dashboard header. */
@@ -165,6 +193,32 @@ export interface FundamentalView {
   currentRatio: number | null;
   displayScore: number | null;
   missing: boolean;
+}
+
+/** PE/PB vs sector peer medians for relative valuation. */
+export interface PeerValuationView {
+  symbol: string;
+  sector: string | null;
+  pe: number | null;
+  pb: number | null;
+  sectorMedianPe: number | null;
+  sectorMedianPb: number | null;
+  /** Symbols in the sector with a usable PE (includes this symbol when PE is present). */
+  peerCount: number;
+  /** (pe / medianPe - 1) * 100; null when either side missing. */
+  peVsMedianPct: number | null;
+  /** (pb / medianPb - 1) * 100; null when either side missing. */
+  pbVsMedianPct: number | null;
+  missing: boolean;
+}
+
+/** Multi-timeframe intraday candle pack (1m source + aggregated 5m/15m/1h). */
+export interface MultiTimeframeCandles {
+  symbol: string;
+  '1m': Candle[];
+  '5m': Candle[];
+  '15m': Candle[];
+  '1h': Candle[];
 }
 
 /** Latest as-of news/social/macro for UI (not a second buy/sell score). */

@@ -31,7 +31,7 @@ export class AltDataStore {
     return ingestSocialUniverse(universe ?? 'nifty50', options);
   }
 
-  ingestMacro(options?: { full?: boolean }) {
+  ingestMacro(options?: { full?: boolean; includeIndia?: boolean }) {
     return ingestMacro(options);
   }
 

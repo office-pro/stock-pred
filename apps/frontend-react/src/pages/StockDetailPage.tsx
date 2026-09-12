@@ -28,6 +28,8 @@ import type { PatternEventView } from '@stockpred/shared-types';
 import CandleChart, { ChartSignalMarker } from '../components/CandleChart';
 import FundamentalsPanel from '../components/FundamentalsPanel';
 import AltDataPanel from '../components/AltDataPanel';
+import StockIngestPanel from '../components/StockIngestPanel';
+import TradeThesisPanel from '../components/TradeThesisPanel';
 import LivePriceStrip from '../components/LivePriceStrip';
 import ManipulationPanel from '../components/ManipulationPanel';
 import PaperBuyButton from '../components/PaperBuyButton';
@@ -39,6 +41,7 @@ import {
   useGetCompareQuery,
   useGetDepthQuery,
   useGetFundamentalsQuery,
+  useGetPeerValuationQuery,
   useGetAltDataQuery,
   useGetIndexCandlesQuery,
   useGetPortfolioQuery,
@@ -94,19 +97,31 @@ export default function StockDetailPage(): JSX.Element {
     severity: 'success' | 'error' | 'info';
   } | null>(null);
 
-  const { data: stock } = useGetStockQuery(upper, { pollingInterval: 3_000 });
-  const { data: fundamentals } = useGetFundamentalsQuery(upper);
-  const { data: altData } = useGetAltDataQuery(upper);
+  const { data: stock, refetch: refetchStock } = useGetStockQuery(upper, {
+    pollingInterval: 3_000,
+  });
+  const { data: fundamentals, refetch: refetchFundamentals } = useGetFundamentalsQuery(upper);
+  const { data: peer } = useGetPeerValuationQuery(upper);
+  const { data: altData, refetch: refetchAltData } = useGetAltDataQuery(upper);
   const { data: portfolio } = useGetPortfolioQuery(undefined, { pollingInterval: 10_000 });
   const paperLot = holdingForSymbol(portfolio?.holdings, upper);
-  const { data: candles, isLoading } = useGetCandlesQuery({
+  const {
+    data: candles,
+    isLoading,
+    refetch: refetchCandles,
+  } = useGetCandlesQuery({
     symbol: upper,
     limit: FULL_HISTORY_LIMIT,
   });
-  const { data: sr } = useGetSupportResistanceQuery(upper);
+  const { data: sr, refetch: refetchSr } = useGetSupportResistanceQuery(upper);
   const { data: signals } = useGetSymbolSignalsQuery(upper, { pollingInterval: 30_000 });
-  const { data: patterns } = useGetSymbolPatternsQuery(upper);
-  const { data: predictions, isError: predictionsUnavailable } = useGetPredictionsQuery(upper);
+  const { data: patterns, refetch: refetchPatterns } = useGetSymbolPatternsQuery(upper);
+  const {
+    data: predictions,
+    isError: predictionsError,
+    error: predictionsErrorDetail,
+    refetch: refetchPredictions,
+  } = useGetPredictionsQuery(upper);
   const { data: depth } = useGetDepthQuery(upper, { pollingInterval: 5_000 });
   const { data: comparison } = useGetCompareQuery(
     { symbol: upper, benchmark: BENCHMARK },
@@ -121,6 +136,23 @@ export default function StockDetailPage(): JSX.Element {
   const analog = patterns?.analog ?? null;
   const currentPattern = patterns?.current?.[0];
   const current = signals?.current;
+
+  const predictionsErrorMessage = useMemo(() => {
+    if (!predictionsError) return null;
+    const err = predictionsErrorDetail as {
+      status?: number;
+      data?: { message?: string | string[] };
+    };
+    const raw = err?.data?.message;
+    const detail = Array.isArray(raw) ? raw.join(' ') : raw;
+    if (err?.status === 422) {
+      return detail || `Not enough history to score ${upper} yet — ingest technical data first.`;
+    }
+    if (err?.status === 503) {
+      return detail || 'Models not trained yet — use Ingest & train on this page (or ML Lab).';
+    }
+    return detail || 'Could not load ML predictions for this symbol.';
+  }, [predictionsError, predictionsErrorDetail, upper]);
 
   const visibleCandles = useMemo(() => {
     if (!candles || candles.length === 0) return [];
@@ -193,12 +225,6 @@ export default function StockDetailPage(): JSX.Element {
   const sessionCount = visibleCandles.length || candles?.length || patterns?.barCount || 0;
 
   const paperAction = stock?.suggestion ?? 'HOLD';
-  const alertSeverity =
-    paperAction === 'BUY' || patterns?.outlook === 'GROW'
-      ? 'success'
-      : paperAction === 'SELL' || patterns?.outlook === 'FALL'
-        ? 'warning'
-        : 'info';
 
   useEffect(() => {
     const applyHeight = (): void => {
@@ -265,7 +291,8 @@ export default function StockDetailPage(): JSX.Element {
         holding={paperLot}
       />
 
-      <Alert severity={alertSeverity} sx={{ mb: 2 }} data-testid="detail-alert">
+      <Alert severity="warning" sx={{ mb: 2 }} data-testid="detail-alert">
+        <strong>Manual paper (not agent evidence).</strong>{' '}
         {paperAction === 'BUY' || paperAction === 'SELL' ? (
           <>
             Paper <b>{paperAction}</b> at ₹{fmtPrice(stock?.entry)} · target ₹
@@ -465,6 +492,34 @@ export default function StockDetailPage(): JSX.Element {
 
       <Grid container spacing={2}>
         <Grid item xs={12}>
+          <TradeThesisPanel
+            stock={stock}
+            altData={altData}
+            fundamentals={fundamentals}
+            peer={peer}
+            paperAction={paperAction}
+            predictions={predictions?.predictions}
+            patternOutlook={patterns?.outlook ?? null}
+            signalConfidence={current?.confidence ?? stock?.confidence ?? null}
+            signalRules={current?.rules ?? null}
+          />
+        </Grid>
+        <Grid item xs={12}>
+          <StockIngestPanel
+            symbol={upper}
+            onToast={(text, severity) => setToast({ text, severity })}
+            onRefetch={() => {
+              void refetchStock();
+              void refetchFundamentals();
+              void refetchAltData();
+              void refetchCandles();
+              void refetchSr();
+              void refetchPatterns();
+              void refetchPredictions();
+            }}
+          />
+        </Grid>
+        <Grid item xs={12}>
           <FundamentalsPanel data={fundamentals} />
         </Grid>
         <Grid item xs={12}>
@@ -580,10 +635,15 @@ export default function StockDetailPage(): JSX.Element {
               <Typography variant="subtitle1" fontWeight={600} gutterBottom>
                 ML Predictions
               </Typography>
-              {predictionsUnavailable && (
-                <Alert severity="info">
-                  Models not trained yet - run <code>npm run train:ml</code>.
+              {predictionsErrorMessage && (
+                <Alert severity="info" sx={{ mb: 1 }}>
+                  {predictionsErrorMessage}
                 </Alert>
+              )}
+              {!predictionsErrorMessage && (predictions?.predictions?.length ?? 0) === 0 && (
+                <Typography variant="body2" color="text.secondary">
+                  No ML rows for {upper} yet. Run Ingest & train, then refresh.
+                </Typography>
               )}
               {predictions?.predictions.map((prediction) => (
                 <Stack

@@ -80,7 +80,9 @@ def synthetic_candles(symbol: str, days: int, base_price: float = 1000.0) -> pd.
     scale = base_price / frame["close"].iloc[-1]
     for column in ("open", "high", "low", "close"):
         frame[column] = (frame[column] * scale).round(2)
-    return frame
+    from .price_policy import ensure_adjusted_candles
+
+    return ensure_adjusted_candles(frame, symbol=symbol, synthetic=True)
 
 
 _pg_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -167,15 +169,21 @@ def load_candles(
     Synthetic data is NEVER substituted silently: it requires the explicit
     ``allow_synthetic`` opt-in (the --synthetic training flag). Without it,
     a missing feed raises so predictions are only ever made on real data.
+
+    Returns ADJUSTED prices per ``price_policy`` (M3).
     """
+    from .price_policy import ensure_adjusted_candles
+
     frame = fetch_candles_db(symbol, limit)
     if frame is not None and len(frame) >= 40:
-        return frame
+        return ensure_adjusted_candles(frame, symbol=symbol, synthetic=False)
     frame = fetch_candles(symbol, limit, is_index)
     if frame is not None and len(frame) >= 40:
-        return frame
+        return ensure_adjusted_candles(frame, symbol=symbol, synthetic=False)
     if allow_synthetic:
-        return synthetic_candles(symbol, limit)
+        return ensure_adjusted_candles(
+            synthetic_candles(symbol, limit), symbol=symbol, synthetic=True
+        )
     raise RuntimeError(
         f"No real market data available for {symbol} "
         "(market-data-service offline and no cache); refusing synthetic substitution"

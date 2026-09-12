@@ -13,10 +13,73 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+docker_engine_ready() {
+  local ver
+  ver="$(docker info --format '{{.ServerVersion}}' 2>/dev/null || true)"
+  [ -n "$ver" ]
+}
+
+try_start_docker_desktop() {
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      local desktop=""
+      for candidate in \
+        "/c/Program Files/Docker/Docker/Docker Desktop.exe" \
+        "/mnt/c/Program Files/Docker/Docker/Docker Desktop.exe"
+      do
+        if [ -x "$candidate" ] || [ -f "$candidate" ]; then
+          desktop="$candidate"
+          break
+        fi
+      done
+      if [ -n "$desktop" ]; then
+        echo "==> Docker engine is down; launching Docker Desktop"
+        "$desktop" >/dev/null 2>&1 &
+      fi
+      ;;
+  esac
+}
+
+wait_for_docker() {
+  if docker_engine_ready; then
+    echo "==> Docker engine: ready"
+    return 0
+  fi
+  try_start_docker_desktop
+  echo "==> Waiting for Docker engine (start Docker Desktop if it is not running)"
+  local i
+  for i in $(seq 1 60); do
+    if docker_engine_ready; then
+      echo "    Docker engine: ready"
+      return 0
+    fi
+    echo "    not ready ($i/60)..."
+    sleep 3
+  done
+  echo "ERROR: Docker engine is not running (pipe dockerDesktopLinuxEngine missing)." >&2
+  echo "Start Docker Desktop, wait until it is idle, then re-run npm run start:all." >&2
+  exit 1
+}
+
+wait_for_docker
+
+# Local `npm start` / orphaned node processes bind the same ports as Docker services.
+# Must not kill com.docker.backend (it owns published container ports).
+echo "==> Freeing local dev ports before Docker start"
+node scripts/free-platform-ports.js || true
+wait_for_docker
+
 if [ ! -f .env ]; then
   echo "==> No .env found; creating one from .env.example"
   cp .env.example .env
 fi
+
+# Export .env for compose substitution + visible startup config
+set -a
+# shellcheck disable=SC1091
+source .env 2>/dev/null || true
+set +a
+echo "==> Config: STOCK_UNIVERSE_MODE=${STOCK_UNIVERSE_MODE:-quick-start} MARKET_DATA_PROVIDER=${MARKET_DATA_PROVIDER:-yahoo} SKIP_ML_BOOTSTRAP=${SKIP_ML_BOOTSTRAP:-0}"
 
 # Configure npm to prevent timeout during Docker build
 echo "==> Configuring npm (increasing timeout for Docker build)"
@@ -48,14 +111,28 @@ done
 # 5-7: migrations + seed + all microservices (the migrate one-shot runs first)
 # Clear any half-created one-shot container left behind by an interrupted run.
 docker compose --profile apps rm -fs migrate >/dev/null 2>&1 || true
+
+RUNNING_APPS="$(docker compose --profile apps ps --status running -q 2>/dev/null | wc -l | tr -d ' ')"
+if [ "${FORCE_PLATFORM_BUILD:-0}" != "1" ] && [ "${RUNNING_APPS:-0}" -ge 8 ]; then
+  echo "==> App containers already running ($RUNNING_APPS) — refreshing without image rebuild"
+  echo "    (set FORCE_PLATFORM_BUILD=1 to force docker compose --build)"
+  wait_for_docker
+  node scripts/free-platform-ports.js || true
+  docker compose --profile apps up -d --remove-orphans
+else
 echo "==> Building and starting all services (this builds images on first run)"
 
-# Build with retry logic (npm timeout during build is common on first run)
+# Build with retry logic (npm timeout during build is common on first run).
+# Full --profile apps rebuild (10 Node images + frontend + ml-engine) often
+# exceeds 10 minutes on Windows/Docker Desktop; killing mid-build wastes cache.
 BUILD_RETRIES=3
 BUILD_ATTEMPT=1
-BUILD_TIMEOUT=600  # 10 minutes per attempt
+BUILD_TIMEOUT="${BUILD_TIMEOUT:-1800}"  # 30 minutes per attempt (override via env)
 while [ $BUILD_ATTEMPT -le $BUILD_RETRIES ]; do
   echo "    [Attempt $BUILD_ATTEMPT/$BUILD_RETRIES] Building Docker images (timeout: ${BUILD_TIMEOUT}s)..."
+  wait_for_docker
+  # Local `npm start` can reclaim ports during a long image build.
+  node scripts/free-platform-ports.js || true
   if timeout $BUILD_TIMEOUT docker compose --profile apps up -d --build; then
     echo "    ✅ Build succeeded"
     break
@@ -67,10 +144,8 @@ while [ $BUILD_ATTEMPT -le $BUILD_RETRIES ]; do
       echo "    ⚠️  Build failed with exit code $EXIT_CODE (attempt $BUILD_ATTEMPT/$BUILD_RETRIES)"
     fi
     if [ $BUILD_ATTEMPT -lt $BUILD_RETRIES ]; then
-      echo "    Retrying in 10 seconds..."
+      echo "    Retrying in 10 seconds (keeping image cache; not tearing the stack down)..."
       sleep 10
-      # Clean up any partial containers
-      docker compose --profile apps down 2>/dev/null || true
     else
       echo "    ❌ Build failed after $BUILD_RETRIES attempts"
       echo "    Check logs with: docker compose logs --tail 100"
@@ -79,6 +154,7 @@ while [ $BUILD_ATTEMPT -le $BUILD_RETRIES ]; do
   fi
   BUILD_ATTEMPT=$((BUILD_ATTEMPT + 1))
 done
+fi
 
 # 8: verify health checks
 echo "==> Verifying service health"

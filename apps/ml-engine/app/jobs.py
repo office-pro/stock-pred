@@ -25,7 +25,8 @@ import time
 import uuid
 from typing import Dict, List, Optional
 
-from .config import CORE_HORIZONS, settings
+from .config import settings
+from .predict import models_available
 from .universes import (
     UNIVERSE_IDS,
     UNIVERSE_META,
@@ -113,6 +114,27 @@ JOB_SPECS: Dict[str, Dict[str, object]] = {
         "args": ["-m", "app.train_manipulation"],
         "horizons": 1,
     },
+    "ml_lifecycle_full": {
+        "title": "Full ML lifecycle",
+        "npm": "python -m app.lifecycle --mode full",
+        "blurb": (
+            "Orchestrated M1–M4: ingest → train CANDIDATE → DQ → walk-forward → "
+            "calibration check → promote (gates) → predict ACTIVE → score. "
+            "Promotion never forced. No trades."
+        ),
+        "args": ["-m", "app.lifecycle", "--mode", "full"],
+        "horizons": 9,
+    },
+    "ml_lifecycle_refresh": {
+        "title": "Incremental ML refresh",
+        "npm": "python -m app.lifecycle --mode refresh",
+        "blurb": (
+            "Ingest latest → predict with ACTIVE models → score/monitor. "
+            "No retrain/promote. Requires ACTIVE models."
+        ),
+        "args": ["-m", "app.lifecycle", "--mode", "refresh"],
+        "horizons": 4,
+    },
 }
 
 FEATURES_RE = re.compile(r"features (\d+)/(\d+)")
@@ -122,6 +144,8 @@ FOLD_RE = re.compile(r"\[walkforward\] fold (\d+)/(\d+)")
 FUND_RE = re.compile(r"\[fundamentals\] (\d+)/(\d+)")
 NEWS_RE = re.compile(r"\[news\] (\d+)/(\d+)")
 SOCIAL_RE = re.compile(r"\[social\] (\d+)/(\d+)")
+LIFECYCLE_STEP_RE = re.compile(r"\[lifecycle\] stage (\d+)/(\d+)")
+LIFECYCLE_NAME_RE = re.compile(r"\[lifecycle\] stage (\w+)\s*(?:→|->)")
 RUNALL_RE = re.compile(r"\[(?:run-all|alt-data)\] step (\d+)/(\d+)")
 UNIVERSE_RE = re.compile(
     r"(?:\[universe\] \w+: (\d+) (?:listed|constituents)|universe: (\d+) symbols|scoring (\d+) symbols)"
@@ -165,14 +189,15 @@ def npm_script(kind: str, universe: str = "all") -> str:
             if basket == "all"
             else f"npm run train:ml:manipulation:{basket}"
         )
+    if kind == "ml_lifecycle_full":
+        return f"python -m app.lifecycle --mode full --universe {basket}"
+    if kind == "ml_lifecycle_refresh":
+        return f"python -m app.lifecycle --mode refresh --universe {basket}"
     raise ValueError(f"Unknown job kind: {kind}")
 
 
 def direction_models_ready() -> bool:
-    return all(
-        os.path.exists(os.path.join(settings.models_dir, horizon, "metadata.json"))
-        for horizon in CORE_HORIZONS
-    )
+    return models_available()
 
 
 def missing_models_message(universe: str = "all") -> str:
@@ -230,6 +255,21 @@ def apply_progress(job: Dict[str, object], line: str) -> None:
         job["total"] = total
         job["percent"] = int(min(99, max(3, ((current - 1) / total) * 98))) if total else 3
         job["stage"] = f"Step {current}/{total}"
+        return
+
+    lifecycle = LIFECYCLE_STEP_RE.search(line)
+    if lifecycle:
+        current, total = int(lifecycle.group(1)), int(lifecycle.group(2))
+        job["current"] = current
+        job["total"] = total
+        job["percent"] = int(min(99, max(3, ((current - 1) / total) * 98))) if total else 3
+        job["stage"] = f"Lifecycle {current}/{total}"
+        return
+
+    lifecycle_name = LIFECYCLE_NAME_RE.search(line)
+    if lifecycle_name:
+        job["stage"] = f"Lifecycle {lifecycle_name.group(1)}"
+        job["percent"] = max(int(job.get("percent") or 0), 5)
         return
 
     fund = FUND_RE.search(line) or NEWS_RE.search(line) or SOCIAL_RE.search(line)
@@ -335,31 +375,51 @@ def _is_job_complete_line(kind: str, lowered: str) -> bool:
         return lowered.startswith("[ml-backtest] done")
     if kind == "predict_all":
         return "[batch] wrote" in lowered
+    if kind in {"ml_lifecycle_full", "ml_lifecycle_refresh"}:
+        return "run " in lowered and "status=" in lowered
     return lowered.startswith("[run-all] done")
 
 
-def start(kind: str, universe: str = "all") -> Dict[str, object]:
+def start(kind: str, universe: str = "all", symbols: Optional[str] = None) -> Dict[str, object]:
     if kind not in JOB_SPECS:
         raise ValueError(f"Unknown job kind: {kind}")
     basket = normalize_universe(universe)
+    symbol_list = (
+        ",".join(s.strip().upper() for s in symbols.split(",") if s.strip())
+        if symbols
+        else ""
+    )
     label = UNIVERSE_META[basket]["label"]
+    if symbol_list:
+        label = f"{symbol_list} (scoped)"
     global _current, _process
     with _lock:
         if _current and _current.get("status") == "running":
             raise RuntimeError("A job is already running")
         spec = JOB_SPECS[kind]
         npm = npm_script(kind, basket)
+        if symbol_list:
+            npm = f"{npm} --symbols {symbol_list}"
         if kind == "predict_all" and not direction_models_ready():
             raise ValueError(missing_models_message(basket))
         if kind == "ml_backtest" and not direction_models_ready():
             raise ValueError(missing_models_message(basket))
+        if kind == "ml_lifecycle_refresh" and not direction_models_ready():
+            raise ValueError(
+                "Incremental refresh requires ACTIVE models. "
+                "Run Full ML lifecycle (or promote) first."
+            )
         argv = [*spec["args"], "--universe", basket]
+        if symbol_list:
+            argv = [part for part in argv if part != "--all"]
+            argv.extend(["--symbols", symbol_list])
         job: Dict[str, object] = {
             "id": str(uuid.uuid4()),
             "kind": kind,
             "title": f"{spec['title']} · {label}",
             "npm": npm,
             "universe": basket,
+            "symbols": symbol_list or None,
             "status": "running",
             "percent": 1,
             "stage": "Starting",
@@ -374,12 +434,18 @@ def start(kind: str, universe: str = "all") -> Dict[str, object]:
             "error": None,
         }
         _current = job
-        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        env = {
+            **os.environ,
+            "PYTHONUNBUFFERED": "1",
+            "PYTHONIOENCODING": "utf-8",
+        }
         _process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
             [sys.executable, *argv],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
             env=env,
         )
@@ -433,6 +499,14 @@ def _pump(proc: subprocess.Popen, job: Dict[str, object]) -> None:
                     job["percent"] = 100
                     job["stage"] = "Complete"
                     _append_unlocked(job, f"[ml-lab] finished with exit code {code}")
+                    if job.get("kind") == "train_all":
+                        try:
+                            from .predict import clear_model_cache
+
+                            clear_model_cache()
+                            _append_unlocked(job, "[ml-lab] cleared in-process model cache")
+                        except Exception:  # noqa: BLE001
+                            pass
                 else:
                     job["status"] = "cancelled" if job.get("stage") == "Cancelling" else "failed"
                     if job["status"] == "cancelled":

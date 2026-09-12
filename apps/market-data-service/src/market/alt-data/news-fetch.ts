@@ -100,11 +100,83 @@ export async function fetchGoogleNews(symbol: string, name?: string | null): Pro
   return parseRss(xml, 'google-news');
 }
 
+async function fetchGoogleNewsTagged(query: string, source: string): Promise<Headline[]> {
+  const xml = await getText(
+    `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-IN&gl=IN&ceid=IN:en`,
+  );
+  return parseRss(xml, source);
+}
+
+/** Moneycontrol / ET / Business Standard / Reuters via Google News site filters. */
+export async function fetchIndiaPressNews(
+  symbol: string,
+  name?: string | null,
+): Promise<Headline[]> {
+  const tip = `${symbol} ${name ?? ''}`.trim();
+  const sites: Array<{ source: string; site: string }> = [
+    { source: 'moneycontrol', site: 'moneycontrol.com' },
+    { source: 'economic-times', site: 'economictimes.indiatimes.com' },
+    { source: 'business-standard', site: 'business-standard.com' },
+    { source: 'reuters-india', site: 'reuters.com' },
+    { source: 'livemint', site: 'livemint.com' },
+  ];
+  const batches = await Promise.all(
+    sites.map(({ source, site }) =>
+      fetchGoogleNewsTagged(`"${symbol}" OR "${name ?? symbol}" stock site:${site}`, source).then(
+        (rows) =>
+          rows.filter((row) =>
+            titleMatchesAliases(row.title, [symbol, name ?? '', tip].filter(Boolean)),
+          ),
+      ),
+    ),
+  );
+  return batches.flat();
+}
+
 export async function fetchYahooNews(ticker: string): Promise<Headline[]> {
   const xml = await getText(
     `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encodeURIComponent(ticker)}&region=US&lang=en-US`,
   );
   return parseRss(xml, 'yahoo-news');
+}
+
+/**
+ * Per-symbol fan-out across Google News, India press sites, Yahoo, and GDELT.
+ * Failures are empty arrays so one dead source does not block the rest.
+ */
+export async function fetchMultiSourceNews(input: {
+  symbol: string;
+  name?: string | null;
+  yahooTicker?: string | null;
+  aliases?: string[];
+}): Promise<{ headlines: Headline[]; sources: string[]; counts: Record<string, number> }> {
+  const { symbol, name, yahooTicker, aliases = [] } = input;
+  const yahoo = yahooTicker || `${symbol}.NS`;
+  const aliasList = [
+    ...new Set([symbol, name ?? '', ...aliases].map((a) => a.trim()).filter(Boolean)),
+  ];
+
+  const [google, press, yahooRows, gdeltRaw] = await Promise.all([
+    fetchGoogleNews(symbol, name),
+    fetchIndiaPressNews(symbol, name),
+    fetchYahooNews(yahoo),
+    fetchGdelt(name || symbol).then((rows) => filterGdeltByAliases(rows, aliasList)),
+  ]);
+
+  const buckets: Record<string, Headline[]> = {
+    'google-news': google,
+    press,
+    'yahoo-news': yahooRows,
+    gdelt: gdeltRaw,
+  };
+  const counts: Record<string, number> = {};
+  for (const [key, rows] of Object.entries(buckets)) {
+    counts[key] = rows.length;
+  }
+  // Flatten press into individual outlet tags already set on each headline.
+  const headlines = dedupeHeadlines([...google, ...press, ...yahooRows, ...gdeltRaw]);
+  const sources = [...new Set(headlines.map((row) => row.source))].sort();
+  return { headlines, sources, counts };
 }
 
 interface GdeltDoc {

@@ -15,13 +15,14 @@ x-node-env: &node-env
   JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret}
   JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret}
   CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
-  STOCK_UNIVERSE_MODE: ${STOCK_UNIVERSE_MODE:-full-universe}
+  STOCK_UNIVERSE_MODE: ${STOCK_UNIVERSE_MODE:-quick-start}
   AUTH_SERVICE_URL: http://auth-service:3001
   MARKET_DATA_SERVICE_URL: http://market-data-service:3002
   SIGNAL_ENGINE_URL: http://signal-engine:3003
   PATTERN_ENGINE_URL: http://pattern-engine:3004
   BACKTEST_SERVICE_URL: http://backtest-service:3005
   AUTO_TRADER_URL: http://auto-trader:3006
+  TRADER_AGENT_URL: http://trader-agent:3008
   NOTIFICATION_SERVICE_URL: http://notification-service:3007
   ML_ENGINE_URL: http://ml-engine:8000
   TRADING_MODE: ${TRADING_MODE:-PAPER}
@@ -82,7 +83,8 @@ services:
       test: ['CMD-SHELL', '/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list']
       interval: 10s
       timeout: 10s
-      retries: 12
+      retries: 18
+      start_period: 90s
 
   # ------------------------------------------------------ migrations + seed
   migrate:
@@ -95,7 +97,7 @@ services:
         APP: api-gateway
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-stockpred}:${POSTGRES_PASSWORD:-stockpred}@postgres:5432/${POSTGRES_DB:-stockpred}?schema=public
-      STOCK_UNIVERSE_MODE: ${STOCK_UNIVERSE_MODE:-full-universe}
+      STOCK_UNIVERSE_MODE: ${STOCK_UNIVERSE_MODE:-quick-start}
     command: >
       sh -c "npx prisma migrate deploy --schema packages/database/prisma/schema.prisma
       && node packages/database/dist/seed.js"
@@ -114,7 +116,8 @@ services:
     environment:
       <<: *node-env
       MARKET_DATA_SERVICE_PORT: '3002'
-      MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-simulated}
+      MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-yahoo}
+      QUOTE_REFRESH_INTERVAL_MS: ${QUOTE_REFRESH_INTERVAL_MS:-15000}
       TICK_INTERVAL_MS: ${TICK_INTERVAL_MS:-1000}
     ports: ['3002:3002']
     depends_on:
@@ -187,7 +190,7 @@ services:
     environment:
       <<: *node-env
       AUTO_TRADER_PORT: '3006'
-      PAPER_TRADING_CAPITAL: ${PAPER_TRADING_CAPITAL:-1000000}
+      PAPER_TRADING_CAPITAL: ${PAPER_TRADING_CAPITAL:-10000000}
       RISK_PER_TRADE_PCT: ${RISK_PER_TRADE_PCT:-1}
       DAILY_DRAWDOWN_PCT: ${DAILY_DRAWDOWN_PCT:-3}
       WEEKLY_DRAWDOWN_PCT: ${WEEKLY_DRAWDOWN_PCT:-8}
@@ -195,6 +198,28 @@ services:
     depends_on:
       kafka: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
+
+  trader-agent:
+    profiles: ['apps']
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node-service.Dockerfile
+      args: { APP: trader-agent }
+    environment:
+      <<: *node-env
+      TRADER_AGENT_PORT: '3008'
+      # Optional: enable Agent desk "Implement" via Cursor SDK inside the container.
+      CURSOR_API_KEY: ${CURSOR_API_KEY:-}
+      CURSOR_AGENT_MODEL: ${CURSOR_AGENT_MODEL:-composer-2.5}
+      # Bind-mount path inside the container (do not pass host Windows REPO_ROOT).
+      REPO_ROOT: /workspace
+    volumes:
+      # Mount monorepo so Cursor SDK local agents can edit the host checkout.
+      - .:/workspace
+    ports: ['3008:3008']
+    depends_on:
+      auto-trader: { condition: service_started }
+      market-data-service: { condition: service_started }
 
   notification-service:
     profiles: ['apps']
@@ -223,6 +248,8 @@ services:
     depends_on:
       auth-service: { condition: service_started }
       market-data-service: { condition: service_started }
+      auto-trader: { condition: service_started }
+      trader-agent: { condition: service_started }
       kafka: { condition: service_healthy }
 
   ml-engine:

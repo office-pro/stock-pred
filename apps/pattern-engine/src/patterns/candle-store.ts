@@ -60,15 +60,15 @@ export class CandleStore {
   }
 
   /** Pull the longest daily series market-data will serve (detail page / analog). */
-  async ensureHistory(symbol: string): Promise<Candle[]> {
+  async ensureHistory(symbol: string, force = false): Promise<Candle[]> {
     const existing = this.candles.get(symbol) ?? [];
-    if (existing.length >= 500) return existing;
+    if (!force && existing.length >= 500) return existing;
     try {
       const { data } = await axios.get<Candle[]>(`${this.marketDataUrl}/stocks/${symbol}/candles`, {
         params: { timeframe: Timeframe.ONE_DAY, limit: MAX_DAILY_CANDLES },
         timeout: 55_000,
       });
-      if (data.length >= existing.length) {
+      if (data.length >= existing.length || force) {
         this.candles.set(symbol, data);
         return data;
       }

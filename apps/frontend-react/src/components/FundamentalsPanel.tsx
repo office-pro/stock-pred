@@ -46,9 +46,8 @@ export default function FundamentalsPanel({
             Fundamentals
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            No as-of snapshot yet. Run{' '}
-            <code>npm run ingest:fundamentals -- --universe nifty50</code> then retrain. These
-            numbers feed the same direction model — not a second FA score.
+            No as-of snapshot yet. Use <b>Data ingest</b> above (Fundamentals), then refresh this
+            panel. These numbers feed the same direction model — not a second FA score.
           </Typography>
         </CardContent>
       </Card>
