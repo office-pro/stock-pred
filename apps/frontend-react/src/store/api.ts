@@ -488,6 +488,8 @@ export const api = createApi({
     'AgentOps',
     'AgentSuggestions',
     'AgentOpportunities',
+    'IntelligenceBatches',
+    'ContinuousIntel',
     'Fundamentals',
     'AltData',
     'AuthUser',
@@ -1530,6 +1532,356 @@ export const api = createApi({
       }),
       invalidatesTags: ['AgentOpportunities'],
     }),
+    listIntelligenceBatches: builder.query<
+      Array<{
+        batchId: string;
+        universe: string;
+        status: string;
+        progress?: {
+          processed: number;
+          total: number;
+          percent: number;
+          stages: Array<{ id: string; availability: string; done: number; total: number }>;
+        };
+        updatedAt: number;
+      }>,
+      { limit?: number } | void
+    >({
+      query: (arg) => {
+        const limit = arg && 'limit' in arg ? arg.limit : 20;
+        return `/agent/intelligence-batches?limit=${limit ?? 20}`;
+      },
+      providesTags: ['IntelligenceBatches'],
+    }),
+    getIntelligenceBatch: builder.query<
+      {
+        batchId: string;
+        universe: string;
+        status: string;
+        progress?: {
+          processed: number;
+          total: number;
+          percent: number;
+          stages: Array<{ id: string; availability: string; done: number; total: number }>;
+        };
+        checkpoint?: {
+          currentSymbol?: string | null;
+          partitionId?: string | null;
+          completedSymbols?: string[];
+        };
+        tasks?: Array<{
+          symbol: string;
+          status: string;
+          partitionId?: string;
+          error?: string;
+          completedAt?: number;
+          startedAt?: number;
+          intelligenceContext?: { overallScore?: number; decision?: string };
+        }>;
+        updatedAt?: number;
+      },
+      string
+    >({
+      query: (id) => `/agent/intelligence-batches/${id}`,
+      providesTags: (_r, _e, id) => [{ type: 'IntelligenceBatches', id }],
+    }),
+    getIntelligenceBatchResults: builder.query<
+      {
+        batchId: string;
+        rankings: Array<{
+          rank: number;
+          symbol: string;
+          opportunityId: string;
+          companyName?: string;
+          exchange?: string;
+          identityStatus?: string;
+          price?: number;
+          intelligenceContext?: Record<string, unknown>;
+        }>;
+        total: number;
+        page: number;
+        pageSize: number;
+        sort: string;
+        order: 'asc' | 'desc';
+        defaultSort: 'rank';
+        rankingContextVersion: string;
+        bullRunAvailable: false;
+        preset?: string | null;
+        stages?: Array<{
+          id: string;
+          availability: string;
+          done: number;
+          total: number;
+          unavailableReason?: string;
+        }>;
+        diagnostics?: {
+          ml?: { usable: number; unavailable: number; byReason: Record<string, number> };
+          rs?: { usable: number; unavailable: number; byReason: Record<string, number> };
+        };
+        generatedAt?: number;
+        dataAsOf?: number;
+        dataStatus?: string;
+      },
+      {
+        id: string;
+        page?: number;
+        pageSize?: number;
+        q?: string;
+        preset?: string;
+        recommendation?: string;
+        thesisState?: string;
+        mlAvailable?: boolean;
+        sort?: string;
+        order?: 'asc' | 'desc';
+      }
+    >({
+      query: ({ id, ...params }) => ({
+        url: `/agent/intelligence-batches/${id}/results`,
+        params: {
+          page: params.page,
+          pageSize: params.pageSize,
+          q: params.q || undefined,
+          preset: params.preset || undefined,
+          recommendation: params.recommendation || undefined,
+          thesisState: params.thesisState || undefined,
+          mlAvailable: params.mlAvailable ? '1' : undefined,
+          sort: params.sort,
+          order: params.order,
+        },
+      }),
+      providesTags: (_r, _e, arg) => [{ type: 'IntelligenceBatches', id: arg.id }],
+    }),
+    createIntelligenceBatch: builder.mutation<
+      { batchId: string },
+      {
+        universe: string;
+        symbols?: string[];
+        scanKind?: string;
+        sector?: string;
+        allLimit?: number;
+        inverseDownsideThreshold?: number;
+        globalEventType?: string;
+      }
+    >({
+      query: (body) => ({ url: '/agent/intelligence-batches', method: 'POST', body }),
+      invalidatesTags: ['IntelligenceBatches'],
+    }),
+    getIntelligenceSectors: builder.query<
+      { sectors: Array<{ sector: string; memberCount: number }> },
+      void
+    >({
+      query: () => '/intelligence/sectors',
+    }),
+    getSectorIntelligence: builder.query<
+      {
+        status: string;
+        state?: string;
+        reason?: string;
+        sector: string;
+        coverageSymbols?: number;
+      },
+      string
+    >({
+      query: (sector) => `/intelligence/sectors/${encodeURIComponent(sector)}`,
+    }),
+    getBullRunIntelligence: builder.query<
+      {
+        status: string;
+        stage?: string;
+        reason?: string;
+        symbol: string;
+        evidence?: string[];
+        invalidation?: string[];
+        v2?: {
+          status?: string;
+          dataStatus?: string;
+          executionReadyFromBullRun?: boolean;
+          cells?: Array<{
+            targetReturn: number;
+            horizon: string;
+            status: string;
+            probability?: number | null;
+            confidence?: string;
+            expectedReturnRange?: { low: number; high: number } | null;
+            expectedDrawdownRange?: { low: number; high: number } | null;
+            reason?: string;
+          }>;
+        };
+      },
+      string
+    >({
+      query: (symbol) => `/intelligence/bull-run/${encodeURIComponent(symbol)}`,
+    }),
+    getLatestBatchResearchReport: builder.query<
+      {
+        available: boolean;
+        reason?: string;
+        missingCapability?: string;
+        report?: {
+          batchId: string;
+          completedAt: number;
+          universe: string;
+          outcome: string;
+          disclaimer: string;
+          coverage: { total: number; processed: number; failed: number };
+          sectorSummary: Array<{
+            sector: string;
+            state?: string;
+            memberCount: number;
+            bullCandidates: number;
+          }>;
+          sectorRotation?: {
+            leading: string[];
+            improving: string[];
+            weakening: string[];
+            lagging: string[];
+          };
+          bullRunCountsByHorizon: Array<{
+            horizon: string;
+            targetReturn: number;
+            candidateCount: number;
+          }>;
+          bestOpportunities: Array<{
+            symbol: string;
+            rank: number;
+            recommendation?: string;
+            tradePlanExecutionReady?: boolean;
+            targetReturn?: number;
+            horizon?: string;
+            probability?: number | null;
+            confidence?: string;
+            sector?: string;
+            tradePlanStatus?: string;
+          }>;
+          dataQuality: {
+            analyzed: number;
+            incomplete: number;
+            quoteGaps: number;
+            fabricated: number;
+          };
+          dataStatus?: string;
+        };
+      },
+      { universe?: string } | void
+    >({
+      query: (arg) => ({
+        url: '/agent/intelligence-batches/latest/research-report',
+        params: arg && 'universe' in arg ? { universe: arg.universe } : undefined,
+      }),
+      providesTags: ['IntelligenceBatches'],
+    }),
+    getBatchResearchReport: builder.query<
+      {
+        available: boolean;
+        reason?: string;
+        missingCapability?: string;
+        report?: Record<string, unknown>;
+      },
+      string
+    >({
+      query: (id) => `/agent/intelligence-batches/${encodeURIComponent(id)}/research-report`,
+      providesTags: (_r, _e, id) => [{ type: 'IntelligenceBatches', id }],
+    }),
+    getIntelligenceBatchResultsBySector: builder.query<
+      {
+        batchId: string;
+        sectors: Array<{
+          sector: string;
+          memberCount: number;
+          bullCandidates: number;
+          state?: string;
+          rankings: Array<Record<string, unknown>>;
+        }>;
+        total: number;
+        note?: string;
+      },
+      string
+    >({
+      query: (id) => `/agent/intelligence-batches/${encodeURIComponent(id)}/results/by-sector`,
+      providesTags: (_r, _e, id) => [{ type: 'IntelligenceBatches', id }],
+    }),
+    getFnoIntelligence: builder.query<{ status: string; reason?: string; symbol: string }, string>({
+      query: (symbol) => `/intelligence/fno/${encodeURIComponent(symbol)}`,
+    }),
+    getCrossAssetIntelligence: builder.query<
+      { status: string; reason?: string; left: string; asset: string; pearson?: number | null },
+      { symbol: string; asset?: string }
+    >({
+      query: ({ symbol, asset }) => ({
+        url: `/intelligence/cross-asset/${encodeURIComponent(symbol)}`,
+        params: asset ? { asset } : undefined,
+      }),
+    }),
+    assessGlobalEvent: builder.mutation<
+      {
+        event: { status: string; direction?: string; affectedSectors?: unknown[] };
+        targetedUniverse: { sectors: string[]; symbols: string[] };
+      },
+      { eventType?: string; headline?: string; source?: string }
+    >({
+      query: (body) => ({ url: '/intelligence/global-events', method: 'POST', body }),
+    }),
+    pauseIntelligenceBatch: builder.mutation<unknown, string>({
+      query: (id) => ({
+        url: `/agent/intelligence-batches/${id}/pause`,
+        method: 'POST',
+        body: {},
+      }),
+      invalidatesTags: ['IntelligenceBatches'],
+    }),
+    resumeIntelligenceBatch: builder.mutation<unknown, string>({
+      query: (id) => ({
+        url: `/agent/intelligence-batches/${id}/resume`,
+        method: 'POST',
+        body: {},
+      }),
+      invalidatesTags: ['IntelligenceBatches'],
+    }),
+    cancelIntelligenceBatch: builder.mutation<unknown, string>({
+      query: (id) => ({
+        url: `/agent/intelligence-batches/${id}/cancel`,
+        method: 'POST',
+        body: {},
+      }),
+      invalidatesTags: ['IntelligenceBatches'],
+    }),
+    getContinuousEvents: builder.query<
+      Array<{
+        eventId: string;
+        symbol: string;
+        priority: string;
+        trigger: string;
+        dataStatus: string;
+        message: string;
+        occurredAt: number;
+      }>,
+      { limit?: number } | void
+    >({
+      query: (arg) => {
+        const limit = arg && 'limit' in arg ? arg.limit : 50;
+        return `/agent/continuous/events?limit=${limit ?? 50}`;
+      },
+      providesTags: ['ContinuousIntel'],
+    }),
+    getPositionManagementPlans: builder.query<
+      Array<{
+        positionId: string;
+        symbol: string;
+        recommendedAction: string;
+        recommendation: string;
+        reassessmentReason: string;
+        thesisState?: string;
+        currentPrice: number;
+        originalEntry: number;
+      }>,
+      { limit?: number } | void
+    >({
+      query: (arg) => {
+        const limit = arg && 'limit' in arg ? arg.limit : 50;
+        return `/agent/continuous/position-plans?limit=${limit ?? 50}`;
+      },
+      providesTags: ['ContinuousIntel'],
+    }),
     getAgentAnalysis: builder.query<Record<string, unknown>, string>({
       query: (symbol) => `/agent/analysis/${symbol}`,
     }),
@@ -1789,6 +2141,24 @@ export const {
   useGetAgentOpportunitiesQuery,
   useGetFocusUniverseLatestQuery,
   useRunOfflineFocusBatchMutation,
+  useListIntelligenceBatchesQuery,
+  useGetIntelligenceBatchQuery,
+  useGetIntelligenceBatchResultsQuery,
+  useCreateIntelligenceBatchMutation,
+  useGetIntelligenceSectorsQuery,
+  useGetSectorIntelligenceQuery,
+  useGetBullRunIntelligenceQuery,
+  useGetLatestBatchResearchReportQuery,
+  useGetBatchResearchReportQuery,
+  useGetIntelligenceBatchResultsBySectorQuery,
+  useGetFnoIntelligenceQuery,
+  useGetCrossAssetIntelligenceQuery,
+  useAssessGlobalEventMutation,
+  usePauseIntelligenceBatchMutation,
+  useResumeIntelligenceBatchMutation,
+  useCancelIntelligenceBatchMutation,
+  useGetContinuousEventsQuery,
+  useGetPositionManagementPlansQuery,
   useGetAgentAnalysisQuery,
   useGetAgentPositionsQuery,
   useGetAgentTransactionsQuery,

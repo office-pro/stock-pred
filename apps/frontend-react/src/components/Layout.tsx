@@ -20,6 +20,7 @@ import { AppView, UserRole } from '@stockpred/shared-types';
 import { useAppSelector } from '../store';
 import { userHasView } from './RequireAuth';
 import DisclaimerBanner from './DisclaimerBanner';
+import IntelligenceBatchLiveStrip from './IntelligenceBatchLiveStrip';
 import WorkstationHeader from './WorkstationHeader';
 
 const DRAWER_WIDTH = 240;
@@ -27,9 +28,15 @@ const DRAWER_WIDTH = 240;
 type NavItem = { label: string; to: string; view: AppView };
 
 const MAIN_NAV: NavItem[] = [
+  { label: 'Overview', to: '/overview', view: AppView.DASHBOARD },
   { label: 'Market', to: '/market', view: AppView.DASHBOARD },
+  { label: 'Sectors', to: '/sectors', view: AppView.DASHBOARD },
   { label: 'Prep', to: '/prep', view: AppView.AGENT },
+  { label: 'Batch', to: '/batch', view: AppView.AGENT },
+  { label: 'Bull Run', to: '/bull-run', view: AppView.AGENT },
+  { label: 'Research', to: '/research-reports', view: AppView.AGENT },
   { label: 'Desk', to: '/agent', view: AppView.AGENT },
+  { label: 'Live Monitor', to: '/live', view: AppView.AGENT },
   { label: 'Book', to: '/book', view: AppView.PORTFOLIO },
 ];
 
@@ -221,6 +228,7 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
         }}
       >
         <WorkstationHeader />
+        <IntelligenceBatchLiveStrip />
         <Box sx={{ flex: 1, p: { xs: 2, md: 3 }, pt: { xs: 5, md: 3 } }}>
           <DisclaimerBanner />
           {children}

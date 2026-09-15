@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
 import axios from 'axios';
 import { getEnv } from '@stockpred/shared-utils';
@@ -34,6 +34,14 @@ export interface CachedMlPrediction {
   expectedMae?: number | null;
 }
 
+export type MlCacheUnusableReason =
+  | 'CACHE_MISSING'
+  | 'INVALID_PAYLOAD'
+  | 'NO_MODEL_VERSION'
+  | 'EXPIRED'
+  | 'UNUSABLE_FRESHNESS'
+  | 'UNUSABLE_DRIFT';
+
 type HorizonMap = Map<string, CachedMlPrediction>;
 
 function parseExpiry(expiresAt?: string): Date | null {
@@ -68,6 +76,43 @@ export function isUsableMlPrediction(
   return resolveMlFreshness(prediction, now) === 'fresh';
 }
 
+/** Explain why a cached row is unusable — never invent a prediction. */
+export function mlUnusableReason(
+  prediction: CachedMlPrediction | undefined,
+  now: Date = new Date(),
+): MlCacheUnusableReason | null {
+  if (!prediction) return 'CACHE_MISSING';
+  if (!prediction.symbol || !prediction.horizon) return 'INVALID_PAYLOAD';
+  if (!prediction.modelVersion) return 'NO_MODEL_VERSION';
+  if (prediction.driftStatus === 'incompatible') return 'UNUSABLE_DRIFT';
+  const freshness = resolveMlFreshness(prediction, now);
+  if (freshness === 'stale') return 'EXPIRED';
+  if (freshness !== 'fresh') return 'UNUSABLE_FRESHNESS';
+  return null;
+}
+
+function countLoadStats(rows: CachedMlPrediction[], now: Date = new Date()) {
+  let valid = 0;
+  let invalid = 0;
+  let missingModelVersion = 0;
+  let missingFeatureVersion = 0;
+  let expired = 0;
+  let usable = 0;
+  for (const row of rows) {
+    if (!row?.symbol || !row?.horizon) {
+      invalid += 1;
+      continue;
+    }
+    valid += 1;
+    if (!row.modelVersion) missingModelVersion += 1;
+    if (!row.featureVersion) missingFeatureVersion += 1;
+    const stamped = { ...row, freshnessStatus: resolveMlFreshness(row, now) };
+    if (stamped.freshnessStatus === 'stale') expired += 1;
+    if (isUsableMlPrediction(stamped, now)) usable += 1;
+  }
+  return { valid, invalid, missingModelVersion, missingFeatureVersion, expired, usable };
+}
+
 export class PredictionCache {
   private readonly byHorizon = new Map<string, HorizonMap>();
 
@@ -85,6 +130,42 @@ export class PredictionCache {
   ): CachedMlPrediction | undefined {
     const row = this.get(symbol, horizon);
     return isUsableMlPrediction(row, now) ? row : undefined;
+  }
+
+  /** Diagnostic get: logs found/usable/reason for sampled lookups. */
+  getWithDiagnostics(
+    symbol: string,
+    horizon: string,
+    now: Date = new Date(),
+    logSample = false,
+  ): {
+    row: CachedMlPrediction | undefined;
+    usable: boolean;
+    reason: MlCacheUnusableReason | null;
+  } {
+    const row = this.get(symbol, horizon);
+    const reason = mlUnusableReason(row, now);
+    const usable = reason == null && !!row;
+    if (logSample) {
+      if (usable && row) {
+        console.log(
+          `[ML-CACHE][GET] symbol=${symbol} found=true modelVersion=${row.modelVersion ?? ''} ` +
+            `featureVersion=${row.featureVersion ?? ''} expiresAt=${row.expiresAt ?? ''} ` +
+            `freshnessStatus=${row.freshnessStatus ?? ''} driftStatus=${row.driftStatus ?? ''} usable=true`,
+        );
+      } else {
+        console.log(
+          `[ML-CACHE][GET][UNUSABLE] symbol=${symbol} found=${!!row} reason=${reason ?? 'CACHE_MISSING'}`,
+        );
+      }
+    }
+    return { row: usable ? row : undefined, usable, reason };
+  }
+
+  size(): number {
+    let n = 0;
+    for (const map of this.byHorizon.values()) n += map.size;
+    return n;
   }
 
   /** Observational rollup for ML Lab TI bridge — does not change usability rules. */
@@ -147,17 +228,32 @@ export class PredictionCache {
   }
 
   async refresh(): Promise<number> {
+    console.log(`[ML-CACHE][REFRESH][START] source=engine_then_file`);
     try {
       const fromApi = await this.loadFromEngine();
-      if (fromApi > 0) return fromApi;
+      if (fromApi > 0) {
+        const bridge = this.summarizeTiBridge();
+        console.log(`[ML-CACHE][REFRESH] engine_loaded=${fromApi} usable=${bridge.usable}`);
+        // Prefer file when engine/DB rows are present but none are usable (e.g. missing expiresAt).
+        if (bridge.usable > 0) return fromApi;
+        console.log(`[ML-CACHE][REFRESH] engine_unusable falling_back=file`);
+      } else {
+        console.log(`[ML-CACHE][REFRESH] engine=0 falling_back=file`);
+      }
       return this.loadFromFile();
     } catch (error) {
-      console.warn(`[market-data] ML prediction refresh failed: ${(error as Error).message}`);
+      console.warn(`[ML-CACHE][REFRESH] failed: ${(error as Error).message}`);
       return 0;
     }
   }
 
-  private ingest(rows: CachedMlPrediction[]): number {
+  private ingest(rows: CachedMlPrediction[], source: string): number {
+    const stats = countLoadStats(rows);
+    console.log(
+      `[ML-CACHE][LOAD][SUMMARY] source=${source} loaded=${rows.length} usable=${stats.usable} ` +
+        `expired=${stats.expired} invalid=${stats.invalid} ` +
+        `missingModelVersion=${stats.missingModelVersion} missingFeatureVersion=${stats.missingFeatureVersion}`,
+    );
     this.byHorizon.clear();
     for (const row of rows) {
       if (!row.symbol || !row.horizon) continue;
@@ -187,8 +283,20 @@ export class PredictionCache {
           timeout: 8000,
         }),
       ]);
-      return this.ingest([...(day.data.predictions ?? []), ...(week.data.predictions ?? [])]);
-    } catch {
+      const rows = [...(day.data.predictions ?? []), ...(week.data.predictions ?? [])];
+      const stats = countLoadStats(rows);
+      console.log(
+        `[ML-CACHE][LOAD] file=engine:/predictions/all fileExists=true records=${rows.length} ` +
+          `valid=${stats.valid} invalid=${stats.invalid} missingModelVersion=${stats.missingModelVersion} ` +
+          `missingFeatureVersion=${stats.missingFeatureVersion} expired=${stats.expired}`,
+      );
+      if (rows.length === 0) return 0;
+      return this.ingest(rows, 'engine');
+    } catch (error) {
+      console.warn(
+        `[ML-CACHE][LOAD] file=engine:/predictions/all fileExists=false records=0 ` +
+          `error=${(error as Error).message}`,
+      );
       return 0;
     }
   }
@@ -201,13 +309,35 @@ export class PredictionCache {
       join(process.cwd(), 'ml-models', 'latest-predictions.json'),
     ];
     const path = candidates.find((candidate) => existsSync(candidate));
-    if (!path) return 0;
+    if (!path) {
+      console.log(
+        `[ML-CACHE][LOAD] file=latest-predictions.json fileExists=false records=0 ` +
+          `candidates=${candidates.join('|')}`,
+      );
+      console.log(
+        `[ML-CACHE][LOAD][SUMMARY] source=file loaded=0 usable=0 expired=0 invalid=0 ` +
+          `missingModelVersion=0 missingFeatureVersion=0`,
+      );
+      return 0;
+    }
     try {
+      const bytes = statSync(path).size;
       const parsed = JSON.parse(readFileSync(path, 'utf8')) as CachedMlPrediction[];
-      if (!Array.isArray(parsed)) return 0;
-      return this.ingest(parsed);
+      if (!Array.isArray(parsed)) {
+        console.log(
+          `[ML-CACHE][LOAD] file=${path} fileExists=true bytes=${bytes} records=0 invalid=non_array`,
+        );
+        return 0;
+      }
+      const stats = countLoadStats(parsed);
+      console.log(
+        `[ML-CACHE][LOAD] file=${path} fileExists=true bytes=${bytes} records=${parsed.length} ` +
+          `valid=${stats.valid} invalid=${stats.invalid} missingModelVersion=${stats.missingModelVersion} ` +
+          `missingFeatureVersion=${stats.missingFeatureVersion} expired=${stats.expired}`,
+      );
+      return this.ingest(parsed, 'file');
     } catch (error) {
-      console.warn(`[market-data] could not read ${path}: ${(error as Error).message}`);
+      console.warn(`[ML-CACHE][LOAD] file=${path} parse_failed: ${(error as Error).message}`);
       return 0;
     }
   }

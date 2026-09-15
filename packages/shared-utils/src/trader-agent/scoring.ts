@@ -23,6 +23,11 @@ export interface AnalystInputs {
   missingCapabilities: string[];
   capabilityRequests: AgentCapabilityRequest[];
   requiredMissing: boolean;
+  /**
+   * Canonical requested ticker (e.g. batch task.symbol).
+   * When set, analysis.symbol is always this ticker — never UNKNOWN.
+   */
+  requestedSymbol?: string | null;
 }
 
 function clamp(score: number | null): number | null {
@@ -207,6 +212,40 @@ function buildSetup(
   };
 }
 
+function resolveAnalysisSymbol(
+  requested: string | null | undefined,
+  quoteSymbol: string | null | undefined,
+): string {
+  const canonical = typeof requested === 'string' ? requested.trim().toUpperCase() : '';
+  if (canonical && canonical !== 'UNKNOWN') return canonical;
+  const fromQuote = typeof quoteSymbol === 'string' ? quoteSymbol.trim().toUpperCase() : '';
+  if (fromQuote) return fromQuote;
+  return 'UNKNOWN';
+}
+
+/** Rematerialize null setup levels from an existing quote using the same buildSetup path. */
+export function rematerializeSetupFromQuote(
+  analysis: AgentAnalysis,
+  quote: StockQuote | null | undefined,
+  cash = 0,
+  riskPerTradePercent = 1,
+): AgentAnalysis {
+  if (!quote || !(quote.price > 0)) return analysis;
+  if (analysis.setup?.entry != null && Number.isFinite(analysis.setup.entry)) return analysis;
+  const setup = buildSetup(
+    quote,
+    analysis.decision,
+    cash,
+    riskPerTradePercent,
+    analysis.scores.overall,
+  );
+  return {
+    ...analysis,
+    currentPrice: quote.price > 0 ? round2(quote.price) : analysis.currentPrice,
+    setup,
+  };
+}
+
 /** Combine existing app parameters into a professional trading decision card. */
 export function composeAgentAnalysis(input: AnalystInputs): AgentAnalysis {
   const { quote, fundamentals, altData, cash, riskPerTradePercent } = input;
@@ -272,7 +311,7 @@ export function composeAgentAnalysis(input: AnalystInputs): AgentAnalysis {
           : 'Hold / monitor; no new risk.';
 
   return {
-    symbol: quote?.symbol ?? 'UNKNOWN',
+    symbol: resolveAnalysisSymbol(input.requestedSymbol, quote?.symbol),
     currentPrice: quote?.price && quote.price > 0 ? round2(quote.price) : null,
     decision,
     scores,

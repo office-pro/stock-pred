@@ -6,6 +6,7 @@ import { KafkaProducerService } from './kafka.service';
 import { MarketController } from './market.controller';
 import { MarketService } from './market.service';
 import { RedisService } from './redis.service';
+import { B9B17IntelligenceService } from './b9-b17-intelligence.service';
 
 @Module({
   controllers: [MarketController],
@@ -16,6 +17,7 @@ import { RedisService } from './redis.service';
     CandleCache,
     FundamentalsStore,
     AltDataStore,
+    B9B17IntelligenceService,
   ],
 })
 export class MarketModule {}

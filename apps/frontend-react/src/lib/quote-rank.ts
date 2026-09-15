@@ -1,3 +1,15 @@
+/**
+ * Client-side quote presentation helpers for Market / Predictions tape ONLY.
+ *
+ * QUARANTINED from Discover surfaces:
+ * - Market Overview (/overview)
+ * - Bull-Run (/bull-run)
+ * - Sectors (/sectors)
+ * - Batch Center Best Opportunities / Research Reports
+ *
+ * Do NOT use this module to create RankingContext, Bull-Run probabilities,
+ * or authorization decisions. Canonical ranking remains backend RankingContext.
+ */
 import type { ManipulationBand, StockQuote } from '@stockpred/shared-types';
 import { type IndexUniverseId, inIndexUniverse } from './index-universes';
 

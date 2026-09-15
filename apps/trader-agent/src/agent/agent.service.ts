@@ -35,6 +35,7 @@ import {
   HumanDecisionAction,
   HumanIntelMetrics,
   HumanReasonCode,
+  IntelligenceSnapshot,
   MarketContext,
   MultiTimeframeCandles,
   PortfolioSnapshot,
@@ -117,6 +118,7 @@ import {
   buildWaitRecommendation,
   digestFromSnapshot,
   buildThesisSnapshot,
+  buildStructuredThesis,
   reassessThesis,
   buildThesisHistoryEvent,
   digestFromStructuredThesis,
@@ -1082,6 +1084,130 @@ export class AgentService implements OnModuleInit {
   }
 
   /**
+   * B1 Intelligence Batch — analyze one symbol without portfolio / auth chain.
+   * MUST NOT call evaluateTrade / Risk / Portfolio / Policy / Gate / ledger / orders.
+   */
+  async analyzeForIntelligenceBatch(symbol: string, quote?: StockQuote): Promise<AgentAnalysis> {
+    return this.analyzeSymbol(symbol, {
+      quote,
+      portfolio: null,
+      statuses: [],
+      requests: [],
+    });
+  }
+
+  /** B1 — cached MDS quotes keyed by symbol (page through /stocks). */
+  async fetchCachedQuotesMap(limit = 5000): Promise<Map<string, StockQuote>> {
+    const map = new Map<string, StockQuote>();
+    const pageSize = 500;
+    let page = 1;
+    let fetched = 0;
+    while (fetched < limit) {
+      const take = Math.min(pageSize, limit - fetched);
+      try {
+        const { data } = await axios.get<{ data: StockQuote[] }>(`${this.marketDataUrl}/stocks`, {
+          params: { page, limit: take, sort: 'symbol' },
+          timeout: 30_000,
+        });
+        const rows = data.data ?? [];
+        if (rows.length === 0) break;
+        for (const q of rows) {
+          if (q?.symbol) map.set(q.symbol.toUpperCase(), q);
+        }
+        fetched += rows.length;
+        if (rows.length < take) break;
+        page += 1;
+      } catch {
+        break;
+      }
+    }
+    return map;
+  }
+
+  /**
+   * P0b — single-symbol MDS quote for batch finalize when paginated map missed it.
+   * Returns null on 404 / error — never invents a price.
+   */
+  async fetchQuoteForIntelligenceBatch(symbol: string): Promise<StockQuote | null> {
+    const sym = String(symbol ?? '')
+      .trim()
+      .toUpperCase();
+    if (!sym) return null;
+    try {
+      const { data, status } = await axios.get<StockQuote>(
+        `${this.marketDataUrl}/stocks/${encodeURIComponent(sym)}`,
+        {
+          timeout: 12_000,
+          validateStatus: (s) => s >= 200 && s < 500,
+        },
+      );
+      if (status >= 300 || !data?.symbol) return null;
+      return data;
+    } catch {
+      return null;
+    }
+  }
+
+  getAnalysisConcurrency(): number {
+    return this.scaleConfig.analysisConcurrency;
+  }
+
+  /**
+   * B2 — shared MDS market context for batch finalize (symbol-agnostic, observe-only).
+   */
+  async fetchTiMarketContextForIntelligenceBatch(): Promise<
+    | {
+        scannerRegime?: string;
+        vixLevel?: number | null;
+        niftyChangePercent?: number | null;
+        breadthPercentAboveEma50?: number | null;
+        asOf?: string | number;
+      }
+    | undefined
+  > {
+    return (await this.fetchTiMarketContext()) ?? undefined;
+  }
+
+  /**
+   * B2 Intelligence Batch — per-symbol TI (RS/sector/MTF). Market context via
+   * fetchTiMarketContextForIntelligenceBatch (shared once per finalize).
+   */
+  async fetchTiInputsForIntelligenceBatch(
+    symbol: string,
+    expectedHoldingPeriod?: string | null,
+  ): Promise<{
+    crossSectional?: {
+      rsVsNifty50?: number | null;
+      sector?: string | null;
+      peVsMedianPct?: number | null;
+      pbVsMedianPct?: number | null;
+      asOf?: string | number;
+      quoteRs?: number | null;
+      scannerRs?: number | null;
+      niftyRs?: number | null;
+      benchmarkAvailable?: boolean;
+      benchmarkDailyLength?: number | null;
+      rsSource?: 'QUOTE' | 'SCANNER' | 'MISSING';
+    };
+    multiHorizon?: {
+      tradeHorizon: ReturnType<typeof inferTradeHorizon>;
+      intendedSide: 'LONG';
+      closesByHorizon: Partial<Record<'M5' | 'M15' | 'H1' | 'H4' | 'D1' | 'W1', number[]>>;
+      sourceDataTimestamp?: string;
+      asOf?: number;
+    };
+  }> {
+    const [crossSectional, multiHorizon] = await Promise.all([
+      this.fetchTiCrossSectional(symbol),
+      this.fetchTiMultiHorizon(symbol, expectedHoldingPeriod),
+    ]);
+    return {
+      crossSectional: crossSectional ?? undefined,
+      multiHorizon: multiHorizon ?? undefined,
+    };
+  }
+
+  /**
    * Offline intelligence batch — STRICTLY READ-ONLY.
    * EOD/cached quotes → analyze → RankingContext lex order → FocusUniverseBatch artifact.
    * MUST NOT: ledger, human decisions, evaluateTrade auth chain, Risk/Portfolio/Policy/Gate,
@@ -1428,12 +1554,13 @@ export class AgentService implements OnModuleInit {
 
     const rankingCandidates = await Promise.all(
       synced.map(async (row) => {
-        const [ml, crossSectional, multiHorizon, catalyst] = await Promise.all([
+        const [mlFetch, crossSectional, multiHorizon, catalyst] = await Promise.all([
           this.fetchTiMlPrediction(row.analysis.symbol),
           this.fetchTiCrossSectional(row.analysis.symbol),
           this.fetchTiMultiHorizon(row.analysis.symbol, row.analysis.setup?.expectedHoldingPeriod),
           this.fetchTiCatalyst(row.analysis.symbol),
         ]);
+        const ml = mlFetch.prediction;
         const decision = evaluateTrade({ analysis: row.analysis });
         const snap = buildIntelligenceSnapshot({
           analysis: row.analysis,
@@ -2447,7 +2574,8 @@ export class AgentService implements OnModuleInit {
         this.fetchTiCatalyst(analysis.symbol),
       ]),
     );
-    const [marketContext, mlPrediction, crossSectional, multiHorizon, catalyst] = tiTimed.value;
+    const [marketContext, mlFetch, crossSectional, multiHorizon, catalyst] = tiTimed.value;
+    const mlPrediction = mlFetch.prediction;
     stages.push(ohStage('tiFetch', tiTimed.ms));
 
     // P4: capture intelligence for the ledger only — not fed into engines below.
@@ -2939,6 +3067,7 @@ export class AgentService implements OnModuleInit {
         (row) => this.suggestions.get(row.id)?.status !== 'acknowledged',
       ),
       requiredMissing,
+      requestedSymbol: symbol,
     });
   }
 
@@ -2973,16 +3102,23 @@ export class AgentService implements OnModuleInit {
     }
   }
 
-  /** Quote RS + peer valuation for T1.4 (observe-only). */
+  /** Quote RS + peer valuation for T1.4 (observe-only). Truthful niftyRs fallback via MDS quote. */
   private async fetchTiCrossSectional(symbol: string): Promise<{
     rsVsNifty50?: number | null;
     sector?: string | null;
     peVsMedianPct?: number | null;
     pbVsMedianPct?: number | null;
     asOf?: string | number;
+    /** Diagnostic — never invent NEUTRAL/0. */
+    quoteRs?: number | null;
+    scannerRs?: number | null;
+    niftyRs?: number | null;
+    benchmarkAvailable?: boolean;
+    benchmarkDailyLength?: number | null;
+    rsSource?: 'QUOTE' | 'SCANNER' | 'MISSING';
   } | null> {
     try {
-      const [quoteRes, peerRes] = await Promise.all([
+      const [quoteRes, peerRes, niftyCandlesRes] = await Promise.all([
         axios.get(`${this.marketDataUrl}/stocks/${encodeURIComponent(symbol)}`, {
           timeout: 5_000,
           validateStatus: (s) => s >= 200 && s < 500,
@@ -2991,16 +3127,48 @@ export class AgentService implements OnModuleInit {
           timeout: 5_000,
           validateStatus: (s) => s >= 200 && s < 500,
         }),
+        axios.get(`${this.marketDataUrl}/indices/NIFTY_50/candles`, {
+          params: { limit: 5000 },
+          timeout: 5_000,
+          validateStatus: (s) => s >= 200 && s < 500,
+        }),
       ]);
       const quote = quoteRes.data as Record<string, unknown> | null;
       const peer = peerRes.data as Record<string, unknown> | null;
       const scanner = (quote?.scanner as Record<string, unknown> | undefined) ?? undefined;
-      const rs =
-        typeof quote?.relativeStrengthNifty50 === 'number'
-          ? quote.relativeStrengthNifty50
-          : typeof scanner?.relativeStrengthNifty50 === 'number'
-            ? scanner.relativeStrengthNifty50
-            : null;
+      const quoteRs =
+        typeof quote?.relativeStrengthNifty50 === 'number' ? quote.relativeStrengthNifty50 : null;
+      const scannerRs =
+        typeof scanner?.relativeStrengthNifty50 === 'number'
+          ? scanner.relativeStrengthNifty50
+          : null;
+      // Prefer quote field (MDS may already have fallen back to niftyRs); else scanner.
+      const rs = quoteRs ?? scannerRs;
+      const rsSource: 'QUOTE' | 'SCANNER' | 'MISSING' =
+        quoteRs != null ? 'QUOTE' : scannerRs != null ? 'SCANNER' : 'MISSING';
+      const niftyBars = Array.isArray(niftyCandlesRes.data) ? niftyCandlesRes.data : [];
+      const benchmarkDailyLength = niftyBars.length;
+      const benchmarkAvailable = benchmarkDailyLength > 0;
+      const sample = symbol === 'TCS' || symbol === 'RELIANCE';
+      if (sample) {
+        console.log(
+          `[RS][FETCH] symbol=${symbol} quoteRs=${quoteRs} scannerRs=${scannerRs} niftyRs=${quoteRs} ` +
+            `benchmarkAvailable=${benchmarkAvailable} benchmarkDailyLength=${benchmarkDailyLength}`,
+        );
+        console.log(`[RS][SOURCE] symbol=${symbol} source=${rsSource} value=${rs ?? 'null'}`);
+        if (rs == null) {
+          const reason = !benchmarkAvailable
+            ? 'CACHE_MISSING'
+            : benchmarkDailyLength < 60
+              ? 'INSUFFICIENT_HISTORY'
+              : 'VALUE_NULL';
+          console.log(
+            `[RS][OMIT] symbol=${symbol} reason=${reason} quoteRs=null scannerRs=${scannerRs} niftyRs=null`,
+          );
+        } else {
+          console.log(`[RS][RESULT] symbol=${symbol} source=${rsSource} rsValue=${rs}`);
+        }
+      }
       const sector =
         (typeof peer?.sector === 'string' ? peer.sector : null) ??
         (typeof quote?.sector === 'string' ? quote.sector : null);
@@ -3009,9 +3177,21 @@ export class AgentService implements OnModuleInit {
         sector,
         peVsMedianPct: typeof peer?.peVsMedianPct === 'number' ? peer.peVsMedianPct : null,
         pbVsMedianPct: typeof peer?.pbVsMedianPct === 'number' ? peer.pbVsMedianPct : null,
-        asOf: Date.now(),
+        asOf:
+          typeof quote?.updatedAt === 'number' && Number.isFinite(quote.updatedAt)
+            ? quote.updatedAt
+            : undefined,
+        quoteRs,
+        scannerRs,
+        niftyRs: quoteRs,
+        benchmarkAvailable,
+        benchmarkDailyLength,
+        rsSource,
       };
-    } catch {
+    } catch (error) {
+      console.warn(
+        `[RS][FETCH] symbol=${symbol} reason=PROVIDER_REQUEST_FAILED error=${(error as Error).message}`,
+      );
       return null;
     }
   }
@@ -3093,7 +3273,7 @@ export class AgentService implements OnModuleInit {
         },
         sourceDataTimestamp:
           lastTs != null && Number.isFinite(lastTs) ? new Date(lastTs).toISOString() : undefined,
-        asOf: Date.now(),
+        asOf: lastTs != null && Number.isFinite(lastTs) ? lastTs : undefined,
       };
     } catch {
       try {
@@ -3135,7 +3315,7 @@ export class AgentService implements OnModuleInit {
         vixLevel: data.vixLevel ?? null,
         niftyChangePercent: data.niftyChangePercent ?? null,
         breadthPercentAboveEma50: data.breadth?.percentAboveEma50 ?? null,
-        asOf: data.breadth?.asOf ?? Date.now(),
+        asOf: data.breadth?.asOf ?? undefined,
       };
     } catch {
       try {
@@ -3148,15 +3328,45 @@ export class AgentService implements OnModuleInit {
   }
 
   /** Usable ML prediction from MDS (fresh + drift-compatible). Observe-only. */
-  private async fetchTiMlPrediction(symbol: string): Promise<HorizonPrediction | null> {
+  private async fetchTiMlPrediction(symbol: string): Promise<{
+    prediction: HorizonPrediction | null;
+    fetchError: boolean;
+    rawPresent: boolean;
+    omitReason?: string;
+  }> {
+    const sample = symbol === 'TCS' || symbol === 'RELIANCE';
     try {
-      const { data } = await axios.get<Record<string, unknown> | null>(
+      const { data, status } = await axios.get<Record<string, unknown> | null>(
         `${this.marketDataUrl}/market/predictions/${encodeURIComponent(symbol)}`,
-        { timeout: 5_000, validateStatus: (status) => status >= 200 && status < 500 },
+        { timeout: 5_000, validateStatus: (s) => s >= 200 && s < 500 },
       );
-      if (!data || typeof data !== 'object') return null;
+      if (!data || typeof data !== 'object') {
+        if (sample) {
+          console.log(
+            `[IBATCH][ML][OMIT] symbol=${symbol} reason=NO_RESPONSE httpStatus=${status} providerResponse=false`,
+          );
+        }
+        return {
+          prediction: null,
+          fetchError: false,
+          rawPresent: false,
+          omitReason: 'NO_RESPONSE',
+        };
+      }
       const modelVersion = typeof data.modelVersion === 'string' ? data.modelVersion : null;
-      if (!modelVersion) return null;
+      if (!modelVersion) {
+        if (sample) {
+          console.log(
+            `[IBATCH][ML][OMIT] symbol=${symbol} reason=NO_MODEL_VERSION providerResponse=true`,
+          );
+        }
+        return {
+          prediction: null,
+          fetchError: false,
+          rawPresent: true,
+          omitReason: 'NO_MODEL_VERSION',
+        };
+      }
       const horizonRaw = String(data.horizon ?? PredictionHorizon.NEXT_DAY);
       const horizon =
         horizonRaw === PredictionHorizon.NEXT_WEEK
@@ -3164,7 +3374,7 @@ export class AgentService implements OnModuleInit {
           : PredictionHorizon.NEXT_DAY;
       const predictionTimestamp =
         typeof data.predictionTimestamp === 'string' ? data.predictionTimestamp : undefined;
-      return {
+      const prediction: HorizonPrediction = {
         symbol: String(data.symbol ?? symbol).toUpperCase(),
         direction: String(data.direction ?? 'SIDEWAYS'),
         confidence: Number(data.confidence ?? 0),
@@ -3189,8 +3399,25 @@ export class AgentService implements OnModuleInit {
         expectedMfe: (data.expectedMfe as number | null | undefined) ?? null,
         expectedMae: (data.expectedMae as number | null | undefined) ?? null,
       };
-    } catch {
-      return null;
+      if (sample) {
+        console.log(
+          `[IBATCH][ML] symbol=${symbol} requested=true providerResponse=true ` +
+            `usable=pending modelVersion=${modelVersion} featureVersion=${prediction.featureVersion ?? ''} ` +
+            `freshness=${prediction.freshnessStatus ?? ''} drift=${prediction.driftStatus ?? ''}`,
+        );
+      }
+      return {
+        prediction,
+        fetchError: false,
+        rawPresent: true,
+      };
+    } catch (error) {
+      if (sample) {
+        console.log(
+          `[IBATCH][ML][OMIT] symbol=${symbol} reason=FETCH_ERROR error=${(error as Error).message}`,
+        );
+      }
+      return { prediction: null, fetchError: true, rawPresent: false, omitReason: 'FETCH_ERROR' };
     }
   }
 
@@ -3308,16 +3535,292 @@ export class AgentService implements OnModuleInit {
   /**
    * T1.7 catalyst candidates from published alt-data only (observe-only).
    * Does not invent an upcoming earnings calendar.
+   * asOf = max observed alt asOfDate when present (not finalize wall clock alone).
    */
   private async fetchTiCatalyst(symbol: string): Promise<{
     candidates: ReturnType<typeof candidatesFromAltData>;
     decisionTimestamp: number;
+    asOf?: number;
   } | null> {
     const alt = await this.fetchAltData(symbol);
     if (!alt || alt.missing) return null;
     const candidates = candidatesFromAltData(alt);
     if (!candidates.length) return null;
-    return { candidates, decisionTimestamp: Date.now() };
+    const asOf = Math.max(
+      alt.news?.asOfDate ?? 0,
+      alt.social?.asOfDate ?? 0,
+      alt.macro?.asOfDate ?? 0,
+      alt.news?.availableAt ?? 0,
+      alt.social?.availableAt ?? 0,
+      alt.macro?.availableAt ?? 0,
+    );
+    return {
+      candidates,
+      decisionTimestamp: Date.now(),
+      asOf: asOf > 0 ? asOf : undefined,
+    };
+  }
+
+  /**
+   * B3 — existing TI catalyst for batch finalize (observe-only).
+   * Preserves asOf from alt-data; does not invent a new timestamp schema.
+   */
+  async fetchTiCatalystForIntelligenceBatch(symbol: string): Promise<{
+    candidates: ReturnType<typeof candidatesFromAltData>;
+    decisionTimestamp: number;
+    asOf?: number;
+  } | null> {
+    return this.fetchTiCatalyst(symbol);
+  }
+
+  /**
+   * B4 — existing T2 thesis for batch finalize (observe-only).
+   * Does not authorize, reassess ledger history, or invent thesis state.
+   */
+  buildThesisForIntelligenceBatch(
+    analysis: AgentAnalysis,
+    snapshot: IntelligenceSnapshot,
+    now = Date.now(),
+  ): ReturnType<typeof buildStructuredThesis> {
+    return buildStructuredThesis({
+      now,
+      analysis,
+      snapshot,
+      tradeHorizon: 'SWING_TRADE',
+      strategyTag: 'BREAKOUT',
+    });
+  }
+
+  /**
+   * B4 — existing T2 WAIT for batch finalize (observe-only).
+   * Never mutates waitExpiresAt; no scheduler; previousWait always null.
+   */
+  buildWaitForIntelligenceBatch(
+    analysis: AgentAnalysis,
+    snapshot: IntelligenceSnapshot,
+    now = Date.now(),
+  ): ReturnType<typeof buildWaitRecommendation> {
+    return buildWaitRecommendation({
+      now,
+      analysis,
+      snapshot,
+      previousWait: null,
+    });
+  }
+
+  /**
+   * B5 — usable ML prediction for batch finalize (observe-only via MDS).
+   * Does not invent predictions; returns null prediction when missing/unusable upstream.
+   */
+  async fetchTiMlPredictionForIntelligenceBatch(symbol: string): Promise<{
+    prediction: HorizonPrediction | null;
+    fetchError: boolean;
+    rawPresent: boolean;
+    omitReason?: string;
+  }> {
+    return this.fetchTiMlPrediction(symbol);
+  }
+
+  /** Refresh MDS prediction cache before batch finalize (usable-only contract unchanged). */
+  async refreshMlPredictionsForIntelligenceBatch(): Promise<{
+    loaded: number;
+    bridge?: { total?: number; usable?: number };
+  }> {
+    try {
+      const { data } = await axios.post<{
+        loaded?: number;
+        bridge?: { total?: number; usable?: number };
+      }>(`${this.marketDataUrl}/market/predictions/refresh`, {}, { timeout: 30_000 });
+      return {
+        loaded: data?.loaded ?? 0,
+        bridge: data?.bridge,
+      };
+    } catch {
+      return { loaded: 0 };
+    }
+  }
+
+  /** B9–B17 advisory fetch — never authorization. Missing → null (omit labels). */
+  async fetchB9B17AdvisoryForIntelligenceBatch(
+    symbol: string,
+    opts?: { sector?: string | null; globalEventType?: string | null },
+  ): Promise<{
+    sectorState?: string | null;
+    bullRunStage?: string | null;
+    bullRunProbability3m?: number | null;
+    bullRunV2Cells?: Array<{
+      t: number;
+      h: '1D' | '1W' | '1M' | '3M' | '6M' | '12M';
+      p: number;
+      conf?: 'HIGH' | 'MEDIUM' | 'LOW';
+    }> | null;
+    bullRunDataStatus?: 'LIVE' | 'DELAYED' | 'STALE' | 'OFFLINE' | 'UNKNOWN' | null;
+    globalEventImpact?: string | null;
+    fnoStatus?: string | null;
+  }> {
+    const out: {
+      sectorState?: string | null;
+      bullRunStage?: string | null;
+      bullRunProbability3m?: number | null;
+      bullRunV2Cells?: Array<{
+        t: number;
+        h: '1D' | '1W' | '1M' | '3M' | '6M' | '12M';
+        p: number;
+        conf?: 'HIGH' | 'MEDIUM' | 'LOW';
+      }> | null;
+      bullRunDataStatus?: 'LIVE' | 'DELAYED' | 'STALE' | 'OFFLINE' | 'UNKNOWN' | null;
+      globalEventImpact?: string | null;
+      fnoStatus?: string | null;
+    } = {};
+    try {
+      const { data: bull } = await axios.get<{
+        status?: string;
+        stage?: string;
+        horizons?: Array<{ horizon?: string; bullRunProbability?: number | null; status?: string }>;
+        v2?: {
+          dataStatus?: 'LIVE' | 'DELAYED' | 'STALE' | 'OFFLINE' | 'UNKNOWN';
+          cells?: Array<{
+            targetReturn?: number;
+            horizon?: '1D' | '1W' | '1M' | '3M' | '6M' | '12M';
+            status?: string;
+            probability?: number | null;
+            confidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNAVAILABLE';
+          }>;
+          executionReadyFromBullRun?: boolean;
+        };
+      }>(`${this.marketDataUrl}/intelligence/bull-run/${encodeURIComponent(symbol)}`, {
+        timeout: 8_000,
+        validateStatus: (s) => s >= 200 && s < 500,
+      });
+      if (bull?.status === 'AVAILABLE' && bull.stage && bull.stage !== 'UNKNOWN') {
+        out.bullRunStage = bull.stage;
+        const m13 = bull.horizons?.find((h) => h.horizon === 'M1_3' && h.status === 'AVAILABLE');
+        if (m13?.bullRunProbability != null && Number.isFinite(m13.bullRunProbability)) {
+          out.bullRunProbability3m = m13.bullRunProbability / 100;
+        }
+      }
+      // Bull-Run v2 cells — AVAILABLE only; never store 0 for missing; never execution-ready from Bull-Run.
+      if (bull?.v2?.executionReadyFromBullRun === false || bull?.v2?.cells) {
+        out.bullRunDataStatus = bull.v2.dataStatus ?? 'UNKNOWN';
+        const cells = (bull.v2.cells ?? [])
+          .filter(
+            (c) =>
+              c.status === 'AVAILABLE' &&
+              c.probability != null &&
+              Number.isFinite(c.probability) &&
+              c.horizon &&
+              c.targetReturn != null,
+          )
+          .map((c) => ({
+            t: c.targetReturn as number,
+            h: c.horizon as '1D' | '1W' | '1M' | '3M' | '6M' | '12M',
+            p: c.probability as number,
+            conf:
+              c.confidence === 'HIGH' || c.confidence === 'MEDIUM' || c.confidence === 'LOW'
+                ? c.confidence
+                : undefined,
+          }));
+        if (cells.length) out.bullRunV2Cells = cells;
+      }
+    } catch {
+      /* omit */
+    }
+    try {
+      const { data: fno } = await axios.get<{ status?: string; reason?: string }>(
+        `${this.marketDataUrl}/intelligence/fno/${encodeURIComponent(symbol)}`,
+        { timeout: 5_000, validateStatus: (s) => s >= 200 && s < 500 },
+      );
+      if (fno?.status) {
+        out.fnoStatus =
+          fno.status === 'UNAVAILABLE'
+            ? `UNAVAILABLE:${fno.reason ?? 'PROVIDER_NOT_CONFIGURED'}`
+            : fno.status;
+      }
+    } catch {
+      /* omit */
+    }
+    if (opts?.sector?.trim()) {
+      try {
+        const { data: sec } = await axios.get<{ status?: string; state?: string }>(
+          `${this.marketDataUrl}/intelligence/sectors/${encodeURIComponent(opts.sector.trim())}`,
+          { timeout: 8_000, validateStatus: (s) => s >= 200 && s < 500 },
+        );
+        if (sec?.status === 'AVAILABLE' && sec.state && sec.state !== 'UNKNOWN') {
+          out.sectorState = sec.state;
+        }
+      } catch {
+        /* omit */
+      }
+    }
+    if (opts?.globalEventType?.trim()) {
+      try {
+        const { data } = await axios.post<{
+          event?: { status?: string; direction?: string };
+        }>(
+          `${this.marketDataUrl}/intelligence/global-events`,
+          { eventType: opts.globalEventType.trim(), source: 'intelligence-batch' },
+          { timeout: 8_000, validateStatus: (s) => s >= 200 && s < 500 },
+        );
+        const dir = data?.event?.direction;
+        if (data?.event?.status === 'AVAILABLE' && dir && dir !== 'UNKNOWN') {
+          out.globalEventImpact = dir;
+        }
+      } catch {
+        /* omit */
+      }
+    }
+    return out;
+  }
+
+  async fetchSectorMembersForIntelligenceBatch(sector: string): Promise<string[]> {
+    try {
+      const { data } = await axios.get<{ symbols?: string[] }>(
+        `${this.marketDataUrl}/intelligence/sectors/${encodeURIComponent(sector)}/members`,
+        { timeout: 10_000, validateStatus: (s) => s >= 200 && s < 500 },
+      );
+      return Array.isArray(data?.symbols) ? data.symbols.map((s) => String(s).toUpperCase()) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * B17 continuous — assess global event, refresh only targeted symbols (cap 40).
+   * Never full-universe rerun / never authorization.
+   */
+  async triggerTargetedGlobalEventRefresh(
+    eventType: string,
+    seedSymbol?: string,
+  ): Promise<{ sectors: string[]; symbols: string[]; refreshed: number }> {
+    try {
+      const { data } = await axios.post<{
+        targetedUniverse?: { sectors?: string[]; symbols?: string[] };
+      }>(
+        `${this.marketDataUrl}/intelligence/global-events`,
+        { eventType, source: 'continuous-intelligence' },
+        { timeout: 8_000, validateStatus: (s) => s >= 200 && s < 500 },
+      );
+      const sectors = data?.targetedUniverse?.sectors ?? [];
+      const fromEvent = data?.targetedUniverse?.symbols ?? [];
+      const symbols = [...new Set([...(seedSymbol ? [seedSymbol] : []), ...fromEvent])]
+        .map((s) => s.toUpperCase())
+        .filter(Boolean)
+        .slice(0, 40);
+      if (symbols.length === 0) {
+        return { sectors, symbols: [], refreshed: 0 };
+      }
+      await axios.post(
+        `${this.marketDataUrl}/market/focus-refresh`,
+        { symbols },
+        { timeout: 15_000, validateStatus: (s) => s >= 200 && s < 500 },
+      );
+      return { sectors, symbols, refreshed: symbols.length };
+    } catch (err) {
+      console.warn(
+        `[B17] targeted global refresh failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return { sectors: [], symbols: [], refreshed: 0 };
+    }
   }
 
   private async fetchPortfolio(

@@ -55,29 +55,34 @@ export default function PrepFocusPage(): JSX.Element {
             Offline Focus Intelligence — RankingContext order only.
           </Typography>
         </Box>
-        <Button
-          variant="contained"
-          disabled={runState.isLoading}
-          onClick={() => {
-            void runOffline({ limit: 80 })
-              .unwrap()
-              .then((batch) => {
-                setToast({
-                  severity: 'success',
-                  text: `Focus batch ${batch.batchId}: ${batch.candidates.length} candidates (read-only)`,
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          <Button
+            variant="contained"
+            disabled={runState.isLoading}
+            onClick={() => {
+              void runOffline({ limit: 80 })
+                .unwrap()
+                .then((batch) => {
+                  setToast({
+                    severity: 'success',
+                    text: `Focus batch ${batch.batchId}: ${batch.candidates.length} candidates (read-only)`,
+                  });
+                  void refetch();
+                })
+                .catch((err: unknown) => {
+                  setToast({
+                    severity: 'error',
+                    text: authErrorMessage(err, 'Offline Focus batch failed'),
+                  });
                 });
-                void refetch();
-              })
-              .catch((err: unknown) => {
-                setToast({
-                  severity: 'error',
-                  text: authErrorMessage(err, 'Offline Focus batch failed'),
-                });
-              });
-          }}
-        >
-          Run Offline Focus Batch
-        </Button>
+            }}
+          >
+            Run Offline Focus Batch
+          </Button>
+          <Button component={RouterLink} to="/batch" variant="outlined">
+            Intelligence Batch
+          </Button>
+        </Stack>
       </Stack>
 
       <Alert severity="warning" sx={{ mb: 2 }}>

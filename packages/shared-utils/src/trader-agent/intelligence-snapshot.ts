@@ -88,6 +88,8 @@ export interface BuildIntelligenceSnapshotInput {
     marketReaction?: MarketReactionContext;
     /** Defaults to sourceDataTimestamp / now when omitted. */
     decisionTimestamp?: string | number;
+    /** Observed alt-data time when known — not invent a new schema; feeds assessCatalystContext.asOf. */
+    asOf?: string | number;
   };
 }
 
@@ -236,10 +238,17 @@ export function buildIntelligenceSnapshot(
         decisionTimestamp: catalystDecisionTs,
         candidates: input.catalyst.candidates,
         marketReaction: input.catalyst.marketReaction,
-        asOf:
-          typeof catalystDecisionTs === 'number'
+        asOf: (() => {
+          const observed = input.catalyst.asOf;
+          if (observed != null) {
+            return typeof observed === 'number'
+              ? new Date(observed).toISOString()
+              : String(observed);
+          }
+          return typeof catalystDecisionTs === 'number'
             ? new Date(catalystDecisionTs).toISOString()
-            : String(catalystDecisionTs),
+            : String(catalystDecisionTs);
+        })(),
       })
     : undefined;
 

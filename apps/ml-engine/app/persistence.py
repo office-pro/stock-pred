@@ -36,6 +36,12 @@ def list_cached(
     rows = list(_latest.values())
     if not rows:
         rows = _load_latest_file()
+    else:
+        # Merge on-disk provenance (expiresAt) over stale in-memory slim rows.
+        for row in _peek_latest_file():
+            if isinstance(row, dict) and row.get("expiresAt"):
+                cache_prediction(row)
+        rows = list(_latest.values())
     search_u = search.upper()
     filtered = []
     for row in rows:
@@ -52,13 +58,38 @@ def list_cached(
     return {"predictions": page, "total": total}
 
 
+def _peek_latest_file() -> List[Dict[str, object]]:
+    import json
+    import os
+
+    path = _latest_path()
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf8") as handle:
+            rows = json.load(handle)
+        return rows if isinstance(rows, list) else []
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def persist_latest_file() -> None:
     import json
     import os
 
     os.makedirs(settings.models_dir, exist_ok=True)
-    with open(_latest_path(), "w", encoding="utf8") as handle:
-        json.dump(list(_latest.values()), handle)
+    path = _latest_path()
+    rows = list(_latest.values())
+    with open(path, "w", encoding="utf8") as handle:
+        json.dump(rows, handle)
+    try:
+        bytes_len = os.path.getsize(path)
+    except OSError:
+        bytes_len = -1
+    print(
+        f"[ML][PERSIST] path={path} exists=true bytes={bytes_len} records={len(rows)}",
+        flush=True,
+    )
 
 
 def _load_latest_file() -> List[Dict[str, object]]:

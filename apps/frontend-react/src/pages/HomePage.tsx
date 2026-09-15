@@ -3,6 +3,26 @@ import { Link as RouterLink } from 'react-router-dom';
 
 const JOBS = [
   {
+    title: 'Overview',
+    to: '/overview',
+    blurb: 'What is happening? Latest batch research report.',
+  },
+  {
+    title: 'Batch',
+    to: '/batch',
+    blurb: 'Run intelligence batches — sector-first discovery.',
+  },
+  {
+    title: 'Bull Run',
+    to: '/bull-run',
+    blurb: 'Target × horizon probabilities (estimates, not guarantees).',
+  },
+  {
+    title: 'Discover',
+    to: '/overview',
+    blurb: 'Best opportunities from RankingContext — not FE scores.',
+  },
+  {
     title: 'Market',
     to: '/market',
     blurb: 'What is happening? Indices, tape, session.',

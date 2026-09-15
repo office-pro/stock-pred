@@ -8,6 +8,8 @@ import AdminUsersPage from './pages/AdminUsersPage';
 import AdvancedIntelligencePage from './pages/AdvancedIntelligencePage';
 import AgentDeskPage from './pages/AgentDeskPage';
 import BacktestPage from './pages/BacktestPage';
+import BatchCenterPage from './pages/BatchCenterPage';
+import BullRunPage from './pages/BullRunPage';
 import BookPage from './pages/BookPage';
 import BrandSettingsPage from './pages/BrandSettingsPage';
 import { BrokerConfigPage } from './pages/BrokerConfigPage';
@@ -16,7 +18,11 @@ import DecisionCenterPage from './pages/DecisionCenterPage';
 import ExitIntelligencePage from './pages/ExitIntelligencePage';
 import ForbiddenPage from './pages/ForbiddenPage';
 import HomePage from './pages/HomePage';
+import LiveMonitorPage from './pages/LiveMonitorPage';
 import LoginPage from './pages/LoginPage';
+import MarketOverviewPage from './pages/MarketOverviewPage';
+import ResearchReportsPage from './pages/ResearchReportsPage';
+import SectorOverviewPage from './pages/SectorOverviewPage';
 import MlLabLayout from './pages/ml-lab/MlLabLayout';
 import MlLabOverviewPage from './pages/ml-lab/MlLabOverviewPage';
 import MlLabIngestionPage from './pages/ml-lab/MlLabIngestionPage';
@@ -36,6 +42,7 @@ import SignalsPage from './pages/SignalsPage';
 import StockDetailPage from './pages/StockDetailPage';
 import SuperadminBrandsPage from './pages/SuperadminBrandsPage';
 import ThesisIntelligencePage from './pages/ThesisIntelligencePage';
+import TradePlanPage from './pages/TradePlanPage';
 import WaitIntelligencePage from './pages/WaitIntelligencePage';
 
 function gated(view: AppView, page: JSX.Element): JSX.Element {
@@ -62,8 +69,15 @@ export default function App(): JSX.Element {
         />
         <Route path="/forbidden" element={<ForbiddenPage />} />
         <Route path="/" element={gated(AppView.DASHBOARD, <HomePage />)} />
+        <Route path="/overview" element={gated(AppView.DASHBOARD, <MarketOverviewPage />)} />
         <Route path="/market" element={gated(AppView.DASHBOARD, <DashboardPage />)} />
+        <Route path="/sectors" element={gated(AppView.DASHBOARD, <SectorOverviewPage />)} />
         <Route path="/prep" element={gated(AppView.AGENT, <PrepFocusPage />)} />
+        <Route path="/batch" element={gated(AppView.AGENT, <BatchCenterPage />)} />
+        <Route path="/bull-run" element={gated(AppView.AGENT, <BullRunPage />)} />
+        <Route path="/research-reports" element={gated(AppView.AGENT, <ResearchReportsPage />)} />
+        <Route path="/live" element={gated(AppView.AGENT, <LiveMonitorPage />)} />
+        <Route path="/desk/trade-plan/:symbol" element={gated(AppView.AGENT, <TradePlanPage />)} />
         <Route path="/agent" element={gated(AppView.AGENT, <AgentDeskPage />)} />
         <Route path="/book" element={gated(AppView.PORTFOLIO, <BookPage />)} />
         <Route path="/portfolio" element={<Navigate to="/book" replace />} />
