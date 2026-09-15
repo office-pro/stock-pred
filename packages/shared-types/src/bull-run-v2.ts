@@ -15,8 +15,11 @@ import type {
 /** Calendar horizons (12M = 1 year). Independent of target threshold. */
 export type BullRunCalendarHorizon = '1D' | '1W' | '1M' | '3M' | '6M' | '12M';
 
-/** Supported minimum-return thresholds (fraction, e.g. 0.10 = +10%). */
-export type BullRunTargetReturn = 0.05 | 0.1 | 0.2 | 0.3 | 0.5 | 1.0;
+/**
+ * Supported minimum-return thresholds (fraction, e.g. 0.10 = +10%).
+ * +200% (2.0) and +500% (5.0) are evidence-gated — omit cell when unsupported.
+ */
+export type BullRunTargetReturn = 0.05 | 0.1 | 0.2 | 0.3 | 0.5 | 1.0 | 2.0 | 5.0;
 
 export const BULL_RUN_CALENDAR_HORIZONS: BullRunCalendarHorizon[] = [
   '1D',
@@ -27,7 +30,15 @@ export const BULL_RUN_CALENDAR_HORIZONS: BullRunCalendarHorizon[] = [
   '12M',
 ];
 
-export const BULL_RUN_DEFAULT_TARGETS: BullRunTargetReturn[] = [0.05, 0.1, 0.2, 0.3, 0.5, 1.0];
+export const BULL_RUN_DEFAULT_TARGETS: BullRunTargetReturn[] = [
+  0.05, 0.1, 0.2, 0.3, 0.5, 1.0, 2.0, 5.0,
+];
+
+/** Command Center Best Picks / Opportunities columns (P(≥T); UI may omit empty columns). */
+export const COMMAND_CENTER_MATRIX_TARGETS: number[] = [0.1, 0.2, 0.3, 0.5, 1.0, 2.0, 5.0];
+
+/** Default Overview horizon for matrix display. */
+export const COMMAND_CENTER_DEFAULT_HORIZON: BullRunCalendarHorizon = '3M';
 
 /** Bars used for empirical max-forward-return windows (trading days). */
 export const BULL_RUN_HORIZON_BARS: Record<BullRunCalendarHorizon, number> = {
@@ -132,6 +143,20 @@ export interface BatchResearchReportBullRunCounts {
   candidateCount: number;
 }
 
+/** One Target×Horizon cell in Command Center matrix (backend-owned; FE display only). */
+export interface BatchResearchReportMatrixCell {
+  targetReturn: number;
+  status: IntelligenceAvailabilityStatus;
+  /** P(≥T within H). Null when UNAVAILABLE — never invent 0 for missing. */
+  p?: number | null;
+  conf?: BullRunConfidenceBand;
+}
+
+export interface BatchResearchReportHorizonMatrix {
+  horizon: BullRunCalendarHorizon;
+  cells: BatchResearchReportMatrixCell[];
+}
+
 export interface BatchResearchReportBestOpportunity {
   symbol: string;
   rank: number;
@@ -139,13 +164,45 @@ export interface BatchResearchReportBestOpportunity {
   sector?: string;
   recommendation?: string;
   tradePlanStatus?: string;
+  /** Backend P1 readiness only — never infer from APPROVE + confidence. */
   tradePlanExecutionReady?: boolean;
   bullRunStage?: string;
-  /** Target×horizon context for this pick (backend-owned). */
+  /** RankingContext BEST_OPPORTUNITIES membership — not max Bull-Run probability. */
+  isBestPick?: boolean;
+  /** Advisory integrity from ManipulationBand — omit when absent. */
+  integrityStatus?: 'NORMAL' | 'INVESTIGATE' | 'SUSPICIOUS';
+  /** Target×horizon context for this pick (legacy single-cell; prefer bullRunMatrix). */
   targetReturn?: number;
   horizon?: BullRunCalendarHorizon;
   probability?: number | null;
   confidence?: BullRunConfidenceBand;
+  /** Full compact matrix from batch bullRunV2Cells (all horizons present on row). */
+  bullRunMatrix?: BatchResearchReportHorizonMatrix[];
+  thesis?: string;
+  tradePlanExpectedR?: number;
+  tradePlanHorizon?: string;
+  invalidationPrice?: number;
+}
+
+export interface BatchResearchReportIntegritySummary {
+  normal: number;
+  investigate: number;
+  suspicious: number;
+  unknown: number;
+}
+
+export interface BatchResearchReportBullRunOpportunity {
+  symbol: string;
+  rank: number;
+  sector?: string;
+  targetReturn: number;
+  horizon: BullRunCalendarHorizon;
+  probability: number;
+  confidence?: BullRunConfidenceBand;
+  integrityStatus?: 'NORMAL' | 'INVESTIGATE' | 'SUSPICIOUS';
+  recommendation?: string;
+  tradePlanExecutionReady?: boolean;
+  isBestPick?: boolean;
 }
 
 export interface BatchResearchReportDataQuality {
@@ -162,15 +219,20 @@ export type BatchOutcomeKind = 'HAS_OPPORTUNITIES' | 'NO_SUITABLE_OPPORTUNITY' |
 
 /** Backend-owned research projection for a completed/partial batch. */
 export interface BatchResearchReport {
-  schemaVersion: 'batch-research-report.v1';
+  schemaVersion: 'batch-research-report.v1' | 'batch-research-report.v2';
   batchId: string;
   completedAt: number;
   universe: string;
   coverage: { total: number; processed: number; failed: number };
   outcome: BatchOutcomeKind;
+  /** Command Center default horizon for Best Picks matrix (UI may override). */
+  commandCenterHorizon?: BullRunCalendarHorizon;
+  /** Display targets for Command Center columns (evidence may omit per-stock cells). */
+  matrixTargets?: number[];
   marketSummary?: {
     regime?: string;
     note?: string;
+    breadth?: string;
   };
   sectorSummary: BatchResearchReportSectorSummary[];
   sectorRotation?: {
@@ -184,7 +246,15 @@ export interface BatchResearchReport {
     note?: string;
   };
   bullRunCountsByHorizon: BatchResearchReportBullRunCounts[];
+  /** RankingContext order (canonical rank). isBestPick marks BEST_OPPORTUNITIES. */
   bestOpportunities: BatchResearchReportBestOpportunity[];
+  /** BEST_OPPORTUNITIES subset in RankingContext order (same ranks as bestOpportunities). */
+  bestPicks?: BatchResearchReportBestOpportunity[];
+  /** Rows with AVAILABLE bull-run cells for Opportunities section (not FE-ranked). */
+  bullRunOpportunities?: BatchResearchReportBullRunOpportunity[];
+  integritySummary?: BatchResearchReportIntegritySummary;
+  /** Honest calibration note — Bull-Run cell calibration is not populated in-engine. */
+  calibrationNote?: string;
   dataQuality: BatchResearchReportDataQuality;
   dataAsOf?: number | string | null;
   dataStatus?: BullRunDataStatus;

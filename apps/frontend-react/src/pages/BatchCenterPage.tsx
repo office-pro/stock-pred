@@ -5,12 +5,14 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   Chip,
   Drawer,
   Dialog,
   DialogContent,
   DialogTitle,
   FormControl,
+  FormControlLabel,
   InputLabel,
   LinearProgress,
   MenuItem,
@@ -40,19 +42,26 @@ import {
   usePauseIntelligenceBatchMutation,
   useResumeIntelligenceBatchMutation,
 } from '../store/api';
+import {
+  COMMAND_CENTER_DISPLAY_TARGETS,
+  formatProbabilityCell,
+  formatProbabilityPercent,
+  matchCompactCell,
+  probabilityFromCompactCells,
+  readBullRunV2Cells,
+  type CompactBullRunCell,
+} from '../lib/bull-run-display';
 
 const SELECTED_KEY = 'intel-batch-selected-id';
 
 const ACTIVE_POLL = new Set(['CREATED', 'QUEUED', 'RUNNING', 'RESUMING', 'PAUSED']);
 
-const PRESETS = [
-  { id: '', label: 'All (backend rank)' },
-  { id: 'BEST_OPPORTUNITIES', label: 'Best Opportunities' },
+const PRESET_CHIPS = [
+  { id: 'BEST_OPPORTUNITIES', label: 'Best Picks' },
   { id: 'HIGH_CONFIDENCE', label: 'High Confidence' },
-  { id: 'HIGHEST_EXPECTED_RETURN', label: 'Highest Expected Return' },
-  { id: 'HIGHEST_EXPECTED_R', label: 'Highest Expected R' },
-  { id: 'MULTI_HORIZON_ALIGNED', label: 'Multi-Horizon Aligned' },
-  { id: 'BULL_RUN', label: 'Bull Run' },
+  { id: 'BULL_RUN', label: 'Bull-Run' },
+  { id: 'HIGHEST_EXPECTED_RETURN', label: 'Opportunities' },
+  { id: '', label: 'All Stocks' },
 ] as const;
 
 function canPauseStatus(status: string): boolean {
@@ -74,19 +83,19 @@ function canCancelStatus(status: string): boolean {
 }
 
 function fmtPct(v: unknown): string {
-  if (v == null || !Number.isFinite(Number(v))) return '—';
+  if (v == null || !Number.isFinite(Number(v))) return 'Not available';
   const n = Number(v);
   // upsideProbability is [0,1]; expected return already %
   return n <= 1 && n >= 0 ? `${Math.round(n * 100)}%` : `${n.toFixed(1)}%`;
 }
 
 function fmtNum(v: unknown, digits = 2): string {
-  if (v == null || !Number.isFinite(Number(v))) return '—';
+  if (v == null || !Number.isFinite(Number(v))) return 'Not available';
   return Number(v).toFixed(digits);
 }
 
 function fmtRange(low: unknown, high: unknown, prefix = ''): string {
-  if (low == null && high == null) return '—';
+  if (low == null && high == null) return 'Not available';
   if (low != null && high != null) return `${prefix}${fmtNum(low)}–${prefix}${fmtNum(high)}`;
   return `${prefix}${fmtNum(low ?? high)}`;
 }
@@ -96,6 +105,48 @@ function na(v: unknown): string {
   return String(v);
 }
 
+/** Compact batch Bull-Run v2 cell — display mapping only; never recalculate. */
+type BullRunV2CompactCell = CompactBullRunCell;
+
+/** Format backend cell as-is. Empirical p:0 + AVAILABLE → "0%"; missing → Not available. */
+function formatBullRunV2Cell(c: BullRunV2CompactCell): string {
+  const target = `≥${Math.round(c.t * 100)}%`;
+  if (c.status != null && c.status !== 'AVAILABLE') {
+    return `${c.h} · ${target} · Not available`;
+  }
+  if (!Number.isFinite(c.p)) {
+    return `${c.h} · ${target} · Not available`;
+  }
+  const conf = c.conf && String(c.conf).length > 0 ? String(c.conf) : 'Not available';
+  return `${c.h} · ${target} · ${Math.round(c.p * 100)}% probability · ${conf} confidence`;
+}
+
+function matchDisplayCell(
+  ctx: Record<string, unknown> | undefined,
+  targetReturn?: number,
+  horizon?: string,
+): BullRunV2CompactCell | undefined {
+  return matchCompactCell(readBullRunV2Cells(ctx), targetReturn, horizon);
+}
+
+function fmtCellProb(p: number | undefined): string {
+  return formatProbabilityPercent(p);
+}
+
+const TARGET_OPTIONS = [
+  { value: '', label: 'All targets' },
+  { value: '0.05', label: '≥ +5%' },
+  { value: '0.1', label: '≥ +10%' },
+  { value: '0.2', label: '≥ +20%' },
+  { value: '0.3', label: '≥ +30%' },
+  { value: '0.5', label: '≥ +50%' },
+  { value: '1', label: '≥ +100%' },
+  { value: '2', label: '≥ +200%' },
+  { value: '5', label: '≥ +500%' },
+] as const;
+
+const HORIZON_OPTIONS = ['', '1D', '1W', '1M', '3M', '6M', '12M'] as const;
+
 type ResultRow = {
   rank: number;
   symbol: string;
@@ -104,6 +155,7 @@ type ResultRow = {
   exchange?: string;
   identityStatus?: string;
   price?: number;
+  sector?: string;
   intelligenceContext?: Record<string, unknown>;
 };
 
@@ -130,9 +182,19 @@ export default function BatchCenterPage(): JSX.Element {
   const [recommendation, setRecommendation] = useState('');
   const [sort, setSort] = useState('rank');
   const [order, setOrder] = useState<'asc' | 'desc'>('asc');
+  const [targetReturn, setTargetReturn] = useState('');
+  const [horizon, setHorizon] = useState('');
+  const [bullRunConfidence, setBullRunConfidence] = useState('');
+  const [bullRunStage, setBullRunStage] = useState('');
+  const [integrityStatus, setIntegrityStatus] = useState('');
+  const [excludeSuspicious, setExcludeSuspicious] = useState(false);
+  const [excludeInvestigate, setExcludeInvestigate] = useState(false);
+  const [executionReady, setExecutionReady] = useState('');
+  const [dataStatus, setDataStatus] = useState('');
+  const [sectorFilter, setSectorFilter] = useState('');
   const [drawerRow, setDrawerRow] = useState<ResultRow | null>(null);
   const [diagStage, setDiagStage] = useState<'ml' | 'rs' | null>(null);
-  const [viewMode, setViewMode] = useState<'sectors' | 'flat'>('sectors');
+  const [viewMode, setViewMode] = useState<'sectors' | 'flat'>('flat');
   const [easyPro, setEasyPro] = useState<'easy' | 'pro'>('easy');
 
   useEffect(() => {
@@ -142,7 +204,35 @@ export default function BatchCenterPage(): JSX.Element {
 
   useEffect(() => {
     setPage(1);
-  }, [qDebounced, preset, recommendation, sort, order, pageSize, selectedId]);
+  }, [
+    qDebounced,
+    preset,
+    recommendation,
+    sort,
+    order,
+    pageSize,
+    selectedId,
+    targetReturn,
+    horizon,
+    bullRunConfidence,
+    bullRunStage,
+    integrityStatus,
+    excludeSuspicious,
+    excludeInvestigate,
+    executionReady,
+    dataStatus,
+    sectorFilter,
+  ]);
+
+  const excludeIntegrity = useMemo(() => {
+    const bands: string[] = [];
+    if (excludeSuspicious) bands.push('SUSPICIOUS');
+    if (excludeInvestigate) bands.push('INVESTIGATE');
+    return bands.length ? bands.join(',') : undefined;
+  }, [excludeSuspicious, excludeInvestigate]);
+
+  const targetNum =
+    targetReturn !== '' && Number.isFinite(Number(targetReturn)) ? Number(targetReturn) : undefined;
 
   const { data: batches = [], refetch: refetchList } = useListIntelligenceBatchesQuery(
     { limit: 30 },
@@ -222,6 +312,16 @@ export default function BatchCenterPage(): JSX.Element {
     recommendation: recommendation || undefined,
     sort,
     order,
+    targetReturn: targetNum,
+    horizon: horizon || undefined,
+    bullRunConfidence: bullRunConfidence || undefined,
+    bullRunStage: bullRunStage || undefined,
+    integrityStatus: integrityStatus || undefined,
+    excludeIntegrity,
+    executionReady:
+      executionReady === 'true' ? true : executionReady === 'false' ? false : undefined,
+    dataStatus: dataStatus || undefined,
+    sector: sectorFilter || undefined,
   };
   const { data: results, isFetching: resultsFetching } = useGetIntelligenceBatchResultsQuery(
     resultsQuery,
@@ -562,7 +662,8 @@ export default function BatchCenterPage(): JSX.Element {
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
             <Typography variant="subtitle2" fontWeight={700}>
-              Discovery results
+              Latest Batch · {detail?.universe ?? listSelected?.universe ?? '—'} · {status} ·{' '}
+              {progress?.total ?? results?.total ?? '—'} stocks
             </Typography>
             <Typography variant="caption" color="text.secondary">
               {resultsFetching ? 'Loading…' : `${results?.total ?? 0} matching`} · defaultSort=
@@ -571,15 +672,111 @@ export default function BatchCenterPage(): JSX.Element {
           </Stack>
 
           <Alert severity="info" sx={{ mb: 2 }}>
-            Backend rank is canonical. Presentation sort never changes RankingContext. APPROVE is
-            advisory only — it does not authorize trades or bypass evaluateTrade().
+            Best Picks uses backend RankingContext order (`preset=BEST_OPPORTUNITIES`). Filters are
+            API query params only — the UI never invents a Best Pick score. APPROVE ≠ authorization.
           </Alert>
+
+          <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'action.hover' }}>
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+              Find Best Opportunities
+            </Typography>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} flexWrap="wrap" useFlexGap>
+              <FormControl size="small" sx={{ minWidth: 120 }}>
+                <InputLabel>Target</InputLabel>
+                <Select
+                  label="Target"
+                  value={targetReturn}
+                  onChange={(e) => setTargetReturn(e.target.value)}
+                >
+                  {TARGET_OPTIONS.map((o) => (
+                    <MenuItem key={o.value || 'all'} value={o.value}>
+                      {o.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 100 }}>
+                <InputLabel>Horizon</InputLabel>
+                <Select
+                  label="Horizon"
+                  value={horizon}
+                  onChange={(e) => setHorizon(e.target.value)}
+                >
+                  {HORIZON_OPTIONS.map((h) => (
+                    <MenuItem key={h || 'all'} value={h}>
+                      {h || 'All'}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 120 }}>
+                <InputLabel>Confidence</InputLabel>
+                <Select
+                  label="Confidence"
+                  value={bullRunConfidence}
+                  onChange={(e) => setBullRunConfidence(e.target.value)}
+                >
+                  <MenuItem value="">All</MenuItem>
+                  <MenuItem value="HIGH">HIGH</MenuItem>
+                  <MenuItem value="MEDIUM">MEDIUM</MenuItem>
+                  <MenuItem value="LOW">LOW</MenuItem>
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 140 }}>
+                <InputLabel>Integrity</InputLabel>
+                <Select
+                  label="Integrity"
+                  value={integrityStatus}
+                  onChange={(e) => setIntegrityStatus(e.target.value)}
+                >
+                  <MenuItem value="">All</MenuItem>
+                  <MenuItem value="NORMAL">NORMAL</MenuItem>
+                  <MenuItem value="INVESTIGATE">INVESTIGATE</MenuItem>
+                  <MenuItem value="SUSPICIOUS">SUSPICIOUS</MenuItem>
+                </Select>
+              </FormControl>
+              <Button
+                variant="contained"
+                onClick={() => {
+                  setPreset('BEST_OPPORTUNITIES');
+                  setSort('rank');
+                  setOrder('asc');
+                  setViewMode('flat');
+                }}
+              >
+                Find Best Picks
+              </Button>
+            </Stack>
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+              Confidence is Bull-Run cell confidence (≠ probability). Integrity is advisory
+              filtering only.
+            </Typography>
+          </Paper>
+
+          <Stack direction="row" spacing={1} sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
+            {PRESET_CHIPS.map((c) => (
+              <Chip
+                key={c.id || 'all'}
+                label={c.label}
+                color={preset === c.id ? 'primary' : 'default'}
+                variant={preset === c.id ? 'filled' : 'outlined'}
+                onClick={() => {
+                  setPreset(c.id);
+                  setSort('rank');
+                  setOrder('asc');
+                  setViewMode('flat');
+                }}
+                disabled={c.id === 'BULL_RUN' && results?.bullRunAvailable === false}
+              />
+            ))}
+          </Stack>
 
           <Stack
             direction={{ xs: 'column', md: 'row' }}
             spacing={1.5}
             sx={{ mb: 2 }}
             flexWrap="wrap"
+            useFlexGap
           >
             <TextField
               size="small"
@@ -588,22 +785,6 @@ export default function BatchCenterPage(): JSX.Element {
               onChange={(e) => setQ(e.target.value)}
               sx={{ minWidth: 180 }}
             />
-            <FormControl size="small" sx={{ minWidth: 200 }}>
-              <InputLabel>Preset</InputLabel>
-              <Select label="Preset" value={preset} onChange={(e) => setPreset(e.target.value)}>
-                {PRESETS.map((p) => (
-                  <MenuItem
-                    key={p.id || 'all'}
-                    value={p.id}
-                    disabled={p.id === 'BULL_RUN' && results?.bullRunAvailable === false}
-                  >
-                    {p.id === 'BULL_RUN' && results?.bullRunAvailable === false
-                      ? 'Bull Run (Not available)'
-                      : p.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
             <FormControl size="small" sx={{ minWidth: 140 }}>
               <InputLabel>Recommendation</InputLabel>
               <Select
@@ -617,6 +798,75 @@ export default function BatchCenterPage(): JSX.Element {
                 <MenuItem value="REJECT">REJECT</MenuItem>
               </Select>
             </FormControl>
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel>Bull-Run Stage</InputLabel>
+              <Select
+                label="Bull-Run Stage"
+                value={bullRunStage}
+                onChange={(e) => setBullRunStage(e.target.value)}
+              >
+                <MenuItem value="">All</MenuItem>
+                <MenuItem value="EARLY">EARLY</MenuItem>
+                <MenuItem value="ACCELERATING">ACCELERATING</MenuItem>
+                <MenuItem value="CONFIRMED">CONFIRMED</MenuItem>
+                <MenuItem value="MATURE">MATURE</MenuItem>
+                <MenuItem value="EARLY,ACCELERATING,CONFIRMED">EARLY / ACCEL / CONF</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 140 }}>
+              <InputLabel>Execution Ready</InputLabel>
+              <Select
+                label="Execution Ready"
+                value={executionReady}
+                onChange={(e) => setExecutionReady(e.target.value)}
+              >
+                <MenuItem value="">All</MenuItem>
+                <MenuItem value="true">YES</MenuItem>
+                <MenuItem value="false">NO</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 130 }}>
+              <InputLabel>Data Status</InputLabel>
+              <Select
+                label="Data Status"
+                value={dataStatus}
+                onChange={(e) => setDataStatus(e.target.value)}
+              >
+                <MenuItem value="">All</MenuItem>
+                <MenuItem value="LIVE">LIVE</MenuItem>
+                <MenuItem value="DELAYED">DELAYED</MenuItem>
+                <MenuItem value="STALE">STALE</MenuItem>
+                <MenuItem value="OFFLINE">OFFLINE</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              size="small"
+              label="Sector"
+              value={sectorFilter}
+              onChange={(e) => setSectorFilter(e.target.value)}
+              sx={{ minWidth: 140 }}
+              placeholder="All"
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  size="small"
+                  checked={excludeSuspicious}
+                  onChange={(e) => setExcludeSuspicious(e.target.checked)}
+                />
+              }
+              label="Exclude Suspicious"
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  size="small"
+                  checked={excludeInvestigate}
+                  onChange={(e) => setExcludeInvestigate(e.target.checked)}
+                />
+              }
+              label="Exclude Investigate"
+            />
             <FormControl size="small" sx={{ minWidth: 200 }}>
               <InputLabel>Sort</InputLabel>
               <Select
@@ -679,6 +929,11 @@ export default function BatchCenterPage(): JSX.Element {
             {sort === 'rank'
               ? 'Backend rank (default) — RankingContext canonical order'
               : `Presentation sort: ${sort} ${order === 'desc' ? '↓' : '↑'} — does not change rank`}
+            {targetNum != null || horizon
+              ? ` · Cell focus: ${horizon || 'any H'} ≥ +${
+                  targetNum != null ? Math.round(targetNum * 100) : '?'
+                }%`
+              : ''}
           </Typography>
 
           <Stack direction="row" spacing={1} sx={{ mb: 1 }} alignItems="center">
@@ -771,26 +1026,42 @@ export default function BatchCenterPage(): JSX.Element {
 
           {viewMode === 'flat' ? (
             <>
+              {horizon ? (
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                  Matrix columns = P(≥T within {horizon}) — same semantics as Overview. Missing → —.
+                </Typography>
+              ) : null}
               <Table size="small">
                 <TableHead>
                   <TableRow>
                     <TableCell>#</TableCell>
-                    <TableCell>Symbol</TableCell>
-                    <TableCell>Direction</TableCell>
-                    <TableCell>Upside</TableCell>
+                    <TableCell>Stock</TableCell>
+                    {horizon ? (
+                      COMMAND_CENTER_DISPLAY_TARGETS.map((t) => (
+                        <TableCell key={t} align="right">
+                          +{Math.round(t * 100)}%
+                        </TableCell>
+                      ))
+                    ) : (
+                      <>
+                        <TableCell>Target</TableCell>
+                        <TableCell>Horizon</TableCell>
+                        <TableCell>Probability</TableCell>
+                      </>
+                    )}
+                    <TableCell>Confidence</TableCell>
+                    <TableCell>Integrity</TableCell>
                     <TableCell>Expected</TableCell>
-                    <TableCell>Buy Zone</TableCell>
-                    <TableCell>Target</TableCell>
-                    <TableCell>R</TableCell>
-                    <TableCell>Horizon</TableCell>
-                    <TableCell>Conf</TableCell>
-                    <TableCell>ML</TableCell>
+                    <TableCell>Stage</TableCell>
                     <TableCell>Rec</TableCell>
+                    <TableCell>Ready</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {(results?.rankings ?? []).map((r) => {
                     const ctx = r.intelligenceContext ?? {};
+                    const cells = readBullRunV2Cells(ctx);
+                    const cell = matchDisplayCell(ctx, targetNum, horizon || undefined);
                     return (
                       <TableRow
                         key={r.opportunityId}
@@ -808,21 +1079,6 @@ export default function BatchCenterPage(): JSX.Element {
                               {r.companyName ??
                                 (r.identityStatus === 'UNKNOWN_QUOTE' ? 'quote NA' : '')}
                             </Typography>
-                            {typeof ctx.tradePlanStatus === 'string' ? (
-                              <Chip
-                                size="small"
-                                label={ctx.tradePlanStatus}
-                                color={
-                                  ctx.tradePlanStatus === 'COMPLETE'
-                                    ? 'success'
-                                    : ctx.tradePlanStatus === 'PARTIAL'
-                                      ? 'warning'
-                                      : 'default'
-                                }
-                                variant="outlined"
-                                sx={{ alignSelf: 'flex-start', height: 20 }}
-                              />
-                            ) : null}
                             {ctx.tradePlanRecommendation === 'APPROVE' &&
                             ctx.tradePlanExecutionReady === false ? (
                               <Chip
@@ -833,66 +1089,53 @@ export default function BatchCenterPage(): JSX.Element {
                                 sx={{ alignSelf: 'flex-start', height: 20 }}
                               />
                             ) : null}
-                            {ctx.quoteStatus === 'MDS_UNAVAILABLE' ? (
-                              <Chip
-                                size="small"
-                                label="MDS quote unavailable"
-                                variant="outlined"
-                                sx={{ alignSelf: 'flex-start', height: 20 }}
-                              />
-                            ) : null}
-                            {typeof ctx.bullRunStage === 'string' ? (
-                              <Chip
-                                size="small"
-                                label={`Bull ${ctx.bullRunStage}`}
-                                variant="outlined"
-                                sx={{ alignSelf: 'flex-start', height: 20 }}
-                              />
-                            ) : null}
-                            {typeof ctx.sectorState === 'string' ? (
-                              <Chip
-                                size="small"
-                                label={`Sector ${ctx.sectorState}`}
-                                variant="outlined"
-                                sx={{ alignSelf: 'flex-start', height: 20 }}
-                              />
-                            ) : null}
                           </Stack>
                         </TableCell>
-                        <TableCell>{na(ctx.tradePlanDirection)}</TableCell>
+                        {horizon ? (
+                          COMMAND_CENTER_DISPLAY_TARGETS.map((t) => (
+                            <TableCell key={t} align="right">
+                              {formatProbabilityCell(
+                                probabilityFromCompactCells(cells, horizon, t),
+                              )}
+                            </TableCell>
+                          ))
+                        ) : (
+                          <>
+                            <TableCell>
+                              {cell ? `≥${Math.round(cell.t * 100)}%` : 'Not available'}
+                            </TableCell>
+                            <TableCell>{cell?.h ?? 'Not available'}</TableCell>
+                            <TableCell>{fmtCellProb(cell?.p)}</TableCell>
+                          </>
+                        )}
                         <TableCell>
-                          {ctx.upsideProbability != null ? fmtPct(ctx.upsideProbability) : '—'}
+                          {cell?.conf ?? 'Not available'}
+                          {cell?.conf ? ' (≠ probability)' : ''}
                         </TableCell>
+                        <TableCell>{String(ctx.integrityStatus ?? 'Not available')}</TableCell>
                         <TableCell>
                           {fmtRange(ctx.expectedReturnLow, ctx.expectedReturnHigh, '+')}
                         </TableCell>
-                        <TableCell>{fmtRange(ctx.buyZoneLow, ctx.buyZoneHigh, '₹')}</TableCell>
+                        <TableCell>{String(ctx.bullRunStage ?? 'Not available')}</TableCell>
                         <TableCell>
-                          {ctx.target1 != null ? `₹${fmtNum(ctx.target1)}` : '—'}
+                          {String(ctx.tradePlanRecommendation ?? 'Not available')}
                         </TableCell>
                         <TableCell>
-                          {ctx.tradePlanExpectedR != null
-                            ? `${fmtNum(ctx.tradePlanExpectedR, 1)}R`
-                            : '—'}
+                          {ctx.tradePlanExecutionReady === true
+                            ? 'YES'
+                            : ctx.tradePlanExecutionReady === false
+                              ? 'NO'
+                              : 'Not available'}
                         </TableCell>
-                        <TableCell>{na(ctx.tradePlanHorizon)}</TableCell>
-                        <TableCell>
-                          {ctx.tradePlanConfidence != null
-                            ? fmtNum(ctx.tradePlanConfidence, 0)
-                            : '—'}
-                        </TableCell>
-                        <TableCell>
-                          {ctx.mlDirection ? `${ctx.mlDirection}` : 'Not available'}
-                        </TableCell>
-                        <TableCell>{na(ctx.tradePlanRecommendation)}</TableCell>
                       </TableRow>
                     );
                   })}
                   {showResults && (results?.rankings?.length ?? 0) === 0 && (
                     <TableRow>
-                      <TableCell colSpan={12}>
+                      <TableCell colSpan={11}>
                         <Alert severity="info">
-                          No rows for this filter/preset. Clear filters or wait for finalize.
+                          No suitable opportunity found for the selected criteria. Clear filters or
+                          wait for finalize — never force a pick.
                         </Alert>
                       </TableCell>
                     </TableRow>
@@ -951,34 +1194,154 @@ export default function BatchCenterPage(): JSX.Element {
               </ToggleButtonGroup>
               {easyPro === 'easy' ? (
                 <Stack spacing={0.75} sx={{ mb: 2 }}>
-                  <Typography variant="body2">
-                    Recommendation: {String(drawerCtx.tradePlanRecommendation ?? 'Not available')}
-                  </Typography>
-                  <Typography variant="body2">
-                    Execution Ready:{' '}
-                    {drawerCtx.tradePlanExecutionReady === true
-                      ? 'YES'
-                      : drawerCtx.tradePlanExecutionReady === false
-                        ? 'NO'
-                        : 'Not available'}
-                  </Typography>
-                  <Typography variant="body2">
-                    Bull-Run stage: {String(drawerCtx.bullRunStage ?? 'Not available')}
-                  </Typography>
-                  <Typography variant="body2">
-                    Data:{' '}
-                    {String(
-                      drawerCtx.bullRunDataStatus ?? drawerCtx.quoteStatus ?? 'Not available',
-                    )}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Probabilities (if shown) are estimates — not guarantees.
-                  </Typography>
+                  {(() => {
+                    const cell = matchDisplayCell(drawerCtx, targetNum, horizon || undefined);
+                    const cells = readBullRunV2Cells(drawerCtx);
+                    return (
+                      <>
+                        <Typography variant="body2" fontWeight={600}>
+                          Best Pick → Intelligence Candidate (not a BUY)
+                        </Typography>
+                        <Typography variant="body2">
+                          {cell
+                            ? formatBullRunV2Cell(cell)
+                            : cells[0]
+                              ? formatBullRunV2Cell(cells[0])
+                              : 'Bull-Run cells: Not available'}
+                        </Typography>
+                        <Typography variant="body2">
+                          Recommendation:{' '}
+                          {String(drawerCtx.tradePlanRecommendation ?? 'Not available')}
+                        </Typography>
+                        <Typography variant="body2">
+                          Execution Ready:{' '}
+                          {drawerCtx.tradePlanExecutionReady === true
+                            ? 'YES'
+                            : drawerCtx.tradePlanExecutionReady === false
+                              ? 'NO'
+                              : 'Not available'}
+                        </Typography>
+                        <Typography variant="body2">
+                          Bull-Run stage: {String(drawerCtx.bullRunStage ?? 'Not available')}
+                        </Typography>
+                        <Typography variant="body2">
+                          Market Integrity: {String(drawerCtx.integrityStatus ?? 'Not available')}
+                        </Typography>
+                        <Typography variant="body2">
+                          Data:{' '}
+                          {String(
+                            drawerCtx.bullRunDataStatus ?? drawerCtx.quoteStatus ?? 'Not available',
+                          )}
+                        </Typography>
+                        <Typography variant="subtitle2" sx={{ mt: 1 }}>
+                          Why it is here
+                        </Typography>
+                        <ul style={{ margin: 0, paddingLeft: 18 }}>
+                          {cell?.conf === 'HIGH' || bullRunConfidence === 'HIGH' ? (
+                            <li>
+                              <Typography variant="body2">
+                                High confidence (≠ probability)
+                              </Typography>
+                            </li>
+                          ) : null}
+                          {drawerCtx.horizonAgreement === 'HIGH' ? (
+                            <li>
+                              <Typography variant="body2">Multi-horizon alignment</Typography>
+                            </li>
+                          ) : null}
+                          {drawerCtx.sectorFit || drawerCtx.sectorTrend || drawerCtx.sectorState ? (
+                            <li>
+                              <Typography variant="body2">
+                                Sector:{' '}
+                                {String(
+                                  drawerCtx.sectorFit ??
+                                    drawerCtx.sectorTrend ??
+                                    drawerCtx.sectorState,
+                                )}
+                              </Typography>
+                            </li>
+                          ) : null}
+                          {drawerCtx.rsBucket ? (
+                            <li>
+                              <Typography variant="body2">
+                                RS: {String(drawerCtx.rsBucket)}
+                              </Typography>
+                            </li>
+                          ) : null}
+                          {cells.length > 0 ? (
+                            <li>
+                              <Typography variant="body2">Bull-Run evidence available</Typography>
+                            </li>
+                          ) : null}
+                          {!cell?.conf &&
+                          drawerCtx.horizonAgreement !== 'HIGH' &&
+                          !drawerCtx.sectorFit &&
+                          !drawerCtx.sectorTrend &&
+                          !drawerCtx.sectorState &&
+                          !drawerCtx.rsBucket &&
+                          cells.length === 0 ? (
+                            <li>
+                              <Typography variant="body2">Not available</Typography>
+                            </li>
+                          ) : null}
+                        </ul>
+                        <Typography variant="subtitle2" sx={{ mt: 1 }}>
+                          Risk / uncertainty
+                        </Typography>
+                        <ul style={{ margin: 0, paddingLeft: 18 }}>
+                          {drawerCtx.expectedReturnLow == null &&
+                          drawerCtx.expectedReturnHigh == null ? (
+                            <li>
+                              <Typography variant="body2">Expected return Not available</Typography>
+                            </li>
+                          ) : null}
+                          {!cell && cells.length === 0 ? (
+                            <li>
+                              <Typography variant="body2">Bull-Run cells Not available</Typography>
+                            </li>
+                          ) : null}
+                          {(drawerCtx.expectedReturnLow != null ||
+                            drawerCtx.expectedReturnHigh != null ||
+                            cell ||
+                            cells.length > 0) &&
+                          drawerCtx.tradePlanStatus === 'PARTIAL' ? (
+                            <li>
+                              <Typography variant="body2">TradePlan PARTIAL</Typography>
+                            </li>
+                          ) : null}
+                          {drawerCtx.expectedReturnLow == null &&
+                          drawerCtx.expectedReturnHigh == null &&
+                          !cell &&
+                          cells.length === 0 &&
+                          drawerCtx.tradePlanStatus !== 'PARTIAL' ? (
+                            <li>
+                              <Typography variant="body2">Not available</Typography>
+                            </li>
+                          ) : null}
+                        </ul>
+                        <Typography variant="caption" color="text.secondary">
+                          Probabilities are estimates — not guarantees. Integrity is advisory.
+                        </Typography>
+                      </>
+                    );
+                  })()}
                 </Stack>
               ) : null}
               {easyPro === 'pro' ? (
                 <Stack spacing={0.75}>
-                  <Typography variant="body2">
+                  <Typography variant="subtitle2">Bull-Run v2 cells (backend)</Typography>
+                  {readBullRunV2Cells(drawerCtx).length === 0 ? (
+                    <Typography variant="body2">Not available</Typography>
+                  ) : (
+                    readBullRunV2Cells(drawerCtx)
+                      .slice(0, 24)
+                      .map((c) => (
+                        <Typography key={`${c.h}-${c.t}`} variant="body2">
+                          {formatBullRunV2Cell(c)}
+                        </Typography>
+                      ))
+                  )}
+                  <Typography variant="body2" sx={{ mt: 1 }}>
                     TradePlan status: {na(drawerCtx.tradePlanStatus)}
                     {drawerCtx.tradePlanExecutionReady === true
                       ? ' · executionReady'
@@ -1019,9 +1382,16 @@ export default function BatchCenterPage(): JSX.Element {
                       : 'Not available'}
                   </Typography>
                   <Typography variant="body2">
-                    Targets: t1={drawerCtx.target1 != null ? `₹${fmtNum(drawerCtx.target1)}` : '—'}{' '}
-                    t2={drawerCtx.target2 != null ? `₹${fmtNum(drawerCtx.target2)}` : '—'} t3=
-                    {drawerCtx.target3 != null ? `₹${fmtNum(drawerCtx.target3)}` : '—'}
+                    Targets: t1=
+                    {drawerCtx.target1 != null
+                      ? `₹${fmtNum(drawerCtx.target1)}`
+                      : 'Not available'}{' '}
+                    t2=
+                    {drawerCtx.target2 != null
+                      ? `₹${fmtNum(drawerCtx.target2)}`
+                      : 'Not available'}{' '}
+                    t3=
+                    {drawerCtx.target3 != null ? `₹${fmtNum(drawerCtx.target3)}` : 'Not available'}
                   </Typography>
                   <Typography variant="body2">
                     Invalidation:{' '}
@@ -1037,10 +1407,14 @@ export default function BatchCenterPage(): JSX.Element {
                   </Typography>
                   <Typography variant="body2">Horizon: {na(drawerCtx.tradePlanHorizon)}</Typography>
                   <Typography variant="body2">
-                    Confidence:{' '}
+                    TradePlan confidence:{' '}
                     {drawerCtx.tradePlanConfidence != null
                       ? fmtNum(drawerCtx.tradePlanConfidence, 0)
-                      : 'Not available'}
+                      : 'Not available'}{' '}
+                    (≠ Bull-Run cell confidence)
+                  </Typography>
+                  <Typography variant="body2">
+                    Integrity: {na(drawerCtx.integrityStatus)}
                   </Typography>
                   <Typography variant="body2">Exit: {na(drawerCtx.exitStrategy)}</Typography>
                   <Typography variant="body2">
@@ -1051,7 +1425,7 @@ export default function BatchCenterPage(): JSX.Element {
                   <Typography variant="body2">
                     ML:{' '}
                     {drawerCtx.mlDirection
-                      ? `${drawerCtx.mlDirection} (${drawerCtx.mlConfidence ?? '—'})`
+                      ? `${drawerCtx.mlDirection} (${drawerCtx.mlConfidence ?? 'Not available'})`
                       : 'Not available'}
                   </Typography>
                   <Typography variant="body2" sx={{ mt: 1 }}>

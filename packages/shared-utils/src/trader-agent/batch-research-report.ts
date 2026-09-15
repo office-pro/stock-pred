@@ -1,18 +1,27 @@
 /**
- * BatchResearchReport — backend-owned projection from completed/partial batch rankings.
+ * BatchResearchReport v2 — backend-owned Command Center projection.
  * Aggregates only; never fabricates Bull-Run or ranking scores.
- * Best opportunities follow RankingContext order (canonical rank).
+ * Best opportunities / Best Picks follow RankingContext order (canonical rank).
+ * Bull-Run availability must not change Best Pick membership or order.
  */
 import type {
   BatchResearchReport,
   BatchResearchReportBestOpportunity,
   BatchResearchReportBullRunCounts,
+  BatchResearchReportBullRunOpportunity,
+  BatchResearchReportHorizonMatrix,
+  BatchResearchReportIntegritySummary,
   BatchResearchReportSectorSummary,
   BullRunCalendarHorizon,
   BullRunDataStatus,
   IntelligenceBatchResultRow,
 } from '@stockpred/shared-types';
-import { BULL_RUN_CALENDAR_HORIZONS, BULL_RUN_DEFAULT_TARGETS } from '@stockpred/shared-types';
+import {
+  BULL_RUN_CALENDAR_HORIZONS,
+  BULL_RUN_DEFAULT_TARGETS,
+  COMMAND_CENTER_DEFAULT_HORIZON,
+  COMMAND_CENTER_MATRIX_TARGETS,
+} from '@stockpred/shared-types';
 import { provenance } from './b9-b17-helpers';
 
 export interface BuildBatchResearchReportInput {
@@ -27,7 +36,54 @@ export interface BuildBatchResearchReportInput {
 }
 
 const DISCLAIMER =
-  'Probabilities are model estimates derived from forward-return distributions and historical evidence, not guarantees. Offline/stale analysis is not execution readiness.';
+  'Probabilities are model estimates derived from forward-return distributions and historical evidence, not guarantees. Offline/stale analysis is not execution readiness. Column values are P(max forward return within horizon ≥ target), not predicted returns.';
+
+const CALIBRATION_NOTE =
+  'Bull-Run cell calibration: Not available (engine does not populate hit-rate calibration). Sample size on live MDS cells is historical window count, not a live hit rate.';
+
+/** Same membership as preset=BEST_OPPORTUNITIES — independent of bullRunV2Cells. */
+export function isBestOpportunityRow(row: IntelligenceBatchResultRow): boolean {
+  const ctx = row.intelligenceContext;
+  if (ctx?.tradePlanRecommendation !== 'APPROVE') return false;
+  const life = ctx.intelligenceLifecycleState;
+  return life === 'OPPORTUNITY' || life === 'SHORTLIST' || ctx.opportunityQuality != null;
+}
+
+function buildBullRunMatrix(
+  cells: NonNullable<
+    NonNullable<IntelligenceBatchResultRow['intelligenceContext']>['bullRunV2Cells']
+  >,
+): BatchResearchReportHorizonMatrix[] {
+  const byH = new Map<BullRunCalendarHorizon, BatchResearchReportHorizonMatrix['cells']>();
+  for (const h of BULL_RUN_CALENDAR_HORIZONS) {
+    byH.set(h, []);
+  }
+  for (const c of cells) {
+    if (!c?.h || c.t == null) continue;
+    const list = byH.get(c.h as BullRunCalendarHorizon) ?? [];
+    if (c.p != null && Number.isFinite(c.p) && (c.status == null || c.status === 'AVAILABLE')) {
+      list.push({
+        targetReturn: c.t,
+        status: 'AVAILABLE',
+        p: c.p,
+        conf: c.conf,
+      });
+    }
+    byH.set(c.h as BullRunCalendarHorizon, list);
+  }
+  // Fill matrixTargets gaps as UNAVAILABLE (UI → Not available; never 0).
+  const out: BatchResearchReportHorizonMatrix[] = [];
+  for (const h of BULL_RUN_CALENDAR_HORIZONS) {
+    const present = byH.get(h) ?? [];
+    const cellsOut = COMMAND_CENTER_MATRIX_TARGETS.map((t) => {
+      const hit = present.find((c) => Math.abs(c.targetReturn - t) < 1e-9);
+      if (hit) return hit;
+      return { targetReturn: t, status: 'UNAVAILABLE' as const, p: null };
+    });
+    out.push({ horizon: h, cells: cellsOut });
+  }
+  return out;
+}
 
 export function buildBatchResearchReport(
   input: BuildBatchResearchReportInput,
@@ -37,6 +93,12 @@ export function buildBatchResearchReport(
   let quoteGaps = 0;
   let incomplete = 0;
   let insufficientHistory = 0;
+  const integritySummary: BatchResearchReportIntegritySummary = {
+    normal: 0,
+    investigate: 0,
+    suspicious: 0,
+    unknown: 0,
+  };
 
   for (const row of rankings) {
     const ctx = row.intelligenceContext ?? {};
@@ -65,6 +127,11 @@ export function buildBatchResearchReport(
     ) {
       insufficientHistory += 1;
     }
+    const integ = ctx.integrityStatus;
+    if (integ === 'NORMAL') integritySummary.normal += 1;
+    else if (integ === 'INVESTIGATE') integritySummary.investigate += 1;
+    else if (integ === 'SUSPICIOUS') integritySummary.suspicious += 1;
+    else integritySummary.unknown += 1;
     sectorMap.set(sector, entry);
   }
 
@@ -107,13 +174,19 @@ export function buildBatchResearchReport(
   }
 
   const sorted = [...rankings].sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
-  const bestOpportunities: BatchResearchReportBestOpportunity[] = sorted.slice(0, 20).map((row) => {
+  const bestOpportunities: BatchResearchReportBestOpportunity[] = sorted.slice(0, 50).map((row) => {
     const ctx = row.intelligenceContext ?? {};
     const cells = ctx.bullRunV2Cells ?? [];
     const preferred =
       cells.find((c) => c.h === '3M' && c.t === 0.2 && c.p != null) ??
       cells.find((c) => c.p != null) ??
       null;
+    const integrity =
+      ctx.integrityStatus === 'NORMAL' ||
+      ctx.integrityStatus === 'INVESTIGATE' ||
+      ctx.integrityStatus === 'SUSPICIOUS'
+        ? ctx.integrityStatus
+        : undefined;
     return {
       symbol: row.symbol,
       rank: row.rank,
@@ -123,12 +196,50 @@ export function buildBatchResearchReport(
       tradePlanStatus: ctx.tradePlanStatus,
       tradePlanExecutionReady: ctx.tradePlanExecutionReady,
       bullRunStage: ctx.bullRunStage,
+      isBestPick: isBestOpportunityRow(row),
+      integrityStatus: integrity,
       targetReturn: preferred?.t,
       horizon: preferred?.h,
       probability: preferred?.p ?? null,
       confidence: preferred?.conf,
+      bullRunMatrix: buildBullRunMatrix(cells),
+      thesis: ctx.thesis,
+      tradePlanExpectedR: ctx.tradePlanExpectedR,
+      tradePlanHorizon: ctx.tradePlanHorizon,
+      invalidationPrice: ctx.invalidationPrice,
     };
   });
+
+  const bestPicks = bestOpportunities.filter((o) => o.isBestPick);
+
+  const bullRunOpportunities: BatchResearchReportBullRunOpportunity[] = [];
+  for (const row of sorted) {
+    const ctx = row.intelligenceContext ?? {};
+    const cells = ctx.bullRunV2Cells ?? [];
+    const integrity =
+      ctx.integrityStatus === 'NORMAL' ||
+      ctx.integrityStatus === 'INVESTIGATE' ||
+      ctx.integrityStatus === 'SUSPICIOUS'
+        ? ctx.integrityStatus
+        : undefined;
+    for (const c of cells) {
+      if (c.p == null || !Number.isFinite(c.p)) continue;
+      if (c.status != null && c.status !== 'AVAILABLE') continue;
+      bullRunOpportunities.push({
+        symbol: row.symbol,
+        rank: row.rank,
+        sector: row.sector,
+        targetReturn: c.t,
+        horizon: c.h,
+        probability: c.p,
+        confidence: c.conf,
+        integrityStatus: integrity,
+        recommendation: ctx.tradePlanRecommendation,
+        tradePlanExecutionReady: ctx.tradePlanExecutionReady,
+        isBestPick: isBestOpportunityRow(row),
+      });
+    }
+  }
 
   const hasApprove = bestOpportunities.some((o) => o.recommendation === 'APPROVE');
   const anyBullCandidate = bullRunCountsByHorizon.some((c) => c.candidateCount > 0);
@@ -148,12 +259,14 @@ export function buildBatchResearchReport(
   ];
 
   return {
-    schemaVersion: 'batch-research-report.v1',
+    schemaVersion: 'batch-research-report.v2',
     batchId: input.batchId,
     completedAt: input.completedAt,
     universe: input.universe,
     coverage: input.coverage,
     outcome: finalOutcome,
+    commandCenterHorizon: COMMAND_CENTER_DEFAULT_HORIZON,
+    matrixTargets: [...COMMAND_CENTER_MATRIX_TARGETS],
     marketSummary: input.marketRegime
       ? { regime: input.marketRegime, note: 'From existing TI market context when present.' }
       : { note: 'Market regime Not available for this batch.' },
@@ -161,10 +274,14 @@ export function buildBatchResearchReport(
     sectorRotation: rotation,
     bullRunSummary: {
       stagesPresent: stages,
-      note: 'Bull-Run counts use AVAILABLE Target×Horizon cells only (p≥0.5).',
+      note: 'Bull-Run counts use AVAILABLE Target×Horizon cells only (p≥0.5). Best Picks use RankingContext, not Bull-Run sort.',
     },
     bullRunCountsByHorizon,
     bestOpportunities,
+    bestPicks,
+    bullRunOpportunities,
+    integritySummary,
+    calibrationNote: CALIBRATION_NOTE,
     dataQuality: {
       analyzed: rankings.length,
       incomplete,
@@ -179,7 +296,7 @@ export function buildBatchResearchReport(
       dataAsOf: input.dataAsOf ?? undefined,
       dataStatus: input.dataStatus,
       sampleSize: rankings.length,
-      modelVersion: 'batch-research-report.v1',
+      modelVersion: 'batch-research-report.v2',
     }),
     disclaimer: DISCLAIMER,
   };

@@ -111,6 +111,88 @@ function matchesPreset(
   }
 }
 
+type CompactBullCell = NonNullable<IntelligenceBatchContextLabels['bullRunV2Cells']>[number];
+
+/** Find AVAILABLE cell matching optional target/horizon/conf — display/filter only. */
+export function matchBullRunV2Cell(
+  ctx: IntelligenceBatchContextLabels | undefined,
+  opts: {
+    targetReturn?: number;
+    horizon?: '1D' | '1W' | '1M' | '3M' | '6M' | '12M';
+    bullRunConfidence?: 'HIGH' | 'MEDIUM' | 'LOW';
+  },
+): CompactBullCell | undefined {
+  const cells = ctx?.bullRunV2Cells;
+  if (!Array.isArray(cells) || cells.length === 0) return undefined;
+  return cells.find((c) => {
+    if (c.status != null && c.status !== 'AVAILABLE') return false;
+    if (opts.targetReturn != null && Number.isFinite(opts.targetReturn)) {
+      if (Math.abs(c.t - opts.targetReturn) > 1e-9) return false;
+    }
+    if (opts.horizon && c.h !== opts.horizon) return false;
+    if (opts.bullRunConfidence && c.conf !== opts.bullRunConfidence) return false;
+    return Number.isFinite(c.p);
+  });
+}
+
+function parseCsvBands(raw: string | undefined): Set<string> {
+  if (!raw?.trim()) return new Set();
+  return new Set(
+    raw
+      .split(',')
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean),
+  );
+}
+
+function matchesDiscoveryFilters(
+  row: IntelligenceBatchResultRow,
+  query: IntelligenceBatchResultsQuery,
+): boolean {
+  const ctx = row.intelligenceContext;
+  const needsCell =
+    query.targetReturn != null || query.horizon != null || query.bullRunConfidence != null;
+
+  if (needsCell) {
+    const cell = matchBullRunV2Cell(ctx, {
+      targetReturn: query.targetReturn,
+      horizon: query.horizon,
+      bullRunConfidence: query.bullRunConfidence,
+    });
+    if (!cell) return false;
+  }
+
+  if (query.bullRunStage) {
+    const allowed = parseCsvBands(query.bullRunStage);
+    const stage = String(ctx?.bullRunStage ?? '').toUpperCase();
+    if (!stage || !allowed.has(stage)) return false;
+  }
+
+  if (query.integrityStatus) {
+    if (ctx?.integrityStatus !== query.integrityStatus) return false;
+  }
+
+  const exclude = parseCsvBands(query.excludeIntegrity);
+  if (exclude.size > 0 && ctx?.integrityStatus && exclude.has(ctx.integrityStatus)) {
+    return false;
+  }
+
+  if (query.executionReady === true && ctx?.tradePlanExecutionReady !== true) return false;
+  if (query.executionReady === false && ctx?.tradePlanExecutionReady !== false) return false;
+
+  if (query.dataStatus) {
+    if (ctx?.bullRunDataStatus !== query.dataStatus) return false;
+  }
+
+  if (query.sector?.trim()) {
+    const want = query.sector.trim().toUpperCase();
+    const got = String(row.sector ?? '').toUpperCase();
+    if (!got || got !== want) return false;
+  }
+
+  return true;
+}
+
 /** Returns null when the sort key is missing (must sort last). */
 function presentationSortValue(
   row: IntelligenceBatchResultRow,
@@ -250,6 +332,8 @@ export function queryIntelligenceBatchResultsPage(
         r.intelligenceContext?.mlModelVersion != null || r.intelligenceContext?.mlDirection != null,
     );
   }
+
+  rows = rows.filter((r) => matchesDiscoveryFilters(r, query));
 
   let sort: IntelligenceBatchResultsSort = query.sort ?? 'rank';
   let order: 'asc' | 'desc' =

@@ -244,6 +244,27 @@ export interface IntelligenceBatchResultsQuery {
   mlAvailable?: boolean;
   sort?: IntelligenceBatchResultsSort;
   order?: 'asc' | 'desc';
+  /** Match AVAILABLE bullRunV2Cells.t (e.g. 0.2). Presentation filter only. */
+  targetReturn?: number;
+  /** Match AVAILABLE bullRunV2Cells.h. */
+  horizon?: '1D' | '1W' | '1M' | '3M' | '6M' | '12M';
+  /** Match AVAILABLE bullRunV2Cells.conf — ≠ probability. */
+  bullRunConfidence?: 'HIGH' | 'MEDIUM' | 'LOW';
+  /** Filter intelligenceContext.bullRunStage (comma-separated allowed via API string). */
+  bullRunStage?: string;
+  /** Filter integrityStatus (ManipulationBand). */
+  integrityStatus?: 'NORMAL' | 'INVESTIGATE' | 'SUSPICIOUS';
+  /**
+   * Comma-separated integrity bands to exclude (e.g. SUSPICIOUS,INVESTIGATE).
+   * Advisory discovery only — not authorization.
+   */
+  excludeIntegrity?: string;
+  /** Filter tradePlanExecutionReady. */
+  executionReady?: boolean;
+  /** Filter bullRunDataStatus. */
+  dataStatus?: 'LIVE' | 'DELAYED' | 'STALE' | 'OFFLINE' | 'UNKNOWN';
+  /** Filter row.sector when present. */
+  sector?: string;
 }
 
 /** Usable-vs-unavailable rollup for ML / RS coverage diagnostics. */

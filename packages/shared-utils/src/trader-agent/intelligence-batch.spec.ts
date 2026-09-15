@@ -822,6 +822,210 @@ describe('Professional Batch Discovery — identity / TradePlan / presets', () =
     expect(search.rankings.map((r) => r.symbol)).toEqual(['RELIANCE']);
   });
 
+  it('filters by bullRunV2Cells target/horizon/conf + integrity exclude without FE scoring', () => {
+    const results = {
+      schemaVersion: 'intelligence-batch-results.v1' as const,
+      batchId: 'IBATCH-2',
+      generatedAt: 1,
+      dataAsOf: 1,
+      dataStatus: 'CLOSED_MARKET' as const,
+      rankingEngineVersion: 'rank-v1',
+      calculationVersion: 'calc-v1',
+      tradeHorizon: 'SWING_TRADE',
+      strategyTag: 'BREAKOUT',
+      rankings: [
+        {
+          rank: 1,
+          symbol: 'TCS',
+          opportunityId: 'o1',
+          intelligenceContext: {
+            tradePlanRecommendation: 'APPROVE' as const,
+            opportunityQuality: 'HIGH',
+            intelligenceLifecycleState: 'OPPORTUNITY' as const,
+            integrityStatus: 'NORMAL' as const,
+            bullRunStage: 'EARLY',
+            bullRunV2Cells: [
+              {
+                t: 0.2,
+                h: '3M' as const,
+                p: 0.45,
+                conf: 'HIGH' as const,
+                status: 'AVAILABLE' as const,
+              },
+              {
+                t: 0.5,
+                h: '12M' as const,
+                p: 0.12,
+                conf: 'MEDIUM' as const,
+                status: 'AVAILABLE' as const,
+              },
+            ],
+          },
+        },
+        {
+          rank: 2,
+          symbol: 'INFY',
+          opportunityId: 'o2',
+          intelligenceContext: {
+            tradePlanRecommendation: 'APPROVE' as const,
+            opportunityQuality: 'HIGH',
+            intelligenceLifecycleState: 'OPPORTUNITY' as const,
+            integrityStatus: 'SUSPICIOUS' as const,
+            bullRunStage: 'CONFIRMED',
+            bullRunV2Cells: [
+              {
+                t: 0.2,
+                h: '3M' as const,
+                p: 0.5,
+                conf: 'HIGH' as const,
+                status: 'AVAILABLE' as const,
+              },
+            ],
+          },
+        },
+        {
+          rank: 3,
+          symbol: 'WIPRO',
+          opportunityId: 'o3',
+          intelligenceContext: {
+            tradePlanRecommendation: 'WAIT' as const,
+            integrityStatus: 'NORMAL' as const,
+            bullRunV2Cells: [
+              {
+                t: 0.2,
+                h: '3M' as const,
+                p: 0.1,
+                conf: 'LOW' as const,
+                status: 'AVAILABLE' as const,
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const filtered = queryIntelligenceBatchResultsPage(results, {
+      preset: 'BEST_OPPORTUNITIES',
+      targetReturn: 0.2,
+      horizon: '3M',
+      bullRunConfidence: 'HIGH',
+      excludeIntegrity: 'SUSPICIOUS',
+      sort: 'rank',
+    });
+    expect(filtered.rankings.map((r) => r.symbol)).toEqual(['TCS']);
+    expect(filtered.defaultSort).toBe('rank');
+
+    const empty = queryIntelligenceBatchResultsPage(results, {
+      targetReturn: 0.2,
+      horizon: '3M',
+      bullRunConfidence: 'HIGH',
+      integrityStatus: 'INVESTIGATE',
+    });
+    expect(empty.total).toBe(0);
+    expect(empty.rankings).toHaveLength(0);
+  });
+
+  it('BEST_OPPORTUNITIES order identical with/without/partial bullRunV2Cells', () => {
+    const baseCtx = {
+      tradePlanRecommendation: 'APPROVE' as const,
+      opportunityQuality: 'HIGH' as const,
+      intelligenceLifecycleState: 'OPPORTUNITY' as const,
+    };
+    const make = (cellsMode: 'full' | 'none' | 'partial') => ({
+      schemaVersion: 'intelligence-batch-results.v1' as const,
+      batchId: `IBATCH-indep-${cellsMode}`,
+      generatedAt: 1,
+      dataAsOf: 1,
+      dataStatus: 'CLOSED_MARKET' as const,
+      rankingEngineVersion: 'rank-v1',
+      calculationVersion: 'calc-v1',
+      tradeHorizon: 'SWING_TRADE',
+      strategyTag: 'BREAKOUT',
+      rankings: [
+        {
+          rank: 1,
+          symbol: 'TCS',
+          opportunityId: 'o1',
+          intelligenceContext: {
+            ...baseCtx,
+            ...(cellsMode === 'none'
+              ? {}
+              : {
+                  bullRunV2Cells: [
+                    {
+                      t: 0.2,
+                      h: '3M' as const,
+                      p: 0.4,
+                      conf: 'HIGH' as const,
+                      status: 'AVAILABLE' as const,
+                    },
+                    ...(cellsMode === 'full'
+                      ? [
+                          {
+                            t: 0.5,
+                            h: '3M' as const,
+                            p: 0.2,
+                            conf: 'MEDIUM' as const,
+                            status: 'AVAILABLE' as const,
+                          },
+                        ]
+                      : []),
+                  ],
+                }),
+          },
+        },
+        {
+          rank: 2,
+          symbol: 'INFY',
+          opportunityId: 'o2',
+          intelligenceContext: {
+            ...baseCtx,
+            ...(cellsMode !== 'none'
+              ? {
+                  bullRunV2Cells: [
+                    {
+                      t: 0.1,
+                      h: '1D' as const,
+                      p: 0.9,
+                      conf: 'LOW' as const,
+                      status: 'AVAILABLE' as const,
+                    },
+                  ],
+                }
+              : {}),
+          },
+        },
+        {
+          rank: 3,
+          symbol: 'RELIANCE',
+          opportunityId: 'o3',
+          intelligenceContext: {
+            tradePlanRecommendation: 'WAIT' as const,
+            bullRunV2Cells: [
+              {
+                t: 0.1,
+                h: '3M' as const,
+                p: 0.99,
+                conf: 'HIGH' as const,
+                status: 'AVAILABLE' as const,
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const syms = (mode: 'full' | 'none' | 'partial') =>
+      queryIntelligenceBatchResultsPage(make(mode), {
+        preset: 'BEST_OPPORTUNITIES',
+        sort: 'rank',
+      }).rankings.map((r) => `${r.rank}:${r.symbol}`);
+
+    expect(syms('full')).toEqual(['1:TCS', '2:INFY']);
+    expect(syms('none')).toEqual(['1:TCS', '2:INFY']);
+    expect(syms('partial')).toEqual(['1:TCS', '2:INFY']);
+  });
+
   it('FE truthfulness contract: no FE ranking / max-profit / bull-run invent', () => {
     const fe = [
       'UI MUST NOT calculate RankingContext',

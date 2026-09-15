@@ -1633,6 +1633,15 @@ export const api = createApi({
         mlAvailable?: boolean;
         sort?: string;
         order?: 'asc' | 'desc';
+        targetReturn?: number;
+        horizon?: string;
+        bullRunConfidence?: string;
+        bullRunStage?: string;
+        integrityStatus?: string;
+        excludeIntegrity?: string;
+        executionReady?: boolean;
+        dataStatus?: string;
+        sector?: string;
       }
     >({
       query: ({ id, ...params }) => ({
@@ -1647,6 +1656,20 @@ export const api = createApi({
           mlAvailable: params.mlAvailable ? '1' : undefined,
           sort: params.sort,
           order: params.order,
+          targetReturn: params.targetReturn != null ? String(params.targetReturn) : undefined,
+          horizon: params.horizon || undefined,
+          bullRunConfidence: params.bullRunConfidence || undefined,
+          bullRunStage: params.bullRunStage || undefined,
+          integrityStatus: params.integrityStatus || undefined,
+          excludeIntegrity: params.excludeIntegrity || undefined,
+          executionReady:
+            params.executionReady === true
+              ? 'true'
+              : params.executionReady === false
+                ? 'false'
+                : undefined,
+          dataStatus: params.dataStatus || undefined,
+          sector: params.sector || undefined,
         },
       }),
       providesTags: (_r, _e, arg) => [{ type: 'IntelligenceBatches', id: arg.id }],
@@ -1704,9 +1727,22 @@ export const api = createApi({
             confidence?: string;
             expectedReturnRange?: { low: number; high: number } | null;
             expectedDrawdownRange?: { low: number; high: number } | null;
+            timeToTargetRange?: { lowSessions?: number; highSessions?: number } | null;
+            sampleSize?: number | null;
+            calibration?: string | null;
             reason?: string;
           }>;
+          sampleSize?: number | null;
         };
+        cells?: Array<{
+          targetReturn: number;
+          horizon: string;
+          status: string;
+          probability?: number | null;
+          confidence?: string;
+          sampleSize?: number | null;
+          calibration?: string | null;
+        }>;
       },
       string
     >({
@@ -1718,12 +1754,16 @@ export const api = createApi({
         reason?: string;
         missingCapability?: string;
         report?: {
+          schemaVersion?: string;
           batchId: string;
           completedAt: number;
           universe: string;
           outcome: string;
           disclaimer: string;
+          commandCenterHorizon?: string;
+          matrixTargets?: number[];
           coverage: { total: number; processed: number; failed: number };
+          marketSummary?: { regime?: string; note?: string; breadth?: string };
           sectorSummary: Array<{
             sector: string;
             state?: string;
@@ -1752,12 +1792,72 @@ export const api = createApi({
             confidence?: string;
             sector?: string;
             tradePlanStatus?: string;
+            isBestPick?: boolean;
+            integrityStatus?: string;
+            bullRunMatrix?: Array<{
+              horizon: string;
+              cells: Array<{
+                targetReturn: number;
+                status: string;
+                p?: number | null;
+                conf?: string;
+              }>;
+            }>;
+            thesis?: string;
+            tradePlanExpectedR?: number;
+            tradePlanHorizon?: string;
+            invalidationPrice?: number;
           }>;
+          bestPicks?: Array<{
+            symbol: string;
+            rank: number;
+            recommendation?: string;
+            tradePlanExecutionReady?: boolean;
+            confidence?: string;
+            sector?: string;
+            tradePlanStatus?: string;
+            isBestPick?: boolean;
+            integrityStatus?: string;
+            bullRunMatrix?: Array<{
+              horizon: string;
+              cells: Array<{
+                targetReturn: number;
+                status: string;
+                p?: number | null;
+                conf?: string;
+              }>;
+            }>;
+            thesis?: string;
+            tradePlanExpectedR?: number;
+            tradePlanHorizon?: string;
+            invalidationPrice?: number;
+          }>;
+          bullRunOpportunities?: Array<{
+            symbol: string;
+            rank: number;
+            sector?: string;
+            targetReturn: number;
+            horizon: string;
+            probability: number;
+            confidence?: string;
+            integrityStatus?: string;
+            recommendation?: string;
+            tradePlanExecutionReady?: boolean;
+            isBestPick?: boolean;
+          }>;
+          integritySummary?: {
+            normal: number;
+            investigate: number;
+            suspicious: number;
+            unknown: number;
+          };
+          calibrationNote?: string;
           dataQuality: {
             analyzed: number;
             incomplete: number;
             quoteGaps: number;
             fabricated: number;
+            insufficientHistory?: number;
           };
           dataStatus?: string;
         };

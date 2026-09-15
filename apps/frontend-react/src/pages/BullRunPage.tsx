@@ -31,7 +31,7 @@ import {
 } from '../store/api';
 
 const HORIZONS = ['1D', '1W', '1M', '3M', '6M', '12M'] as const;
-const TARGETS = [0.05, 0.1, 0.2, 0.3, 0.5, 1.0] as const;
+const TARGETS = [0.05, 0.1, 0.2, 0.3, 0.5, 1.0, 2.0, 5.0] as const;
 
 function fmtPct(p: number | null | undefined): string {
   if (p == null || !Number.isFinite(p)) return 'Not available';
@@ -186,6 +186,23 @@ export default function BullRunPage(): JSX.Element {
                     ? `${(c.expectedDrawdownRange.low * 100).toFixed(1)}% → ${(c.expectedDrawdownRange.high * 100).toFixed(1)}%`
                     : 'Not available'}
                 </Typography>
+                <Typography variant="body2">
+                  Time to target:{' '}
+                  {c.timeToTargetRange &&
+                  (c.timeToTargetRange.lowSessions != null ||
+                    c.timeToTargetRange.highSessions != null)
+                    ? `${c.timeToTargetRange.lowSessions ?? '?'}–${c.timeToTargetRange.highSessions ?? '?'} sessions`
+                    : 'Not available'}
+                </Typography>
+                <Typography variant="body2">
+                  Sample size:{' '}
+                  {c.sampleSize != null && Number.isFinite(c.sampleSize)
+                    ? String(c.sampleSize)
+                    : 'Not available'}
+                </Typography>
+                <Typography variant="body2">
+                  Calibration: {c.calibration ?? 'Not available'}
+                </Typography>
               </Stack>
             );
           })()}
@@ -212,7 +229,7 @@ export default function BullRunPage(): JSX.Element {
                     const c = matrixCell(h, t);
                     return (
                       <TableCell key={`${h}-${t}`} align="right">
-                        {c?.status === 'AVAILABLE' ? fmtPct(c.probability) : '—'}
+                        {c?.status === 'AVAILABLE' ? fmtPct(c.probability) : 'Not available'}
                       </TableCell>
                     );
                   })}
@@ -262,6 +279,7 @@ export default function BullRunPage(): JSX.Element {
                 <TableCell>Rank</TableCell>
                 <TableCell>Stock</TableCell>
                 <TableCell>Stage</TableCell>
+                <TableCell>Bull-Run cells</TableCell>
                 <TableCell>Recommendation</TableCell>
                 <TableCell>Execution Ready</TableCell>
               </TableRow>
@@ -269,6 +287,17 @@ export default function BullRunPage(): JSX.Element {
             <TableBody>
               {batchResults.rankings.slice(0, 25).map((row) => {
                 const ctx = row.intelligenceContext as Record<string, unknown> | undefined;
+                const cells = Array.isArray(ctx?.bullRunV2Cells)
+                  ? (ctx!.bullRunV2Cells as Array<{
+                      t: number;
+                      h: string;
+                      p: number;
+                      conf?: string;
+                    }>)
+                  : [];
+                const sample = cells.find(
+                  (c) => c.h === horizonTab && Math.abs(c.t - target) < 1e-9,
+                );
                 return (
                   <TableRow
                     key={row.symbol}
@@ -279,6 +308,13 @@ export default function BullRunPage(): JSX.Element {
                     <TableCell>{row.rank}</TableCell>
                     <TableCell>{row.symbol}</TableCell>
                     <TableCell>{String(ctx?.bullRunStage ?? 'Not available')}</TableCell>
+                    <TableCell>
+                      {sample
+                        ? `${sample.h} · ≥${Math.round(sample.t * 100)}% · ${Math.round(sample.p * 100)}% · ${sample.conf ?? 'Not available'}`
+                        : cells.length
+                          ? `${cells.length} cells (no ${horizonTab}/≥${Math.round(target * 100)}% match)`
+                          : 'Not available'}
+                    </TableCell>
                     <TableCell>{String(ctx?.tradePlanRecommendation ?? 'Not available')}</TableCell>
                     <TableCell>
                       {ctx?.tradePlanExecutionReady === true

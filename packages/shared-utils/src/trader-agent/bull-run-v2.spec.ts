@@ -106,6 +106,44 @@ describe('bull-run-v2-engine', () => {
     expect(v2.executionReadyFromBullRun).toBe(false);
     expect(v2.dataStatus).toBe('OFFLINE');
   });
+  it('includes +200%/+500% targets when observed; omits extreme targets with zero hits', () => {
+    // Strong uptrend → some high targets may be AVAILABLE; extreme 500% usually UNAVAILABLE
+    const closes = syntheticCloses(500, 0.004, 0.01);
+    const v2 = buildBullRunV2FromEvidence({
+      symbol: 'TCS',
+      closes,
+      dataStatus: 'OFFLINE',
+      targets: [0.1, 0.2, 0.3, 0.5, 1.0, 2.0, 5.0],
+    });
+    expect(v2.supportedTargets).toEqual([0.1, 0.2, 0.3, 0.5, 1.0, 2.0, 5.0]);
+    const m3 = v2.cells.filter((c) => c.horizon === '3M');
+    const t500 = m3.find((c) => c.targetReturn === 5.0);
+    // If never observed, must be UNAVAILABLE with null p — never fabricated tiny %
+    if (t500 && (t500.probability == null || t500.probability <= 0)) {
+      expect(t500.status).toBe('UNAVAILABLE');
+      expect(t500.probability == null).toBe(true);
+    }
+    const avail = m3
+      .filter((c) => c.status === 'AVAILABLE')
+      .sort((a, b) => a.targetReturn - b.targetReturn);
+    for (let i = 1; i < avail.length; i++) {
+      expect(avail[i]!.probability!).toBeLessThanOrEqual(avail[i - 1]!.probability!);
+    }
+    const compact = compactBullRunV2Cells(v2);
+    expect(compact.every((c) => c.t < 2.0 || c.p > 0)).toBe(true);
+  });
+
+  it('custom targetReturn unsupported when history short → UNAVAILABLE not 0', () => {
+    const v2 = buildBullRunV2FromEvidence({
+      symbol: 'XYZ',
+      closes: [100, 101],
+      targets: [0.1, 5.0],
+    });
+    for (const c of v2.cells) {
+      expect(c.status).toBe('UNAVAILABLE');
+      expect(c.probability).toBeNull();
+    }
+  });
 });
 
 describe('batch-research-report', () => {
@@ -131,7 +169,9 @@ describe('batch-research-report', () => {
           tradePlanRecommendation: 'APPROVE',
           tradePlanStatus: 'COMPLETE',
           tradePlanExecutionReady: true,
+          intelligenceLifecycleState: 'OPPORTUNITY',
           bullRunStage: 'CONFIRMED',
+          integrityStatus: 'NORMAL',
           bullRunV2Cells: [{ t: 0.2, h: '3M', p: 0.68, conf: 'MEDIUM', status: 'AVAILABLE' }],
         },
       },
@@ -144,14 +184,109 @@ describe('batch-research-report', () => {
       rankings,
       dataStatus: 'OFFLINE',
     });
+    expect(report.schemaVersion).toBe('batch-research-report.v2');
     expect(report.dataQuality.fabricated).toBe(0);
+    expect(report.commandCenterHorizon).toBe('3M');
+    expect(report.matrixTargets).toContain(2.0);
+    expect(report.matrixTargets).toContain(5.0);
     expect(report.bestOpportunities[0]?.symbol).toBe('TCS');
     expect(report.bestOpportunities[0]?.rank).toBe(1);
+    expect(report.bestOpportunities[0]?.isBestPick).toBe(true);
+    expect(report.bestOpportunities[0]?.integrityStatus).toBe('NORMAL');
+    expect(report.bestOpportunities[0]?.bullRunMatrix?.length).toBeGreaterThan(0);
+    expect(report.bestPicks?.[0]?.symbol).toBe('TCS');
+    expect(report.integritySummary?.normal).toBe(1);
     expect(report.disclaimer.toLowerCase()).toContain('not guarantees');
     const c3m20 = report.bullRunCountsByHorizon.find(
       (c) => c.horizon === '3M' && c.targetReturn === 0.2,
     );
     expect(c3m20?.candidateCount).toBe(2);
+  });
+
+  it('Best Pick order is identical with/without/partial Bull-Run cells', () => {
+    type Cell = {
+      t: number;
+      h: '3M' | '1D';
+      p: number;
+      conf: 'HIGH' | 'MEDIUM' | 'LOW';
+      status: 'AVAILABLE';
+    };
+    const makeRows = (mode: 'full' | 'none' | 'partial'): IntelligenceBatchResultRow[] => [
+      {
+        rank: 1,
+        symbol: 'TCS',
+        opportunityId: 'a',
+        intelligenceContext: {
+          tradePlanRecommendation: 'APPROVE',
+          intelligenceLifecycleState: 'OPPORTUNITY',
+          opportunityQuality: 'HIGH',
+          ...(mode === 'none'
+            ? {}
+            : {
+                bullRunV2Cells: [
+                  { t: 0.1, h: '3M', p: 0.8, conf: 'HIGH', status: 'AVAILABLE' },
+                  ...(mode === 'full'
+                    ? [
+                        {
+                          t: 0.2,
+                          h: '3M' as const,
+                          p: 0.6,
+                          conf: 'MEDIUM' as const,
+                          status: 'AVAILABLE' as const,
+                        },
+                      ]
+                    : []),
+                ] as Cell[],
+              }),
+        },
+      },
+      {
+        rank: 2,
+        symbol: 'INFY',
+        opportunityId: 'b',
+        intelligenceContext: {
+          tradePlanRecommendation: 'APPROVE',
+          intelligenceLifecycleState: 'SHORTLIST',
+          ...(mode === 'none'
+            ? {}
+            : {
+                bullRunV2Cells: [
+                  {
+                    t: 0.1,
+                    h: mode === 'partial' ? '1D' : '3M',
+                    p: 0.4,
+                    conf: 'LOW',
+                    status: 'AVAILABLE',
+                  },
+                ] as Cell[],
+              }),
+        },
+      },
+      {
+        rank: 3,
+        symbol: 'RELIANCE',
+        opportunityId: 'c',
+        intelligenceContext: {
+          tradePlanRecommendation: 'WAIT',
+          bullRunV2Cells: [{ t: 0.1, h: '3M', p: 0.99, conf: 'HIGH', status: 'AVAILABLE' }],
+        },
+      },
+    ];
+
+    const pickSyms = (mode: 'full' | 'none' | 'partial') => {
+      const r = buildBatchResearchReport({
+        batchId: `b-${mode}`,
+        completedAt: 1,
+        universe: 'NIFTY50',
+        coverage: { total: 3, processed: 3, failed: 0 },
+        rankings: makeRows(mode),
+      });
+      return (r.bestPicks ?? []).map((p) => `${p.rank}:${p.symbol}`);
+    };
+
+    expect(pickSyms('full')).toEqual(['1:TCS', '2:INFY']);
+    expect(pickSyms('none')).toEqual(['1:TCS', '2:INFY']);
+    expect(pickSyms('partial')).toEqual(['1:TCS', '2:INFY']);
   });
 
   it('NO_SUITABLE_OPPORTUNITY when no approve and no bull candidates', () => {

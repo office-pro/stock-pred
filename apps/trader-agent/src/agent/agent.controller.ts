@@ -440,7 +440,26 @@ export class AgentController {
     @Query('mlAvailable') mlAvailable?: string,
     @Query('sort') sort?: string,
     @Query('order') order?: string,
+    @Query('targetReturn') targetReturn?: string,
+    @Query('horizon') horizon?: string,
+    @Query('bullRunConfidence') bullRunConfidence?: string,
+    @Query('bullRunStage') bullRunStage?: string,
+    @Query('integrityStatus') integrityStatus?: string,
+    @Query('excludeIntegrity') excludeIntegrity?: string,
+    @Query('executionReady') executionReady?: string,
+    @Query('dataStatus') dataStatus?: string,
+    @Query('sector') sector?: string,
   ) {
+    const targetNum =
+      targetReturn != null && targetReturn !== '' && Number.isFinite(Number(targetReturn))
+        ? Number(targetReturn)
+        : undefined;
+    const horizonOk = ['1D', '1W', '1M', '3M', '6M', '12M'].includes(String(horizon ?? ''));
+    const confOk = ['HIGH', 'MEDIUM', 'LOW'].includes(String(bullRunConfidence ?? ''));
+    const integOk = ['NORMAL', 'INVESTIGATE', 'SUSPICIOUS'].includes(String(integrityStatus ?? ''));
+    const dataOk = ['LIVE', 'DELAYED', 'STALE', 'OFFLINE', 'UNKNOWN'].includes(
+      String(dataStatus ?? ''),
+    );
     return this.intelligenceBatches.getResults(id, {
       page,
       pageSize,
@@ -470,6 +489,24 @@ export class AgentController {
         | 'recommendation'
         | undefined,
       order: order === 'desc' ? 'desc' : order === 'asc' ? 'asc' : undefined,
+      targetReturn: targetNum,
+      horizon: horizonOk ? (horizon as '1D' | '1W' | '1M' | '3M' | '6M' | '12M') : undefined,
+      bullRunConfidence: confOk ? (bullRunConfidence as 'HIGH' | 'MEDIUM' | 'LOW') : undefined,
+      bullRunStage: bullRunStage || undefined,
+      integrityStatus: integOk
+        ? (integrityStatus as 'NORMAL' | 'INVESTIGATE' | 'SUSPICIOUS')
+        : undefined,
+      excludeIntegrity: excludeIntegrity || undefined,
+      executionReady:
+        executionReady === '1' || executionReady === 'true'
+          ? true
+          : executionReady === '0' || executionReady === 'false'
+            ? false
+            : undefined,
+      dataStatus: dataOk
+        ? (dataStatus as 'LIVE' | 'DELAYED' | 'STALE' | 'OFFLINE' | 'UNKNOWN')
+        : undefined,
+      sector: sector || undefined,
     });
   }
 

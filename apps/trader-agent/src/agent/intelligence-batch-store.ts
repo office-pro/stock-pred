@@ -105,7 +105,12 @@ export function readIntelligenceBatchResearchReport(batchId: string): BatchResea
   if (!existsSync(path)) return null;
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf8')) as BatchResearchReport;
-    if (parsed?.schemaVersion !== 'batch-research-report.v1') return null;
+    if (
+      parsed?.schemaVersion !== 'batch-research-report.v1' &&
+      parsed?.schemaVersion !== 'batch-research-report.v2'
+    ) {
+      return null;
+    }
     return parsed;
   } catch {
     return null;

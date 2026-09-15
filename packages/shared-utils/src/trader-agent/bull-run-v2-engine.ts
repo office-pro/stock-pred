@@ -192,6 +192,20 @@ function cellsFromDistribution(
         dataAsOf,
       };
     }
+    // Extreme targets (+200%/+500%): omit when never observed — Not available, never fabricate 0%.
+    if (t >= 2.0 && raw <= 0) {
+      return {
+        targetReturn: t,
+        horizon: dist.horizon,
+        status: 'UNAVAILABLE' as const,
+        reason: 'INSUFFICIENT_HISTORY' as const,
+        probability: null,
+        confidence: 'UNAVAILABLE' as const,
+        sampleSize: dist.sampleSize,
+        dataStatus,
+        dataAsOf,
+      };
+    }
     return {
       targetReturn: t,
       horizon: dist.horizon,
