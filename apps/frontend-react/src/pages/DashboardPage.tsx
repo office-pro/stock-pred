@@ -385,21 +385,21 @@ export default function DashboardPage(): JSX.Element {
           size="small"
           value={rankFilters}
           onChange={handleRankFilterChange}
-          aria-label="Rank by max profit, confidence, and bull run"
+          aria-label="Filter by expected return, confidence, and bull-run scanner band"
         >
           <ToggleButton value="PROFIT" color="success">
-            Max profit
+            Expected Return
           </ToggleButton>
           <ToggleButton value="CONFIDENCE">Max confidence</ToggleButton>
           <ToggleButton value="BULL" color="warning">
-            Bull run{bullRunCount ? ` (${bullRunCount})` : ''}
+            Bull-Run scanner{bullRunCount ? ` (${bullRunCount})` : ''}
           </ToggleButton>
         </ToggleButtonGroup>
         {headlineProfit.pct > 0 && (
           <Chip
             color="success"
             variant="outlined"
-            label={`Max profit ${headlineProfit.pct.toFixed(1)}%${
+            label={`Expected return ${headlineProfit.pct.toFixed(1)}%${
               headlineProfit.symbol ? ` · ${headlineProfit.symbol}` : ''
             }`}
           />

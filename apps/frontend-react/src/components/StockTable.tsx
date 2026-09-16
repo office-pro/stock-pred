@@ -80,7 +80,7 @@ export default function StockTable({
               <TableCell align="right">Price (₹)</TableCell>
               <TableCell align="right">Change %</TableCell>
               <TableCell align="right">Volume</TableCell>
-              <TableCell align="center">Action</TableCell>
+              <TableCell align="center">Direction</TableCell>
               <TableCell align="right">Buy/Sell at</TableCell>
               <TableCell align="right">Target</TableCell>
               <TableCell align="right">Stop</TableCell>
@@ -89,7 +89,7 @@ export default function StockTable({
               <TableCell align="right">Conf</TableCell>
               <TableCell>Risk</TableCell>
               <TableCell>Suspicious</TableCell>
-              <TableCell align="center">Paper</TableCell>
+              <TableCell align="center">Paper (manual buy)</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>

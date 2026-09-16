@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   DefaultValuePipe,
@@ -9,7 +10,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import type {
   AgentAnalysis,
@@ -27,6 +28,8 @@ import type {
   PortfolioSnapshot,
 } from '@stockpred/shared-types';
 import { AgentService } from './agent.service';
+import { ContinuousIntelligenceStore } from './continuous-intelligence-store';
+import { IntelligenceBatchService } from './intelligence-batch.service';
 
 class SetModeDto {
   @IsIn(['RESEARCH', 'PAPER', 'LIVE'])
@@ -100,6 +103,73 @@ class RejectDto {
   reason?: string;
 }
 
+class CreateIntelligenceBatchDto {
+  @IsIn(['NIFTY50', 'NIFTY100', 'NIFTY150', 'NIFTY500', 'ALL', 'CUSTOM', 'SECTOR', 'SINGLE_STOCK'])
+  universe!:
+    | 'NIFTY50'
+    | 'NIFTY100'
+    | 'NIFTY150'
+    | 'NIFTY500'
+    | 'ALL'
+    | 'CUSTOM'
+    | 'SECTOR'
+    | 'SINGLE_STOCK';
+
+  @IsOptional()
+  @IsIn(['FULL_ANALYSIS', 'LIVE_CONTINUOUS'])
+  batchType?: 'FULL_ANALYSIS' | 'LIVE_CONTINUOUS';
+
+  @IsOptional()
+  @IsIn(['HISTORICAL', 'LIVE', 'HYBRID'])
+  mode?: 'HISTORICAL' | 'LIVE' | 'HYBRID';
+
+  @IsOptional()
+  @IsIn([
+    'FULL_MARKET',
+    'SECTOR',
+    'SINGLE_STOCK',
+    'BULL_RUN_SCAN',
+    'RELATIONSHIP_SCAN',
+    'INVERSE_SCAN',
+    'EVENT_ANALYSIS',
+    'GLOBAL_EVENT_SCAN',
+    'CUSTOM',
+  ])
+  scanKind?:
+    | 'FULL_MARKET'
+    | 'SECTOR'
+    | 'SINGLE_STOCK'
+    | 'BULL_RUN_SCAN'
+    | 'RELATIONSHIP_SCAN'
+    | 'INVERSE_SCAN'
+    | 'EVENT_ANALYSIS'
+    | 'GLOBAL_EVENT_SCAN'
+    | 'CUSTOM';
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  symbols?: string[];
+
+  @IsOptional()
+  @IsString()
+  sector?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  allLimit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  inverseDownsideThreshold?: number;
+
+  @IsOptional()
+  @IsString()
+  globalEventType?: string;
+}
+
 class RecordOutcomeDto {
   @IsOptional()
   @IsString()
@@ -159,7 +229,11 @@ class SoakWaiveDto {
 
 @Controller('agent')
 export class AgentController {
-  constructor(private readonly agent: AgentService) {}
+  constructor(
+    private readonly agent: AgentService,
+    private readonly intelligenceBatches: IntelligenceBatchService,
+    private readonly continuous: ContinuousIntelligenceStore,
+  ) {}
 
   @Get('mode')
   getMode(
@@ -321,6 +395,198 @@ export class AgentController {
     @Query('limit', new DefaultValuePipe(80), ParseIntPipe) limit = 80,
   ): Promise<FocusUniverseBatch> {
     return this.agent.runOfflineFocusBatch(Math.min(limit, 200));
+  }
+
+  /** B1 Intelligence Batch — HISTORICAL / FULL_ANALYSIS only (no auth chain). */
+  @Post('intelligence-batches')
+  createIntelligenceBatch(@Body() body: CreateIntelligenceBatchDto) {
+    return this.intelligenceBatches.create(body);
+  }
+
+  @Get('intelligence-batches')
+  listIntelligenceBatches(@Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50) {
+    return this.intelligenceBatches.list(Math.min(limit, 200));
+  }
+
+  @Get('intelligence-batches/latest/research-report')
+  getLatestIntelligenceBatchResearchReport(@Query('universe') universe?: string) {
+    return this.intelligenceBatches.getLatestResearchReport(universe);
+  }
+
+  @Get('intelligence-batches/:id/research-report')
+  getIntelligenceBatchResearchReport(@Param('id') id: string) {
+    return this.intelligenceBatches.getResearchReport(id);
+  }
+
+  @Get('intelligence-batches/:id/results/by-sector')
+  getIntelligenceBatchResultsBySector(@Param('id') id: string) {
+    return this.intelligenceBatches.getResultsBySector(id);
+  }
+
+  @Get('intelligence-batches/:id')
+  getIntelligenceBatch(@Param('id') id: string) {
+    return this.intelligenceBatches.get(id);
+  }
+
+  @Get('intelligence-batches/:id/results')
+  getIntelligenceBatchResults(
+    @Param('id') id: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
+    @Query('pageSize', new DefaultValuePipe(50), ParseIntPipe) pageSize = 50,
+    @Query('q') q?: string,
+    @Query('preset') preset?: string,
+    @Query('recommendation') recommendation?: string,
+    @Query('thesisState') thesisState?: string,
+    @Query('mlAvailable') mlAvailable?: string,
+    @Query('sort') sort?: string,
+    @Query('order') order?: string,
+    @Query('targetReturn') targetReturn?: string,
+    @Query('horizon') horizon?: string,
+    @Query('bullRunConfidence') bullRunConfidence?: string,
+    @Query('bullRunStage') bullRunStage?: string,
+    @Query('integrityStatus') integrityStatus?: string,
+    @Query('excludeIntegrity') excludeIntegrity?: string,
+    @Query('executionReady') executionReady?: string,
+    @Query('dataStatus') dataStatus?: string,
+    @Query('sector') sector?: string,
+  ) {
+    const targetNum =
+      targetReturn != null && targetReturn !== '' && Number.isFinite(Number(targetReturn))
+        ? Number(targetReturn)
+        : undefined;
+    const horizonOk = ['1D', '1W', '1M', '3M', '6M', '12M'].includes(String(horizon ?? ''));
+    const confOk = ['HIGH', 'MEDIUM', 'LOW'].includes(String(bullRunConfidence ?? ''));
+    const integOk = ['NORMAL', 'INVESTIGATE', 'SUSPICIOUS'].includes(String(integrityStatus ?? ''));
+    const dataOk = ['LIVE', 'DELAYED', 'STALE', 'OFFLINE', 'UNKNOWN'].includes(
+      String(dataStatus ?? ''),
+    );
+    return this.intelligenceBatches.getResults(id, {
+      page,
+      pageSize,
+      q,
+      preset: preset as
+        | 'BEST_OPPORTUNITIES'
+        | 'HIGH_CONFIDENCE'
+        | 'HIGHEST_EXPECTED_RETURN'
+        | 'HIGHEST_EXPECTED_R'
+        | 'MULTI_HORIZON_ALIGNED'
+        | 'BULL_RUN'
+        | undefined,
+      recommendation: recommendation as 'APPROVE' | 'WAIT' | 'REJECT' | undefined,
+      thesisState,
+      mlAvailable: mlAvailable === '1' || mlAvailable === 'true',
+      sort: sort as
+        | 'rank'
+        | 'symbol'
+        | 'direction'
+        | 'expectedReturn'
+        | 'upsideProb'
+        | 'preferredEntry'
+        | 'target'
+        | 'expectedR'
+        | 'confidence'
+        | 'horizon'
+        | 'recommendation'
+        | undefined,
+      order: order === 'desc' ? 'desc' : order === 'asc' ? 'asc' : undefined,
+      targetReturn: targetNum,
+      horizon: horizonOk ? (horizon as '1D' | '1W' | '1M' | '3M' | '6M' | '12M') : undefined,
+      bullRunConfidence: confOk ? (bullRunConfidence as 'HIGH' | 'MEDIUM' | 'LOW') : undefined,
+      bullRunStage: bullRunStage || undefined,
+      integrityStatus: integOk
+        ? (integrityStatus as 'NORMAL' | 'INVESTIGATE' | 'SUSPICIOUS')
+        : undefined,
+      excludeIntegrity: excludeIntegrity || undefined,
+      executionReady:
+        executionReady === '1' || executionReady === 'true'
+          ? true
+          : executionReady === '0' || executionReady === 'false'
+            ? false
+            : undefined,
+      dataStatus: dataOk
+        ? (dataStatus as 'LIVE' | 'DELAYED' | 'STALE' | 'OFFLINE' | 'UNKNOWN')
+        : undefined,
+      sector: sector || undefined,
+    });
+  }
+
+  @Post('intelligence-batches/:id/pause')
+  pauseIntelligenceBatch(@Param('id') id: string) {
+    return this.intelligenceBatches.pause(id);
+  }
+
+  @Post('intelligence-batches/:id/resume')
+  resumeIntelligenceBatch(@Param('id') id: string) {
+    return this.intelligenceBatches.resume(id);
+  }
+
+  @Post('intelligence-batches/:id/cancel')
+  cancelIntelligenceBatch(@Param('id') id: string) {
+    return this.intelligenceBatches.cancel(id);
+  }
+
+  @Post('intelligence-batches/:id/retry')
+  retryIntelligenceBatch(@Param('id') id: string) {
+    return this.intelligenceBatches.retry(id);
+  }
+
+  /** B7 — continuous intelligence events (advisory; never amends orders). */
+  @Get('continuous/events')
+  listContinuousEvents(@Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50) {
+    return this.continuous.listEvents(Math.min(limit, 200));
+  }
+
+  @Get('continuous/position-plans')
+  listPositionManagementPlans(@Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50) {
+    return this.continuous.listPlans(Math.min(limit, 200));
+  }
+
+  @Post('continuous/events')
+  ingestContinuousEvent(@Body() body: Record<string, unknown>) {
+    const eventId = String(body.eventId ?? `evt-${Date.now()}`);
+    const symbol = String(body.symbol ?? '').toUpperCase();
+    if (!symbol) throw new BadRequestException('symbol required');
+    const position =
+      body.position && typeof body.position === 'object'
+        ? (body.position as {
+            positionId: string;
+            originalEntry: number;
+            currentPrice: number;
+            originalTarget?: number;
+            originalStop?: number;
+            thesisState?: string;
+            cutoffReached?: boolean;
+            tradeId?: string;
+            decisionId?: string;
+          })
+        : undefined;
+    const result = this.continuous.ingest({
+      eventId,
+      symbol,
+      priority: (body.priority as 'P0' | 'P1' | 'P2' | 'P3' | 'P4' | 'P5') ?? 'P3',
+      trigger:
+        (body.trigger as
+          | 'PRICE'
+          | 'NEWS'
+          | 'REGIME'
+          | 'THESIS'
+          | 'ML'
+          | 'CATALYST'
+          | 'CUTOFF'
+          | 'OTHER') ?? 'OTHER',
+      dataStatus:
+        (body.dataStatus as 'LIVE' | 'DELAYED' | 'STALE' | 'UNKNOWN' | 'CLOSED_MARKET') ??
+        'UNKNOWN',
+      message: String(body.message ?? 'reassessment'),
+      position,
+    });
+    // B17 — targeted focus refresh only (never full NIFTY500 / never authorization).
+    const globalEventType =
+      typeof body.globalEventType === 'string' ? body.globalEventType.trim() : '';
+    if (!result.deduplicated && globalEventType) {
+      void this.agent.triggerTargetedGlobalEventRefresh(globalEventType, symbol);
+    }
+    return result;
   }
 
   @Get('analysis/:symbol')

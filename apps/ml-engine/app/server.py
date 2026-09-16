@@ -346,7 +346,10 @@ def _enrich_predictions_from_cache(predictions: List[Dict[str, object]]) -> List
         if not isinstance(rich, dict):
             continue
         for key in _M4_PREDICTION_KEYS:
-            if key in rich and rich[key] is not None and key not in row:
+            if key not in rich or rich[key] is None:
+                continue
+            # Overlay provenance even when DB returned a null/absent field.
+            if key not in row or row.get(key) is None:
                 row[key] = rich[key]
     return predictions
 
@@ -489,10 +492,44 @@ async def get_all_predictions(
     horizon: str = "",
     direction: str = "",
 ) -> Dict[str, object]:
-    """Latest prediction per symbol/horizon, paginated."""
+    """Latest prediction per symbol/horizon, paginated.
+
+    Prefer on-disk/in-memory cache when it carries provenance (expiresAt).
+    Slim DB rows without TTL must not hide a fresher usable cache.
+    """
     page = max(page, 1)
     limit = min(max(limit, 1), 5000)
     offset = (page - 1) * limit
+
+    cached = list_cached(search, horizon, direction, limit, offset)
+    cached_with_ttl = sum(
+        1 for row in (cached.get("predictions") or []) if isinstance(row, dict) and row.get("expiresAt")
+    )
+    # Full cache inventory (unpaginated count) when provenance is present.
+    cached_all = list_cached(search, horizon, direction, 100_000, 0)
+    cached_ttl_total = sum(
+        1 for row in (cached_all.get("predictions") or []) if isinstance(row, dict) and row.get("expiresAt")
+    )
+    if cached_ttl_total > 0:
+        print(
+            f"[ML][PREDICTIONS_ALL] source=cache records={cached_all.get('total')} "
+            f"withExpiresAt={cached_ttl_total} page={page}",
+            flush=True,
+        )
+        return {
+            "predictions": cached["predictions"],
+            "total": cached["total"],
+            "page": page,
+            "limit": limit,
+            "hasMore": offset + len(cached["predictions"]) < cached["total"],
+            "disclaimer": DISCLAIMER,
+            "source": "cache",
+            "note": (
+                "Predictions are advisory ML outputs for Trade Intelligence only — "
+                "not trade authorization."
+            ),
+        }
+
     try:
         import asyncpg
 
@@ -535,8 +572,14 @@ async def get_all_predictions(
             for row in rows
         ]
         if predictions:
+            enriched = _enrich_predictions_from_cache(predictions)
+            print(
+                f"[ML][PREDICTIONS_ALL] source=db records={total} "
+                f"pageExpiresAt={sum(1 for r in enriched if r.get('expiresAt'))}",
+                flush=True,
+            )
             return {
-                "predictions": _enrich_predictions_from_cache(predictions),
+                "predictions": enriched,
                 "total": total,
                 "page": page,
                 "limit": limit,
@@ -550,7 +593,11 @@ async def get_all_predictions(
     except Exception as error:
         print(f"[ml-engine] predictions/all db fallback: {error}")
 
-    cached = list_cached(search, horizon, direction, limit, offset)
+    print(
+        f"[ML][PREDICTIONS_ALL] source=cache_fallback records={cached.get('total')} "
+        f"withExpiresAt={cached_with_ttl}",
+        flush=True,
+    )
     return {
         "predictions": cached["predictions"],
         "total": cached["total"],

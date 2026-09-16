@@ -307,6 +307,12 @@ export class ApiController {
     return this.proxy.get('marketData', '/market/ml-ti-bridge');
   }
 
+  @Post('market/predictions/refresh')
+  @UseGuards(JwtAuthGuard)
+  refreshMlPredictions(): Promise<unknown> {
+    return this.proxy.post('marketData', '/market/predictions/refresh', {});
+  }
+
   @Get('market/predictions/:symbol')
   @UseGuards(JwtAuthGuard)
   getUsableMlPrediction(
@@ -339,6 +345,91 @@ export class ApiController {
     return this.proxy.get('marketData', `/indices/${encodeURIComponent(index)}/candles`, {
       params: { limit },
     });
+  }
+
+  // ---------------------------------------------------------- B9–B17 advisory
+
+  @Get('intelligence/sectors')
+  listIntelligenceSectors(): Promise<unknown> {
+    return this.proxy.get('marketData', '/intelligence/sectors');
+  }
+
+  @Get('intelligence/sectors/all')
+  allSectorsIntelligence(@Query('limit') limit?: string): Promise<unknown> {
+    return this.proxy.get('marketData', '/intelligence/sectors/all', {
+      params: limit ? { limit } : undefined,
+    });
+  }
+
+  @Get('intelligence/sectors/:sector')
+  sectorIntelligence(@Param('sector') sector: string): Promise<unknown> {
+    return this.proxy.get('marketData', `/intelligence/sectors/${encodeURIComponent(sector)}`);
+  }
+
+  @Get('intelligence/sectors/:sector/members')
+  sectorMembers(@Param('sector') sector: string): Promise<unknown> {
+    return this.proxy.get(
+      'marketData',
+      `/intelligence/sectors/${encodeURIComponent(sector)}/members`,
+    );
+  }
+
+  @Get('intelligence/bull-run/:symbol')
+  bullRunIntelligence(@Param('symbol') symbol: string): Promise<unknown> {
+    return this.proxy.get('marketData', `/intelligence/bull-run/${encodeURIComponent(symbol)}`);
+  }
+
+  @Get('intelligence/relationships')
+  relationshipIntelligence(
+    @Query('left') left?: string,
+    @Query('right') right?: string,
+    @Query('kind') kind?: string,
+    @Query('windowDays') windowDays?: string,
+  ): Promise<unknown> {
+    return this.proxy.get('marketData', '/intelligence/relationships', {
+      params: { left, right, kind, windowDays },
+    });
+  }
+
+  @Get('intelligence/inverse/:symbol')
+  inverseIntelligence(
+    @Param('symbol') symbol: string,
+    @Query('peers') peers?: string,
+    @Query('downsideThreshold') downsideThreshold?: string,
+  ): Promise<unknown> {
+    return this.proxy.get('marketData', `/intelligence/inverse/${encodeURIComponent(symbol)}`, {
+      params: { peers, downsideThreshold },
+    });
+  }
+
+  @Get('intelligence/historical/:symbol')
+  historicalIntelligence(
+    @Param('symbol') symbol: string,
+    @Query('dayReturnThreshold') dayReturnThreshold?: string,
+  ): Promise<unknown> {
+    return this.proxy.get('marketData', `/intelligence/historical/${encodeURIComponent(symbol)}`, {
+      params: { dayReturnThreshold },
+    });
+  }
+
+  @Get('intelligence/cross-asset/:symbol')
+  crossAssetIntelligence(
+    @Param('symbol') symbol: string,
+    @Query('asset') asset?: string,
+  ): Promise<unknown> {
+    return this.proxy.get('marketData', `/intelligence/cross-asset/${encodeURIComponent(symbol)}`, {
+      params: asset ? { asset } : undefined,
+    });
+  }
+
+  @Get('intelligence/fno/:symbol')
+  fnoIntelligence(@Param('symbol') symbol: string): Promise<unknown> {
+    return this.proxy.get('marketData', `/intelligence/fno/${encodeURIComponent(symbol)}`);
+  }
+
+  @Post('intelligence/global-events')
+  globalEventIntelligence(@Body() body: unknown): Promise<unknown> {
+    return this.proxy.post('marketData', '/intelligence/global-events', body);
   }
 
   // ---------------------------------------------------------------- signals
@@ -831,6 +922,236 @@ export class ApiController {
       {},
       { headers: identityHeaders(request?.user) },
     );
+  }
+
+  @Post('agent/intelligence-batches')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentCreateIntelligenceBatch(
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/intelligence-batches', body, {
+      headers: identityHeaders(request.user),
+    });
+  }
+
+  @Get('agent/intelligence-batches')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentListIntelligenceBatches(
+    @Query('limit') limit: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const q = limit ? `?limit=${encodeURIComponent(limit)}` : '';
+    return this.proxy.get('traderAgent', `/agent/intelligence-batches${q}`, {
+      headers: identityHeaders(request.user),
+    });
+  }
+
+  @Get('agent/intelligence-batches/latest/research-report')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentGetLatestIntelligenceBatchResearchReport(
+    @Req() request: AuthenticatedRequest,
+    @Query('universe') universe?: string,
+  ): Promise<unknown> {
+    return this.proxy.get('traderAgent', `/agent/intelligence-batches/latest/research-report`, {
+      headers: identityHeaders(request.user),
+      params: { universe },
+    });
+  }
+
+  @Get('agent/intelligence-batches/:id/research-report')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentGetIntelligenceBatchResearchReport(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.get(
+      'traderAgent',
+      `/agent/intelligence-batches/${encodeURIComponent(id)}/research-report`,
+      { headers: identityHeaders(request.user) },
+    );
+  }
+
+  @Get('agent/intelligence-batches/:id/results/by-sector')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentGetIntelligenceBatchResultsBySector(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.get(
+      'traderAgent',
+      `/agent/intelligence-batches/${encodeURIComponent(id)}/results/by-sector`,
+      { headers: identityHeaders(request.user) },
+    );
+  }
+
+  @Get('agent/intelligence-batches/:id')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentGetIntelligenceBatch(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.get('traderAgent', `/agent/intelligence-batches/${encodeURIComponent(id)}`, {
+      headers: identityHeaders(request.user),
+    });
+  }
+
+  @Get('agent/intelligence-batches/:id/results')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentGetIntelligenceBatchResults(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('q') q?: string,
+    @Query('preset') preset?: string,
+    @Query('recommendation') recommendation?: string,
+    @Query('thesisState') thesisState?: string,
+    @Query('mlAvailable') mlAvailable?: string,
+    @Query('sort') sort?: string,
+    @Query('order') order?: string,
+    @Query('targetReturn') targetReturn?: string,
+    @Query('horizon') horizon?: string,
+    @Query('bullRunConfidence') bullRunConfidence?: string,
+    @Query('bullRunStage') bullRunStage?: string,
+    @Query('integrityStatus') integrityStatus?: string,
+    @Query('excludeIntegrity') excludeIntegrity?: string,
+    @Query('executionReady') executionReady?: string,
+    @Query('dataStatus') dataStatus?: string,
+    @Query('sector') sector?: string,
+  ): Promise<unknown> {
+    return this.proxy.get(
+      'traderAgent',
+      `/agent/intelligence-batches/${encodeURIComponent(id)}/results`,
+      {
+        headers: identityHeaders(request.user),
+        params: {
+          page,
+          pageSize,
+          q,
+          preset,
+          recommendation,
+          thesisState,
+          mlAvailable,
+          sort,
+          order,
+          targetReturn,
+          horizon,
+          bullRunConfidence,
+          bullRunStage,
+          integrityStatus,
+          excludeIntegrity,
+          executionReady,
+          dataStatus,
+          sector,
+        },
+      },
+    );
+  }
+
+  @Post('agent/intelligence-batches/:id/pause')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentPauseIntelligenceBatch(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post(
+      'traderAgent',
+      `/agent/intelligence-batches/${encodeURIComponent(id)}/pause`,
+      {},
+      { headers: identityHeaders(request.user) },
+    );
+  }
+
+  @Post('agent/intelligence-batches/:id/resume')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentResumeIntelligenceBatch(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post(
+      'traderAgent',
+      `/agent/intelligence-batches/${encodeURIComponent(id)}/resume`,
+      {},
+      { headers: identityHeaders(request.user) },
+    );
+  }
+
+  @Post('agent/intelligence-batches/:id/cancel')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentCancelIntelligenceBatch(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post(
+      'traderAgent',
+      `/agent/intelligence-batches/${encodeURIComponent(id)}/cancel`,
+      {},
+      { headers: identityHeaders(request.user) },
+    );
+  }
+
+  @Post('agent/intelligence-batches/:id/retry')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentRetryIntelligenceBatch(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post(
+      'traderAgent',
+      `/agent/intelligence-batches/${encodeURIComponent(id)}/retry`,
+      {},
+      { headers: identityHeaders(request.user) },
+    );
+  }
+
+  @Get('agent/continuous/events')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentContinuousEvents(
+    @Query('limit') limit: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const q = limit ? `?limit=${encodeURIComponent(limit)}` : '';
+    return this.proxy.get('traderAgent', `/agent/continuous/events${q}`, {
+      headers: identityHeaders(request.user),
+    });
+  }
+
+  @Get('agent/continuous/position-plans')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentPositionPlans(
+    @Query('limit') limit: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const q = limit ? `?limit=${encodeURIComponent(limit)}` : '';
+    return this.proxy.get('traderAgent', `/agent/continuous/position-plans${q}`, {
+      headers: identityHeaders(request.user),
+    });
+  }
+
+  @Post('agent/continuous/events')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentIngestContinuousEvent(
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/continuous/events', body, {
+      headers: identityHeaders(request.user),
+    });
   }
 
   @Get('agent/analysis/:symbol')

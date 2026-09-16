@@ -32,6 +32,11 @@ def run(
     load_macro_panel()
     print("[batch] models ready", flush=True)
     written = 0
+    failed = 0
+    print(
+        f"[ML][GENERATE] requestedSymbols={len(names)} generated=pending failed=pending",
+        flush=True,
+    )
     for i, symbol in enumerate(names):
         print(f"[batch] {i + 1}/{len(names)} scoring {symbol}", flush=True)
         try:
@@ -39,7 +44,12 @@ def run(
                 cache_prediction(prediction)
                 written += 1
         except Exception as error:  # noqa: BLE001
+            failed += 1
             print(f"[batch] skip {symbol}: {error}", flush=True)
+    print(
+        f"[ML][GENERATE] requestedSymbols={len(names)} generated={written} failed={failed}",
+        flush=True,
+    )
     persist_latest_file()
     print(f"[batch] wrote {written} predictions for {len(names)} symbols", flush=True)
     return written

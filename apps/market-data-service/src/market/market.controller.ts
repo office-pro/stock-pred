@@ -27,6 +27,8 @@ import { MarketService } from './market.service';
 import { FundamentalsStore } from './fundamentals-store';
 import { AltDataStore } from './alt-data-store';
 import { parseFullFlag } from './alt-data/ingest-freshness';
+import { B9B17IntelligenceService } from './b9-b17-intelligence.service';
+import type { RelationshipPairKind } from '@stockpred/shared-types';
 
 @Controller()
 export class MarketController {
@@ -34,6 +36,7 @@ export class MarketController {
     private readonly market: MarketService,
     private readonly fundamentals: FundamentalsStore,
     private readonly altData: AltDataStore,
+    private readonly b9b17: B9B17IntelligenceService,
   ) {}
 
   @Get('stocks')
@@ -259,6 +262,15 @@ export class MarketController {
     return this.market.getMlTiBridge();
   }
 
+  /**
+   * Refresh prediction cache from ML engine / file (observe-only).
+   * Batch finalize should call this so usable predictions are present when available.
+   */
+  @Post('market/predictions/refresh')
+  refreshMlPredictions(): ReturnType<MarketService['refreshMlPredictions']> {
+    return this.market.refreshMlPredictions();
+  }
+
   @Get('market/context')
   getMarketContext(): ReturnType<MarketService['getMarketContext']> {
     return this.market.getMarketContext();
@@ -293,5 +305,103 @@ export class MarketController {
     @Query('limit', new DefaultValuePipe(500), ParseIntPipe) limit = 500,
   ): Promise<Candle[]> {
     return this.market.getCandles(index.toUpperCase(), Timeframe.ONE_DAY, Math.min(limit, 5000));
+  }
+
+  // ---------------------------------------------------------- B9–B17 advisory
+
+  @Get('intelligence/sectors')
+  listIntelligenceSectors() {
+    return this.b9b17.listSectors();
+  }
+
+  @Get('intelligence/sectors/all')
+  allSectorsIntelligence(@Query('limit', new DefaultValuePipe(40), ParseIntPipe) limit = 40) {
+    return this.b9b17.allSectorsIntelligence(limit);
+  }
+
+  @Get('intelligence/sectors/:sector')
+  sectorIntelligence(@Param('sector') sector: string) {
+    return this.b9b17.sectorIntelligence(decodeURIComponent(sector));
+  }
+
+  @Get('intelligence/sectors/:sector/members')
+  sectorMembers(@Param('sector') sector: string) {
+    return this.b9b17.sectorMembers(decodeURIComponent(sector));
+  }
+
+  @Get('intelligence/bull-run/:symbol')
+  bullRunIntelligence(@Param('symbol') symbol: string) {
+    return this.b9b17.bullRun(symbol);
+  }
+
+  @Get('intelligence/relationships')
+  relationshipIntelligence(
+    @Query('left') left?: string,
+    @Query('right') right?: string,
+    @Query('kind') kind?: string,
+    @Query('windowDays', new DefaultValuePipe(60), ParseIntPipe) windowDays = 60,
+  ) {
+    if (!left?.trim() || !right?.trim()) {
+      throw new BadRequestException('left and right query params are required');
+    }
+    const pairKind = (kind?.trim() || 'STOCK_STOCK') as RelationshipPairKind;
+    return this.b9b17.relationship(left, right, pairKind, windowDays);
+  }
+
+  @Get('intelligence/inverse/:symbol')
+  inverseIntelligence(
+    @Param('symbol') symbol: string,
+    @Query('peers') peers?: string,
+    @Query('downsideThreshold') downsideThreshold?: string,
+  ) {
+    const peerList = peers
+      ? peers
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined;
+    const thr =
+      downsideThreshold != null && downsideThreshold !== '' ? Number(downsideThreshold) : -0.05;
+    return this.b9b17.inverseBeneficiaries(symbol, peerList, Number.isFinite(thr) ? thr : -0.05);
+  }
+
+  @Get('intelligence/historical/:symbol')
+  historicalIntelligence(
+    @Param('symbol') symbol: string,
+    @Query('dayReturnThreshold') dayReturnThreshold?: string,
+  ) {
+    const thr =
+      dayReturnThreshold != null && dayReturnThreshold !== '' ? Number(dayReturnThreshold) : -0.05;
+    return this.b9b17.historicalEvents(symbol, Number.isFinite(thr) ? thr : -0.05);
+  }
+
+  @Get('intelligence/cross-asset/:symbol')
+  crossAssetIntelligence(@Param('symbol') symbol: string, @Query('asset') asset?: string) {
+    return this.b9b17.crossAssetWithIndex(symbol, asset ?? 'NIFTY');
+  }
+
+  @Get('intelligence/fno/:symbol')
+  fnoIntelligence(@Param('symbol') symbol: string) {
+    return this.b9b17.fno(symbol);
+  }
+
+  @Post('intelligence/global-events')
+  globalEventIntelligence(
+    @Body()
+    body: {
+      eventType?: string;
+      headline?: string;
+      country?: string;
+      eventTime?: string;
+      source?: string;
+      importance?: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
+      actual?: string | number | null;
+      consensus?: string | number | null;
+      previous?: string | number | null;
+      surpriseDirection?: 'POSITIVE' | 'NEGATIVE' | 'MIXED' | 'UNKNOWN';
+      eventId?: string;
+    },
+  ) {
+    return this.b9b17.globalEvent(body ?? {});
   }
 }

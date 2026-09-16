@@ -158,7 +158,12 @@ def predict_symbol(symbol: str, history_days: int = 120) -> List[Dict[str, objec
 
     results: List[Dict[str, object]] = []
     for horizon in HORIZONS:
-        models = get_models(horizon)
+        try:
+            models = get_models(horizon)
+        except FileNotFoundError:
+            # Skip horizons without ACTIVE artifacts (e.g. NEXT_10D) — do not fail the symbol.
+            print(f"[ML][GENERATE] symbol={symbol} horizon={horizon} skip=NO_ACTIVE", flush=True)
+            continue
         trained_mode = model_price_mode(getattr(models, "metadata", None))
         if trained_mode is not None:
             assert_same_mode(

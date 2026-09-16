@@ -259,15 +259,30 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       `[market-data] bootstrapping ${universe.length} symbols in background via "${this.provider.name}" provider...`,
     );
 
-    // Load indices first (required for API queries)
+    // Load indices first (required for API queries).
+    // REQUIRED_HISTORY = existing compareToBenchmark windowDays (60) — one EOD bar is not enough for RS.
+    const REQUIRED_HISTORY = 60;
     await Promise.all(
       INDEX_CONFIG.map(async (index) => {
         const existing = this.indices.get(index.name);
-        if (existing && existing.dataSource !== 'simulated' && existing.daily.length > 0) {
+        const dailyLength = existing?.daily.length ?? 0;
+        const sufficient =
+          !!existing && existing.dataSource !== 'simulated' && dailyLength >= REQUIRED_HISTORY;
+        const action = sufficient ? 'SKIP' : 'REFRESH';
+        console.log(
+          `[INDEX][BOOTSTRAP] symbol=${index.name} existing=${!!existing} ` +
+            `dataSource=${existing?.dataSource ?? 'none'} dailyLength=${dailyLength} ` +
+            `requiredHistory=${REQUIRED_HISTORY} action=${action}`,
+        );
+        if (sufficient) {
           return;
         }
         let { candles, source } = await this.loadDaily(index.name, index.basePrice);
         if (candles.length === 0) {
+          console.log(
+            `[INDEX][BOOTSTRAP][RESULT] symbol=${index.name} dailyLength=0 dataSource=empty ` +
+              `oldest= none newest=none providerEmpty=true`,
+          );
           if (getUniverseMode() !== 'quick-start') {
             return;
           }
@@ -275,6 +290,8 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
           source = 'simulated';
         }
         const value = candles[candles.length - 1].close;
+        const oldest = candles[0]?.time;
+        const newest = candles[candles.length - 1]?.time;
         this.indices.set(index.name, {
           name: index.name,
           displayName: index.displayName,
@@ -283,6 +300,10 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
           previousClose: candles[candles.length - 2]?.close ?? value,
           dataSource: source,
         });
+        console.log(
+          `[INDEX][BOOTSTRAP][RESULT] symbol=${index.name} dailyLength=${candles.length} ` +
+            `dataSource=${source} oldest=${oldest ?? 'none'} newest=${newest ?? 'none'}`,
+        );
       }),
     );
     console.log(`[market-data] indices loaded (${INDEX_CONFIG.length})`);
@@ -338,6 +359,35 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
 
   getQuotes(): StockQuote[] {
     return [...this.stocks.values()].map((state) => this.toQuote(state));
+  }
+
+  /** In-memory daily candles only — no hydrate (B9–B17 advisory). */
+  peekDailyCandles(symbol: string, limit = 300): Candle[] {
+    const sym = symbol.toUpperCase();
+    const index = this.indices.get(sym);
+    if (index) return index.daily.slice(-limit);
+    const state = this.stocks.get(sym);
+    if (!state) return [];
+    return state.daily.slice(-limit);
+  }
+
+  /** Lightweight quote with scanner when available — no live refresh. */
+  peekQuote(symbol: string): StockQuote | null {
+    const state = this.stocks.get(symbol.toUpperCase());
+    if (!state) return null;
+    return this.toQuote(state, PredictionHorizon.NEXT_WEEK, true);
+  }
+
+  /** Sector membership from loaded universe (advisory). */
+  listSectorMembership(): Array<{ symbol: string; sector: string }> {
+    const out: Array<{ symbol: string; sector: string }> = [];
+    for (const state of this.stocks.values()) {
+      out.push({
+        symbol: state.info.symbol,
+        sector: state.info.sector || 'Unknown',
+      });
+    }
+    return out;
   }
 
   getQuotesPaginated(
@@ -550,14 +600,26 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
    */
   getUsableMlPrediction(symbol: string, horizon?: string): CachedMlPrediction | null {
     const upper = symbol.toUpperCase();
+    // Sample TCS (and explicit horizon lookups) for data-path debugging — never invent.
+    const logSample = upper === 'TCS' || upper === 'RELIANCE';
     if (horizon) {
-      return this.predictions.getUsable(upper, horizon) ?? null;
+      const { row } = this.predictions.getWithDiagnostics(upper, horizon, new Date(), logSample);
+      return row ?? null;
     }
-    return (
-      this.predictions.getUsable(upper, PredictionHorizon.NEXT_DAY) ??
-      this.predictions.getUsable(upper, PredictionHorizon.NEXT_WEEK) ??
-      null
+    const day = this.predictions.getWithDiagnostics(
+      upper,
+      PredictionHorizon.NEXT_DAY,
+      new Date(),
+      logSample,
     );
+    if (day.usable) return day.row ?? null;
+    const week = this.predictions.getWithDiagnostics(
+      upper,
+      PredictionHorizon.NEXT_WEEK,
+      new Date(),
+      logSample && !day.row,
+    );
+    return week.row ?? null;
   }
 
   getScanner(
@@ -1153,7 +1215,9 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       expectedMove: advisory.expectedMove,
       modelVersion: advisory.modelVersion,
       relativeStrengthNifty50: includeScanner
-        ? (this.scannerFor(state)?.relativeStrengthNifty50 ?? null)
+        ? (this.scannerFor(state)?.relativeStrengthNifty50 ??
+          this.niftyRs(state)?.relativeStrength ??
+          null)
         : (this.niftyRs(state)?.relativeStrength ?? null),
       scanner: includeScanner ? this.scannerFor(state) : null,
       manipulation: this.manipulationFor(state),
@@ -1199,6 +1263,32 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
         'Usable = fresh + drift-compatible for Trade Intelligence / advisory only. ' +
         'This bridge does not authorize trades (Risk → Portfolio → Policy → Gate).',
     };
+  }
+
+  /** Force-refresh ML prediction cache; returns bridge summary after refresh. */
+  async refreshMlPredictions(): Promise<{
+    loaded: number;
+    bridge: ReturnType<MarketService['getMlTiBridge']>;
+  }> {
+    const loaded = await this.predictions.refresh();
+    if (loaded > 0) this.advisoryMemo.clear();
+    const bridge = this.getMlTiBridge();
+    console.log(
+      `[ML-TI-BRIDGE] requested=cache_summary found=${bridge.total} usable=${bridge.usable} ` +
+        `unusable=${Math.max(0, bridge.total - bridge.usable)} noResponse=${loaded === 0 ? 'engine_and_file_empty' : 0}`,
+    );
+    const sample = bridge.usableSamples[0] ?? bridge.rejectedSamples[0];
+    if (sample) {
+      console.log(
+        `[ML-TI-BRIDGE][SAMPLE] symbol=${sample.symbol} predictionFound=true ` +
+          `usable=${bridge.usableSamples.length > 0} ` +
+          `rejectReason=${'rejectReason' in sample ? sample.rejectReason : 'none'}`,
+      );
+    } else {
+      console.log(`[ML-TI-BRIDGE][SAMPLE] symbol=none predictionFound=false usable=false`);
+    }
+    console.log(`[market-data] ML predictions refresh: loaded=${loaded}`);
+    return { loaded, bridge };
   }
 
   /** Explicit ingest / session contract for ops and consumers (data status only). */
@@ -1266,14 +1356,30 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
 
   private niftyRs(state: SymbolState) {
     const nifty = this.indices.get(MarketIndex.NIFTY_50);
-    if (!nifty || state.daily.length < 5) return null;
-    return compareToBenchmark(
+    const benchLen = nifty?.daily.length ?? 0;
+    if (!nifty || state.daily.length < 5) {
+      if (state.info.symbol === 'TCS' || state.info.symbol === 'RELIANCE') {
+        console.log(
+          `[RS][NIFTY_RS] symbol=${state.info.symbol} stockDaily=${state.daily.length} ` +
+            `benchmarkDailyLength=${benchLen} reason=${!nifty ? 'CACHE_MISSING' : 'INSUFFICIENT_HISTORY'}`,
+        );
+      }
+      return null;
+    }
+    const cmp = compareToBenchmark(
       state.info.symbol,
       MarketIndex.NIFTY_50,
       state.daily,
       nifty.daily,
       60,
     );
+    if ((state.info.symbol === 'TCS' || state.info.symbol === 'RELIANCE') && !cmp) {
+      console.log(
+        `[RS][NIFTY_RS] symbol=${state.info.symbol} stockDaily=${state.daily.length} ` +
+          `benchmarkDailyLength=${benchLen} reason=VALUE_NULL`,
+      );
+    }
+    return cmp;
   }
 
   private scannerFor(state: SymbolState) {

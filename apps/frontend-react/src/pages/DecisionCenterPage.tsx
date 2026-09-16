@@ -7,6 +7,9 @@ import { Link as RouterLink } from 'react-router-dom';
  */
 const STEPS = [
   'Intelligence',
+  'ML',
+  'ProfessionalTrader',
+  'TradePlan',
   'Recommendation',
   'evaluateTrade',
   'Risk',
@@ -34,6 +37,13 @@ export default function DecisionCenterPage(): JSX.Element {
         </Typography>{' '}
         calls the existing recommendation API. Block reasons (e.g. DATA_STALE) come from Risk / Gate
         responses — the UI never decides freshness authorization.
+      </Alert>
+
+      <Alert severity="warning" sx={{ mb: 2 }}>
+        B9–B17 sector / bull-run / F&amp;O / global-event labels are advisory context only. They
+        never sort opportunities, never set position size, and never bypass evaluateTrade → Risk →
+        Gate. APPROVE + PARTIAL TradePlan is advisory only — Not execution-ready until COMPLETE
+        geometry exists and the frozen auth chain passes.
       </Alert>
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
