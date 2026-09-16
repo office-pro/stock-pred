@@ -35,6 +35,14 @@ export interface BullRunV2EvidenceInput {
   bullRunSnapshot?: BullRunIntelligenceSnapshot | null;
   /** Existing B13 historical event outcomes if already assessed. */
   historical?: HistoricalEventIntelligence | null;
+  /**
+   * Optional max-forward returns from Historical Analogue Forward Distribution.
+   * When present with sufficient sample, used as additional evidence for P(≥T).
+   * Must come from historical-intelligence-engine — never invent.
+   */
+  analogueMaxForwardReturnsByHorizon?: Partial<
+    Record<BullRunCalendarHorizon, { sampleSize: number; maxForwardReturns: number[] }>
+  >;
   dataStatus?: BullRunDataStatus;
   dataAsOf?: number | string | null;
   targets?: number[];
@@ -302,6 +310,21 @@ export function buildBullRunV2FromEvidence(
   }
 
   const distributions = BULL_RUN_CALENDAR_HORIZONS.map((h) => buildDistribution(h, closes));
+  // Prefer analogue-fed samples when available and above MIN_SAMPLES (same empirical P(≥T)).
+  for (const dist of distributions) {
+    const alt = input.analogueMaxForwardReturnsByHorizon?.[dist.horizon];
+    if (
+      alt &&
+      alt.sampleSize >= MIN_SAMPLES &&
+      Array.isArray(alt.maxForwardReturns) &&
+      alt.maxForwardReturns.length >= MIN_SAMPLES
+    ) {
+      dist.status = 'AVAILABLE';
+      dist.sampleSize = alt.sampleSize;
+      dist.maxForwardReturns = [...alt.maxForwardReturns].sort((a, b) => a - b);
+      dist.reason = undefined;
+    }
+  }
   let cells: BullRunTargetHorizonCell[] = [];
   for (const dist of distributions) {
     cells = cells.concat(cellsFromDistribution(dist, targets, dataStatus, input.dataAsOf));
@@ -310,6 +333,9 @@ export function buildBullRunV2FromEvidence(
 
   const available = cells.filter((c) => c.status === 'AVAILABLE' && c.probability != null);
   const invalidation = [...(input.bullRunSnapshot?.invalidation ?? [])];
+  if (input.analogueMaxForwardReturnsByHorizon) {
+    evidence.push('Historical analogue forward distribution attached when sample-sufficient');
+  }
 
   return {
     status: available.length ? 'AVAILABLE' : 'UNAVAILABLE',

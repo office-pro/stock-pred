@@ -1296,6 +1296,29 @@ export const api = createApi({
       query: () => '/agent/soak/report',
       providesTags: ['AgentSoak', 'AgentOps'],
     }),
+    getHistoricalPredictionProof: builder.query<
+      {
+        schemaVersion?: string;
+        status?: string;
+        verdict?: 'IMPROVED' | 'NOT_IMPROVED' | 'INCONCLUSIVE';
+        totalScored?: number;
+        overallBaselineHitRate?: number | null;
+        overallEnhancedHitRate?: number | null;
+        overallBaselineNetHitRate?: number | null;
+        overallEnhancedNetHitRate?: number | null;
+        symbol?: string;
+        universe?: string;
+        priceReturnBasis?: string;
+        universeMembershipStatus?: string;
+        notes?: string[];
+        improvementClaim?: { status: string; message: string };
+        message?: string;
+      },
+      void
+    >({
+      query: () => '/agent/historical-prediction-proof',
+      providesTags: ['AgentSoak', 'AgentOps'],
+    }),
     setAgentKillSwitch: builder.mutation<unknown, { enabled: boolean; flatten?: boolean }>({
       query: (body) => ({ url: '/agent/kill-switch', method: 'POST', body }),
       invalidatesTags: ['AgentMode'],
@@ -1695,6 +1718,97 @@ export const api = createApi({
     >({
       query: () => '/intelligence/sectors',
     }),
+    getAllSectorsIntelligence: builder.query<
+      {
+        sectors: Array<{
+          status: string;
+          reason?: string;
+          sector: string;
+          return1d?: number | null;
+          return5d?: number | null;
+          return15d?: number | null;
+          return20d?: number | null;
+          return60d?: number | null;
+          return126d?: number | null;
+          return252d?: number | null;
+          breadthAdvancing?: number | null;
+          breadthDeclining?: number | null;
+          breadthUnchanged?: number | null;
+          relativeStrength?: number | null;
+          momentum?: number | null;
+          volatility?: number | null;
+          trendSeries?: number[];
+          medianPe?: number | null;
+          medianPb?: number | null;
+          state: string;
+          sessionDate?: string | null;
+          dataStatus?: string | null;
+          sessionCoverage?: {
+            live: number;
+            delayed: number;
+            priorSession: number;
+            closedMarket: number;
+            stale: number;
+            unavailable: number;
+            newestDataAt?: number | null;
+            oldestDataAt?: number | null;
+          };
+          leaders: Array<{
+            symbol: string;
+            return1d?: number | null;
+            return5d?: number | null;
+            return15d?: number | null;
+            return20d?: number | null;
+            return126d?: number | null;
+            return252d?: number | null;
+          }>;
+          laggards: Array<{
+            symbol: string;
+            return1d?: number | null;
+            return5d?: number | null;
+            return15d?: number | null;
+            return20d?: number | null;
+            return126d?: number | null;
+            return252d?: number | null;
+          }>;
+          coverageSymbols: number;
+          memberCount?: number;
+        }>;
+        coverage: number;
+        asOf?: string;
+        sessionDate?: string | null;
+        dataStatus?: string | null;
+        sessionCoverage?: {
+          live: number;
+          delayed: number;
+          priorSession: number;
+          closedMarket: number;
+          stale: number;
+          unavailable: number;
+          newestDataAt?: number | null;
+          oldestDataAt?: number | null;
+        };
+      },
+      { limit?: number } | void
+    >({
+      query: (params) => ({
+        url: '/intelligence/sectors/all',
+        params: { limit: params?.limit ?? 80 },
+      }),
+    }),
+    getSectorMedians: builder.query<
+      {
+        sectors: Array<{
+          sector: string;
+          medianPe: number | null;
+          medianPb: number | null;
+          peerCount: number;
+        }>;
+      },
+      void
+    >({
+      query: () => '/fundamentals/sector-medians',
+    }),
     getSectorIntelligence: builder.query<
       {
         status: string;
@@ -1702,6 +1816,19 @@ export const api = createApi({
         reason?: string;
         sector: string;
         coverageSymbols?: number;
+        return1d?: number | null;
+        return5d?: number | null;
+        return15d?: number | null;
+        return20d?: number | null;
+        return60d?: number | null;
+        return126d?: number | null;
+        return252d?: number | null;
+        breadthAdvancing?: number | null;
+        breadthDeclining?: number | null;
+        trendSeries?: number[];
+        leaders?: Array<{ symbol: string; return20d?: number | null }>;
+        laggards?: Array<{ symbol: string; return20d?: number | null }>;
+        memberCount?: number;
       },
       string
     >({
@@ -1715,10 +1842,67 @@ export const api = createApi({
         symbol: string;
         evidence?: string[];
         invalidation?: string[];
+        historicalIntelligence?: {
+          state?: { status?: string; asOfDate?: string | null };
+          analogues?: {
+            status?: string;
+            sampleSize?: number;
+            minSampleRequired?: number;
+            analogues?: Array<{
+              similarity?: number;
+              marketRegime?: string | null;
+              sectorState?: string | null;
+            }>;
+          };
+          outcomes?: {
+            status?: string;
+            sampleSize?: number;
+            outcomes?: Array<{
+              horizon?: string;
+              status?: string;
+              sampleSize?: number;
+              positiveRate?: number | null;
+              forwardReturnMedian?: number | null;
+              maxDrawdownMedian?: number | null;
+              mfeMedian?: number | null;
+            }>;
+          };
+          forwardDistribution3M?: {
+            status?: string;
+            sampleSize?: number;
+            medianReturn?: number | null;
+            meanReturn?: number | null;
+            quantiles?: {
+              p10?: number | null;
+              p25?: number | null;
+              p50?: number | null;
+              p75?: number | null;
+              p90?: number | null;
+            };
+            upsideRange?: { low: number; high: number } | null;
+            maxForwardReturns?: number[];
+            calibrationStatus?: string;
+          };
+        };
         v2?: {
           status?: string;
           dataStatus?: string;
+          dataAsOf?: number | string | null;
           executionReadyFromBullRun?: boolean;
+          provenance?: {
+            modelVersion?: string;
+            featureVersion?: string;
+            dataAsOf?: number | string | null;
+          };
+          distributions?: Array<{
+            status?: string;
+            horizon?: string;
+            sampleSize?: number;
+            maxForwardReturns?: number[];
+            meanReturn?: number | null;
+            medianReturn?: number | null;
+            upsideRange?: { low: number; high: number } | null;
+          }>;
           cells?: Array<{
             targetReturn: number;
             horizon: string;
@@ -1748,6 +1932,50 @@ export const api = createApi({
     >({
       query: (symbol) => `/intelligence/bull-run/${encodeURIComponent(symbol)}`,
     }),
+    getHistoricalAnalogues: builder.query<
+      {
+        state?: { status?: string; asOfDate?: string | null; corporateActionNote?: string };
+        analogues?: {
+          status?: string;
+          sampleSize?: number;
+          minSampleRequired?: number;
+          analogues?: Array<{
+            similarity?: number;
+            marketRegime?: string | null;
+            sectorState?: string | null;
+          }>;
+        };
+        outcomes?: {
+          status?: string;
+          sampleSize?: number;
+          outcomes?: Array<{
+            horizon?: string;
+            status?: string;
+            sampleSize?: number;
+            positiveRate?: number | null;
+            forwardReturnMedian?: number | null;
+            maxDrawdownMedian?: number | null;
+            mfeMedian?: number | null;
+          }>;
+        };
+        forwardDistribution3M?: {
+          status?: string;
+          sampleSize?: number;
+          medianReturn?: number | null;
+          quantiles?: {
+            p10?: number | null;
+            p50?: number | null;
+            p90?: number | null;
+          };
+          upsideRange?: { low: number; high: number } | null;
+          maxForwardReturns?: number[];
+          calibrationStatus?: string;
+        };
+      },
+      string
+    >({
+      query: (symbol) => `/intelligence/historical-analogues/${encodeURIComponent(symbol)}`,
+    }),
     getLatestBatchResearchReport: builder.query<
       {
         available: boolean;
@@ -1769,6 +1997,8 @@ export const api = createApi({
             state?: string;
             memberCount: number;
             bullCandidates: number;
+            leaders?: string[];
+            laggards?: string[];
           }>;
           sectorRotation?: {
             leading: string[];
@@ -1784,6 +2014,7 @@ export const api = createApi({
           bestOpportunities: Array<{
             symbol: string;
             rank: number;
+            companyName?: string;
             recommendation?: string;
             tradePlanExecutionReady?: boolean;
             targetReturn?: number;
@@ -1807,7 +2038,84 @@ export const api = createApi({
             tradePlanExpectedR?: number;
             tradePlanHorizon?: string;
             invalidationPrice?: number;
+            evidenceQuality?: string;
+            opportunityQuality?: string;
+            prob1W20?: number | null;
+            prob1M20?: number | null;
+            price?: number | null;
+            conflictSummary?: string;
+            supportingEvidence?: string[];
+            conflictingEvidence?: string[];
+            missingEvidence?: string[];
+            historicalStatus?: string;
+            historicalSampleSize?: number | null;
+            historicalNote?: string;
           }>;
+          opportunities?: Array<{
+            symbol: string;
+            rank: number;
+            companyName?: string;
+            recommendation?: string;
+            tradePlanExecutionReady?: boolean;
+            targetReturn?: number;
+            horizon?: string;
+            probability?: number | null;
+            confidence?: string;
+            sector?: string;
+            tradePlanStatus?: string;
+            isBestPick?: boolean;
+            integrityStatus?: string;
+            bullRunMatrix?: Array<{
+              horizon: string;
+              cells: Array<{
+                targetReturn: number;
+                status: string;
+                p?: number | null;
+                conf?: string;
+              }>;
+            }>;
+            thesis?: string;
+            tradePlanExpectedR?: number;
+            tradePlanHorizon?: string;
+            invalidationPrice?: number;
+            evidenceQuality?: string;
+            opportunityQuality?: string;
+            prob1W20?: number | null;
+            prob1M20?: number | null;
+            price?: number | null;
+            conflictSummary?: string;
+            supportingEvidence?: string[];
+            conflictingEvidence?: string[];
+            missingEvidence?: string[];
+            historicalStatus?: string;
+            historicalSampleSize?: number | null;
+            historicalNote?: string;
+          }>;
+          dashboardSummary?: {
+            total: number;
+            actionable: number;
+            watchlist: number;
+            avoid: number;
+            vsPrevious?: {
+              available: boolean;
+              priorBatchId?: string;
+              priorCompletedAt?: number;
+              deltaTotal?: number | null;
+              deltaActionable?: number | null;
+              deltaWatchlist?: number | null;
+              deltaAvoid?: number | null;
+              reason?: string;
+            };
+          };
+          recommendationDistribution?: {
+            approve: number;
+            wait: number;
+            reject: number;
+            unspecified: number;
+          };
+          expectedRCoverage?: { withExpectedR: number; missing: number };
+          sectorOpportunityCounts?: Array<{ sector: string; count: number }>;
+          expectedRHistogram?: Array<{ id: string; label: string; count: number }>;
           bestPicks?: Array<{
             symbol: string;
             rank: number;
@@ -1831,6 +2139,14 @@ export const api = createApi({
             tradePlanExpectedR?: number;
             tradePlanHorizon?: string;
             invalidationPrice?: number;
+            evidenceQuality?: string;
+            conflictSummary?: string;
+            supportingEvidence?: string[];
+            conflictingEvidence?: string[];
+            missingEvidence?: string[];
+            historicalStatus?: string;
+            historicalSampleSize?: number | null;
+            historicalNote?: string;
           }>;
           bullRunOpportunities?: Array<{
             symbol: string;
@@ -1852,6 +2168,7 @@ export const api = createApi({
             unknown: number;
           };
           calibrationNote?: string;
+          predictionImprovementNote?: string;
           dataQuality: {
             analyzed: number;
             incomplete: number;
@@ -1881,6 +2198,54 @@ export const api = createApi({
     >({
       query: (id) => `/agent/intelligence-batches/${encodeURIComponent(id)}/research-report`,
       providesTags: (_r, _e, id) => [{ type: 'IntelligenceBatches', id }],
+    }),
+    getBatchResearchReportCompare: builder.query<
+      {
+        available: boolean;
+        priorBatchId?: string;
+        priorCompletedAt?: number;
+        current?: {
+          total: number;
+          actionable: number;
+          watchlist: number;
+          avoid: number;
+        } | null;
+        prior?: {
+          total: number;
+          actionable: number;
+          watchlist: number;
+          avoid: number;
+        } | null;
+        deltas?: {
+          available: boolean;
+          priorBatchId?: string;
+          priorCompletedAt?: number;
+          deltaTotal?: number | null;
+          deltaActionable?: number | null;
+          deltaWatchlist?: number | null;
+          deltaAvoid?: number | null;
+          reason?: string;
+        };
+        reason?: string;
+        missingCapability?: string;
+      },
+      { id: string; priorId?: string }
+    >({
+      query: ({ id, priorId }) => ({
+        url: `/agent/intelligence-batches/${encodeURIComponent(id)}/research-report/compare`,
+        params: priorId ? { priorId } : undefined,
+      }),
+    }),
+    rebuildBatchResearchReport: builder.mutation<
+      { available: boolean; rebuilt?: boolean; report?: unknown; reason?: string },
+      string
+    >({
+      query: (id) => ({
+        url: `/agent/intelligence-batches/${encodeURIComponent(id)}/research-report/rebuild`,
+        method: 'POST',
+        body: {},
+      }),
+      invalidatesTags: (_r, _e, id) => [{ type: 'IntelligenceBatches', id }, 'IntelligenceBatches'],
     }),
     getIntelligenceBatchResultsBySector: builder.query<
       {
@@ -2231,6 +2596,7 @@ export const {
   useGetAgentCalibrationQuery,
   useGetAgentSoakCompareQuery,
   useGetAgentSoakReportQuery,
+  useGetHistoricalPredictionProofQuery,
   useSetAgentKillSwitchMutation,
   useGetAgentCapabilitiesQuery,
   useAckAgentCapabilityMutation,
@@ -2246,10 +2612,15 @@ export const {
   useGetIntelligenceBatchResultsQuery,
   useCreateIntelligenceBatchMutation,
   useGetIntelligenceSectorsQuery,
+  useGetAllSectorsIntelligenceQuery,
+  useGetSectorMediansQuery,
   useGetSectorIntelligenceQuery,
   useGetBullRunIntelligenceQuery,
+  useGetHistoricalAnaloguesQuery,
   useGetLatestBatchResearchReportQuery,
   useGetBatchResearchReportQuery,
+  useGetBatchResearchReportCompareQuery,
+  useRebuildBatchResearchReportMutation,
   useGetIntelligenceBatchResultsBySectorQuery,
   useGetFnoIntelligenceQuery,
   useGetCrossAssetIntelligenceQuery,

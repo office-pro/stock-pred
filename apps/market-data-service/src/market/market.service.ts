@@ -57,6 +57,8 @@ import {
   isUsableForLiveTrading,
   resolveActiveIngestMode,
   isNseCashSessionOpen,
+  computeCurrentSessionReturn1d,
+  sessionReturn1dToPercent,
 } from '@stockpred/shared-utils';
 import { CandleCache } from './candle-cache';
 import {
@@ -1176,6 +1178,22 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     }
     const price = state.lastTick?.price ?? today.close;
     const prev = state.previousClose > 0 ? state.previousClose : today.open;
+    const session1d = computeCurrentSessionReturn1d({
+      candles: state.daily,
+      lastPrice: state.lastTick?.price ?? today.close,
+      previousClose: state.previousClose > 0 ? state.previousClose : null,
+      quoteUpdatedAt: state.lastTick?.time ?? today.time,
+    });
+    const changePercent =
+      session1d.return1d != null
+        ? sessionReturn1dToPercent(session1d.return1d)
+        : prev > 0
+          ? round2(((price - prev) / prev) * 100)
+          : 0;
+    const change =
+      session1d.effectivePrice != null && session1d.referenceClose != null
+        ? round2(session1d.effectivePrice - session1d.referenceClose)
+        : round2(price - prev);
     const ml = this.predictions.getUsable(state.info.symbol, horizon);
     const niftyDaily = this.indices.get(MarketIndex.NIFTY_50)?.daily ?? [];
     const niftyStamp = niftyDaily[niftyDaily.length - 1]?.time ?? 0;
@@ -1197,12 +1215,12 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     return {
       ...state.info,
       price: round2(price),
-      change: round2(price - prev),
-      changePercent: prev > 0 ? round2(((price - prev) / prev) * 100) : 0,
+      change,
+      changePercent,
       volume: today.volume,
       dayHigh: today.high,
       dayLow: today.low,
-      previousClose: prev,
+      previousClose: session1d.referenceClose ?? prev,
       indicators: state.indicators,
       dataSource: state.dataSource,
       suggestion: advisory.action,

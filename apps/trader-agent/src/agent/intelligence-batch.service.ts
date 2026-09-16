@@ -43,6 +43,7 @@ import {
   resolveBatchCanonicalIdentity,
   queryIntelligenceBatchResultsPage,
   buildBatchResearchReport,
+  compareBatchResearchReports,
   diagnoseMlForBatch,
   diagnoseRsForBatch,
   rollupOmitReasons,
@@ -59,6 +60,7 @@ import {
   writeIntelligenceBatchResearchReport,
   readIntelligenceBatchResearchReport,
   readLatestIntelligenceBatchResearchReport,
+  findPriorSameUniverseResearchReport,
 } from './intelligence-batch-store';
 import { writeFocusUniverseBatch } from './focus-universe-store';
 
@@ -137,6 +139,100 @@ export class IntelligenceBatchService implements OnModuleInit {
       };
     }
     return { available: true as const, report };
+  }
+
+  /**
+   * KPI compare vs prior same-universe research-report (stored reports only).
+   * Optional priorId; default = previous COMPLETED/PARTIAL with a report.
+   */
+  compareResearchReport(batchId: string, priorId?: string) {
+    const currentWrap = this.getResearchReport(batchId);
+    if (!currentWrap.available || !('report' in currentWrap) || !currentWrap.report) {
+      return {
+        available: false as const,
+        reason: 'CURRENT_REPORT_MISSING',
+        missingCapability: 'BatchResearchReport',
+      };
+    }
+    const current = currentWrap.report;
+    const prior = priorId?.trim()
+      ? readIntelligenceBatchResearchReport(priorId.trim())
+      : findPriorSameUniverseResearchReport(String(current.universe), batchId);
+    if (priorId?.trim() && prior && String(prior.universe) !== String(current.universe)) {
+      return {
+        available: false as const,
+        reason: 'NO_PRIOR_SAME_UNIVERSE',
+        current: current.dashboardSummary ?? null,
+        prior: null,
+        deltas: { available: false, reason: 'NO_PRIOR_SAME_UNIVERSE' },
+      };
+    }
+    const compared = compareBatchResearchReports(current, prior);
+    return compared;
+  }
+
+  /**
+   * Rebuild research-report from stored results + prior report (no re-rank).
+   * Optional MDS sector snapshot when available.
+   */
+  async rebuildResearchReport(batchId: string) {
+    const batch = this.get(batchId);
+    if (batch.status !== 'COMPLETED' && batch.status !== 'PARTIAL') {
+      throw new BadRequestException(
+        `Research report rebuild requires COMPLETED or PARTIAL batch (got ${batch.status})`,
+      );
+    }
+    const results = readIntelligenceBatchResults(batchId);
+    if (!results?.rankings?.length) {
+      throw new NotFoundException(
+        `Results for batch ${batchId} Not available — cannot rebuild report`,
+      );
+    }
+    const prior = findPriorSameUniverseResearchReport(String(batch.universe ?? 'CUSTOM'), batchId);
+    let marketContext:
+      | {
+          scannerRegime?: string;
+          breadthPercentAboveEma50?: number | null;
+        }
+      | undefined;
+    try {
+      marketContext = await this.agent.fetchTiMarketContextForIntelligenceBatch();
+    } catch {
+      marketContext = undefined;
+    }
+    let sectorLeadersBySector:
+      | Record<string, { leaders?: string[]; laggards?: string[] }>
+      | undefined;
+    try {
+      sectorLeadersBySector = await this.agent.fetchSectorLeadersSnapshotForIntelligenceBatch();
+    } catch {
+      sectorLeadersBySector = undefined;
+    }
+    const breadthPct = marketContext?.breadthPercentAboveEma50;
+    const marketBreadth =
+      breadthPct != null && Number.isFinite(breadthPct)
+        ? `${breadthPct.toFixed(1)}% above EMA50`
+        : null;
+    const report = buildBatchResearchReport({
+      batchId: batch.batchId,
+      completedAt: batch.completedAt ?? batch.updatedAt ?? results.generatedAt ?? Date.now(),
+      universe: String(batch.universe ?? 'CUSTOM'),
+      coverage: {
+        total: batch.progress?.total ?? results.rankings.length,
+        processed: results.rankings.length,
+        failed: batch.progress?.failed ?? 0,
+      },
+      rankings: results.rankings,
+      dataStatus:
+        (results.dataStatus as 'LIVE' | 'DELAYED' | 'STALE' | 'OFFLINE' | 'UNKNOWN') || 'UNKNOWN',
+      dataAsOf: results.dataAsOf,
+      marketRegime: marketContext?.scannerRegime ?? null,
+      marketBreadth,
+      priorReport: prior,
+      sectorLeadersBySector,
+    });
+    writeIntelligenceBatchResearchReport(report);
+    return { available: true as const, report, rebuilt: true as const };
   }
 
   /** Sector-first presentation grouping — does not change RankingContext. */
@@ -974,6 +1070,23 @@ export class IntelligenceBatchService implements OnModuleInit {
       writeIntelligenceBatchResults(resultsDoc);
 
       try {
+        const prior = findPriorSameUniverseResearchReport(
+          String(batch.universe ?? 'CUSTOM'),
+          batch.batchId,
+        );
+        const breadthPct = marketContextForRank?.breadthPercentAboveEma50;
+        const marketBreadth =
+          breadthPct != null && Number.isFinite(breadthPct)
+            ? `${breadthPct.toFixed(1)}% above EMA50`
+            : null;
+        let sectorLeadersBySector:
+          | Record<string, { leaders?: string[]; laggards?: string[] }>
+          | undefined;
+        try {
+          sectorLeadersBySector = await this.agent.fetchSectorLeadersSnapshotForIntelligenceBatch();
+        } catch {
+          sectorLeadersBySector = undefined;
+        }
         const report = buildBatchResearchReport({
           batchId: batch.batchId,
           completedAt: generatedAt,
@@ -988,6 +1101,9 @@ export class IntelligenceBatchService implements OnModuleInit {
             (dataStatus as 'LIVE' | 'DELAYED' | 'STALE' | 'OFFLINE' | 'UNKNOWN') || 'UNKNOWN',
           dataAsOf: resultsDoc.dataAsOf,
           marketRegime: marketContextForRank?.scannerRegime ?? null,
+          marketBreadth,
+          priorReport: prior,
+          sectorLeadersBySector,
         });
         writeIntelligenceBatchResearchReport(report);
       } catch (err) {

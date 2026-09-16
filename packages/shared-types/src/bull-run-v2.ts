@@ -182,6 +182,24 @@ export interface BatchResearchReportBestOpportunity {
   tradePlanExpectedR?: number;
   tradePlanHorizon?: string;
   invalidationPrice?: number;
+  /** Evidence validation — qualitative only; never EvidenceScore / ranking. */
+  evidenceQuality?: 'STRONG' | 'MIXED' | 'WEAK' | 'INSUFFICIENT' | 'UNKNOWN';
+  /** Passthrough from batch context when present (HIGH/MEDIUM/LOW). */
+  opportunityQuality?: string;
+  /** P(≥20% within 1W) — null when UNAVAILABLE; never fabricated 0. */
+  prob1W20?: number | null;
+  /** P(≥20% within 1M) — null when UNAVAILABLE; never fabricated 0. */
+  prob1M20?: number | null;
+  /** Batch snapshot price when finite — live quote preferred in UI. */
+  price?: number | null;
+  conflictSummary?: string;
+  supportingEvidence?: string[];
+  conflictingEvidence?: string[];
+  missingEvidence?: string[];
+  /** Historical analogues at batch finalize — often UNAVAILABLE without candle recompute. */
+  historicalStatus?: 'AVAILABLE' | 'UNAVAILABLE';
+  historicalSampleSize?: number | null;
+  historicalNote?: string;
 }
 
 export interface BatchResearchReportIntegritySummary {
@@ -189,6 +207,56 @@ export interface BatchResearchReportIntegritySummary {
   investigate: number;
   suspicious: number;
   unknown: number;
+}
+
+/**
+ * Prior same-universe batch KPI deltas — only when a prior research-report exists.
+ * Never invent percentages when unavailable.
+ */
+export interface BatchResearchReportVsPrevious {
+  available: boolean;
+  priorBatchId?: string;
+  priorCompletedAt?: number;
+  deltaTotal?: number | null;
+  deltaActionable?: number | null;
+  deltaWatchlist?: number | null;
+  deltaAvoid?: number | null;
+  /** e.g. NO_PRIOR_SAME_UNIVERSE | PRIOR_SUMMARY_MISSING */
+  reason?: string;
+}
+
+/** KPI strip for Research Reports Command Center (full rankings, not top-50). */
+export interface BatchResearchReportDashboardSummary {
+  total: number;
+  actionable: number;
+  watchlist: number;
+  avoid: number;
+  vsPrevious?: BatchResearchReportVsPrevious;
+}
+
+/** Honest coverage of finite tradePlanExpectedR on rankings. */
+export interface BatchResearchReportExpectedRCoverage {
+  withExpectedR: number;
+  missing: number;
+}
+
+export interface BatchResearchReportRecommendationDistribution {
+  approve: number;
+  wait: number;
+  reject: number;
+  /** Rows lacking APPROVE/WAIT/REJECT — never invent MONITOR. */
+  unspecified: number;
+}
+
+export interface BatchResearchReportSectorOpportunityCount {
+  sector: string;
+  count: number;
+}
+
+export interface BatchResearchReportExpectedRBin {
+  id: 'lt_neg1' | 'neg1_0' | '0_1' | '1_2' | 'gt_2';
+  label: string;
+  count: number;
 }
 
 export interface BatchResearchReportBullRunOpportunity {
@@ -250,11 +318,25 @@ export interface BatchResearchReport {
   bestOpportunities: BatchResearchReportBestOpportunity[];
   /** BEST_OPPORTUNITIES subset in RankingContext order (same ranks as bestOpportunities). */
   bestPicks?: BatchResearchReportBestOpportunity[];
+  /**
+   * Full RankingContext projection for Opportunities table (all processed ranks).
+   * Prefer this over bestOpportunities (top-50) for dashboard KPIs/table.
+   */
+  opportunities?: BatchResearchReportBestOpportunity[];
+  /** Full-batch KPI strip — counts over all rankings. */
+  dashboardSummary?: BatchResearchReportDashboardSummary;
+  recommendationDistribution?: BatchResearchReportRecommendationDistribution;
+  sectorOpportunityCounts?: BatchResearchReportSectorOpportunityCount[];
+  expectedRHistogram?: BatchResearchReportExpectedRBin[];
+  /** Rows with finite tradePlanExpectedR vs missing — never invent histogram bins. */
+  expectedRCoverage?: BatchResearchReportExpectedRCoverage;
   /** Rows with AVAILABLE bull-run cells for Opportunities section (not FE-ranked). */
   bullRunOpportunities?: BatchResearchReportBullRunOpportunity[];
   integritySummary?: BatchResearchReportIntegritySummary;
   /** Honest calibration note — Bull-Run cell calibration is not populated in-engine. */
   calibrationNote?: string;
+  /** Comparative improvement vs prior prediction engine — never assume PASS. */
+  predictionImprovementNote?: string;
   dataQuality: BatchResearchReportDataQuality;
   dataAsOf?: number | string | null;
   dataStatus?: BullRunDataStatus;

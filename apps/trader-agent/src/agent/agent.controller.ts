@@ -30,6 +30,11 @@ import type {
 import { AgentService } from './agent.service';
 import { ContinuousIntelligenceStore } from './continuous-intelligence-store';
 import { IntelligenceBatchService } from './intelligence-batch.service';
+import {
+  emptyHistoricalPredictionProofNote,
+  loadHistoricalPredictionProof,
+  runAndPersistHistoricalPredictionProof,
+} from './historical-prediction-proof-store';
 
 class SetModeDto {
   @IsIn(['RESEARCH', 'PAPER', 'LIVE'])
@@ -411,6 +416,19 @@ export class AgentController {
   @Get('intelligence-batches/latest/research-report')
   getLatestIntelligenceBatchResearchReport(@Query('universe') universe?: string) {
     return this.intelligenceBatches.getLatestResearchReport(universe);
+  }
+
+  @Get('intelligence-batches/:id/research-report/compare')
+  compareIntelligenceBatchResearchReport(
+    @Param('id') id: string,
+    @Query('priorId') priorId?: string,
+  ) {
+    return this.intelligenceBatches.compareResearchReport(id, priorId);
+  }
+
+  @Post('intelligence-batches/:id/research-report/rebuild')
+  rebuildIntelligenceBatchResearchReport(@Param('id') id: string) {
+    return this.intelligenceBatches.rebuildResearchReport(id);
   }
 
   @Get('intelligence-batches/:id/research-report')
@@ -805,5 +823,46 @@ export class AgentController {
   @Get('soak/report')
   getSoakReport(): import('@stockpred/shared-types').PaperSoakReport | null {
     return this.agent.getSoakController().buildReport();
+  }
+
+  /**
+   * Latest matched historical-prediction-proof artifact (measurement only).
+   * Never implies authorization or production readiness.
+   */
+  @Get('historical-prediction-proof')
+  getHistoricalPredictionProof():
+    | import('@stockpred/shared-utils').HistoricalPredictionProofReport
+    | ReturnType<typeof emptyHistoricalPredictionProofNote> {
+    const report = loadHistoricalPredictionProof();
+    return report ?? emptyHistoricalPredictionProofNote();
+  }
+
+  /**
+   * Run matched baseline vs analogue walk-forward on provided closes and persist.
+   * Body: { symbol, closes: number[], universe? }. Advisory only.
+   */
+  @Post('historical-prediction-proof')
+  runHistoricalPredictionProof(
+    @Body()
+    body: {
+      symbol?: string;
+      closes?: number[];
+      universe?: string;
+    },
+  ): import('@stockpred/shared-utils').HistoricalPredictionProofReport {
+    const symbol = String(body?.symbol ?? '').toUpperCase();
+    const closes = Array.isArray(body?.closes)
+      ? body.closes.filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
+      : [];
+    if (!symbol || closes.length < 80) {
+      throw new BadRequestException(
+        'symbol and closes (≥80 finite numbers) required for matched proof run',
+      );
+    }
+    return runAndPersistHistoricalPredictionProof({
+      symbol,
+      closes,
+      universe: body.universe,
+    });
   }
 }

@@ -133,6 +133,27 @@ export function readLatestIntelligenceBatchResearchReport(
   return null;
 }
 
+/**
+ * Previous COMPLETED/PARTIAL same-universe research report (excludes current batchId).
+ * Used for KPI vsPrevious / compare — never invents deltas.
+ */
+export function findPriorSameUniverseResearchReport(
+  universe: string,
+  excludeBatchId: string,
+): BatchResearchReport | null {
+  const batches = listIntelligenceBatches(50).filter(
+    (b) =>
+      (b.status === 'COMPLETED' || b.status === 'PARTIAL') &&
+      String(b.universe) === String(universe) &&
+      b.batchId !== excludeBatchId,
+  );
+  for (const b of batches) {
+    const report = readIntelligenceBatchResearchReport(b.batchId);
+    if (report) return report;
+  }
+  return null;
+}
+
 /** On boot: RUNNING/RESUMING → PAUSED so an operator (or resume) continues from checkpoint. */
 export function recoverInterruptedBatches(): IntelligenceBatch[] {
   const recovered: IntelligenceBatch[] = [];

@@ -116,6 +116,34 @@ export type IngestMode = 'LIVE_INGEST' | 'EOD_INGEST' | 'HISTORICAL_BACKFILL';
  */
 export type DataFreshnessStatus = 'LIVE' | 'DELAYED' | 'CLOSED_MARKET' | 'STALE' | 'UNKNOWN';
 
+/**
+ * Observed current-session 1D return status (not prediction horizon).
+ * PRIOR_SESSION = tip is a completed prior trading day (holiday/weekend/pre-open), not "today LIVE 0%".
+ */
+export type SessionReturn1dStatus =
+  | 'LIVE'
+  | 'DELAYED'
+  | 'CLOSED_MARKET'
+  | 'PRIOR_SESSION'
+  | 'STALE'
+  | 'UNAVAILABLE'
+  | 'UNKNOWN';
+
+export type SessionReturn1dSource = 'LIVE_LTP' | 'SESSION_CLOSE' | 'PRIOR_SESSION' | 'NONE';
+
+/** Canonical observed current-session 1D (fraction, not percent). */
+export interface CurrentSessionReturn1d {
+  return1d: number | null;
+  referenceClose: number | null;
+  effectivePrice: number | null;
+  sessionDate: string | null;
+  dataStatus: SessionReturn1dStatus;
+  source: SessionReturn1dSource;
+  dataAsOf: number | null;
+  receivedAt?: number | null;
+  analysisAt: number | string;
+}
+
 export type TradeSuggestion = 'BUY' | 'SELL' | 'HOLD';
 
 /** Actionable paper-trading levels derived from ML + ATR. */

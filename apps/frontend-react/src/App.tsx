@@ -21,6 +21,7 @@ import HomePage from './pages/HomePage';
 import LiveMonitorPage from './pages/LiveMonitorPage';
 import LoginPage from './pages/LoginPage';
 import MarketOverviewPage from './pages/MarketOverviewPage';
+import IntelligenceValidationPage from './pages/IntelligenceValidationPage';
 import ResearchReportsPage from './pages/ResearchReportsPage';
 import SectorOverviewPage from './pages/SectorOverviewPage';
 import MlLabLayout from './pages/ml-lab/MlLabLayout';
@@ -70,6 +71,10 @@ export default function App(): JSX.Element {
         <Route path="/forbidden" element={<ForbiddenPage />} />
         <Route path="/" element={gated(AppView.DASHBOARD, <HomePage />)} />
         <Route path="/overview" element={gated(AppView.DASHBOARD, <MarketOverviewPage />)} />
+        <Route
+          path="/intelligence-validation"
+          element={gated(AppView.AGENT, <IntelligenceValidationPage />)}
+        />
         <Route path="/market" element={gated(AppView.DASHBOARD, <DashboardPage />)} />
         <Route path="/sectors" element={gated(AppView.DASHBOARD, <SectorOverviewPage />)} />
         <Route path="/prep" element={gated(AppView.AGENT, <PrepFocusPage />)} />

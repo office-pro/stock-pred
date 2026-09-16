@@ -3785,6 +3785,47 @@ export class AgentService implements OnModuleInit {
   }
 
   /**
+   * Batch-as-of sector leaders/laggards from MDS sectors/all (once per finalize/rebuild).
+   * Empty map when MDS unavailable — builder falls back to RankingContext within-sector ranks.
+   */
+  async fetchSectorLeadersSnapshotForIntelligenceBatch(): Promise<
+    Record<string, { leaders?: string[]; laggards?: string[] }>
+  > {
+    try {
+      const { data } = await axios.get<{
+        sectors?: Array<{
+          sector?: string;
+          leaders?: Array<{ symbol?: string } | string>;
+          laggards?: Array<{ symbol?: string } | string>;
+        }>;
+      }>(`${this.marketDataUrl}/intelligence/sectors/all`, {
+        timeout: 15_000,
+        validateStatus: (s) => s >= 200 && s < 500,
+      });
+      const out: Record<string, { leaders?: string[]; laggards?: string[] }> = {};
+      for (const s of data?.sectors ?? []) {
+        const key = String(s.sector ?? '')
+          .trim()
+          .toUpperCase();
+        if (!key) continue;
+        const toSyms = (arr: Array<{ symbol?: string } | string> | undefined) =>
+          (arr ?? [])
+            .map((x) => (typeof x === 'string' ? x : x?.symbol))
+            .filter((x): x is string => !!x && String(x).trim().length > 0)
+            .map((x) => String(x).toUpperCase());
+        const leaders = toSyms(s.leaders);
+        const laggards = toSyms(s.laggards);
+        if (leaders.length || laggards.length) {
+          out[key] = { leaders, laggards };
+        }
+      }
+      return out;
+    } catch {
+      return {};
+    }
+  }
+
+  /**
    * B17 continuous — assess global event, refresh only targeted symbols (cap 40).
    * Never full-universe rerun / never authorization.
    */

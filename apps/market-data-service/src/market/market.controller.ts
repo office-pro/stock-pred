@@ -375,6 +375,12 @@ export class MarketController {
     return this.b9b17.historicalEvents(symbol, Number.isFinite(thr) ? thr : -0.05);
   }
 
+  /** Historical analogues / forward distribution (A-wave) — not B13 shock events. */
+  @Get('intelligence/historical-analogues/:symbol')
+  historicalAnalogues(@Param('symbol') symbol: string) {
+    return this.b9b17.historicalAnalogues(symbol);
+  }
+
   @Get('intelligence/cross-asset/:symbol')
   crossAssetIntelligence(@Param('symbol') symbol: string, @Query('asset') asset?: string) {
     return this.b9b17.crossAssetWithIndex(symbol, asset ?? 'NIFTY');

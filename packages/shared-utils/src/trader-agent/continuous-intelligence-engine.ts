@@ -206,3 +206,43 @@ export function continuousExecutionEligibleHint(dataStatus: ContinuousDataStatus
   // Hint only — real eligibility remains with evaluateRisk / Gate.
   return dataStatus === 'LIVE';
 }
+
+/**
+ * Continuous targeted refresh — affected symbols only (no full-universe every tick).
+ * Advisory reassessment trigger; never authorize.
+ */
+export function planTargetedIntelligenceRefresh(input: {
+  eventId: string;
+  trigger: ContinuousTrigger;
+  affectedSymbols: string[];
+  affectedSectors?: string[];
+  dataStatus: ContinuousDataStatus;
+  message: string;
+  now?: number;
+}): {
+  mode: 'TARGETED_REFRESH';
+  symbols: string[];
+  sectors: string[];
+  event: ContinuousIntelligenceEvent;
+  note: string;
+} {
+  const symbols = [...new Set(input.affectedSymbols.map((s) => s.toUpperCase()))];
+  const sectors = [...new Set((input.affectedSectors ?? []).map((s) => s.toUpperCase()))];
+  const event = buildContinuousEvent({
+    eventId: input.eventId,
+    symbol: symbols[0] ?? 'MULTI',
+    priority: symbols.length > 20 ? 'P1' : 'P2',
+    trigger: input.trigger,
+    dataStatus: input.dataStatus,
+    message: input.message,
+    now: input.now,
+    dedupeKey: `targeted:${input.trigger}:${input.eventId}`,
+  });
+  return {
+    mode: 'TARGETED_REFRESH',
+    symbols,
+    sectors,
+    event,
+    note: 'Batch baseline + targeted refresh only — do not re-run full universe every tick. No authorization.',
+  };
+}

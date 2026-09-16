@@ -412,6 +412,14 @@ export class ApiController {
     });
   }
 
+  @Get('intelligence/historical-analogues/:symbol')
+  historicalAnalogues(@Param('symbol') symbol: string): Promise<unknown> {
+    return this.proxy.get(
+      'marketData',
+      `/intelligence/historical-analogues/${encodeURIComponent(symbol)}`,
+    );
+  }
+
   @Get('intelligence/cross-asset/:symbol')
   crossAssetIntelligence(
     @Param('symbol') symbol: string,
@@ -824,6 +832,20 @@ export class ApiController {
     return this.proxy.get('traderAgent', '/agent/soak/report');
   }
 
+  @Get('agent/historical-prediction-proof')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  historicalPredictionProof(): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/historical-prediction-proof');
+  }
+
+  @Post('agent/historical-prediction-proof')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  runHistoricalPredictionProof(@Body() body: unknown): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/historical-prediction-proof', body ?? {});
+  }
+
   @Post('agent/kill-switch')
   @UseGuards(JwtAuthGuard)
   agentKillSwitch(@Body() body: unknown): Promise<unknown> {
@@ -960,6 +982,36 @@ export class ApiController {
       headers: identityHeaders(request.user),
       params: { universe },
     });
+  }
+
+  @Get('agent/intelligence-batches/:id/research-report/compare')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentCompareIntelligenceBatchResearchReport(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+    @Query('priorId') priorId?: string,
+  ): Promise<unknown> {
+    return this.proxy.get(
+      'traderAgent',
+      `/agent/intelligence-batches/${encodeURIComponent(id)}/research-report/compare`,
+      { headers: identityHeaders(request.user), params: { priorId } },
+    );
+  }
+
+  @Post('agent/intelligence-batches/:id/research-report/rebuild')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentRebuildIntelligenceBatchResearchReport(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post(
+      'traderAgent',
+      `/agent/intelligence-batches/${encodeURIComponent(id)}/research-report/rebuild`,
+      {},
+      { headers: identityHeaders(request.user) },
+    );
   }
 
   @Get('agent/intelligence-batches/:id/research-report')
