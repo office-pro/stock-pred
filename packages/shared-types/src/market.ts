@@ -39,7 +39,8 @@ export interface Candle {
 /** A live market tick. */
 export interface Tick {
   symbol: string;
-  exchange: Exchange;
+  /** NSE/BSE use Exchange; crypto/commodity venues keep their venue id. */
+  exchange: Exchange | string;
   price: number;
   volume: number;
   time: number;
@@ -83,7 +84,8 @@ export interface IndicatorSnapshot {
 export interface StockInfo {
   symbol: string;
   name: string;
-  exchange: Exchange;
+  /** NSE/BSE use Exchange; other venues keep their frozen venue id (never coerce to NSE). */
+  exchange: Exchange | string;
   sector: string;
   indices: MarketIndex[];
 }
