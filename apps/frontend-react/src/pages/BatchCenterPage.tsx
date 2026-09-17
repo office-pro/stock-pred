@@ -418,9 +418,9 @@ export default function BatchCenterPage(): JSX.Element {
             onChange={(e) => setUniverse(e.target.value)}
             sx={{ minWidth: 160 }}
           >
-            {['NIFTY50', 'NIFTY100', 'NIFTY150', 'NIFTY500'].map((u) => (
+            {['NIFTY50', 'NIFTY100', 'NIFTY150', 'NIFTY500', 'NSE_ALL'].map((u) => (
               <MenuItem key={u} value={u}>
-                {u}
+                {u === 'NSE_ALL' ? 'NSE All' : u}
               </MenuItem>
             ))}
           </TextField>
@@ -430,7 +430,9 @@ export default function BatchCenterPage(): JSX.Element {
             onClick={async () => {
               try {
                 setActionError(null);
-                const created = await createBatch({ universe }).unwrap();
+                const created = await createBatch({
+                  universe,
+                }).unwrap();
                 onSelect(created.batchId);
                 await refetchList();
               } catch (e: unknown) {
@@ -439,6 +441,9 @@ export default function BatchCenterPage(): JSX.Element {
             }}
           >
             Run batch
+          </Button>
+          <Button component={RouterLink} to="/batch/multi-asset" size="small">
+            Multi-Asset
           </Button>
           <Button component={RouterLink} to="/prep" size="small">
             Prep Focus

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import {
   AGENT_DISCLAIMER,
+  AppView,
   AgentAnalysis,
   AgentCapabilityRequest,
   AgentCapabilityStatus,
@@ -46,6 +47,8 @@ import {
   Timeframe,
   TradeDecision,
   TradeSide,
+  UserRole,
+  UserStatus,
   WaitRecommendation,
   StructuredThesis,
   ExitRecommendation,
@@ -97,6 +100,7 @@ import {
   evaluatePortfolio,
   evaluateRisk,
   evaluateTrade,
+  mergeExecutionIdentityHeaders,
   buildP7BreakerMetrics,
   emptyP7RecoveryStore,
   evaluateP7BreakerSystem,
@@ -1100,25 +1104,31 @@ export class AgentService implements OnModuleInit {
   async fetchCachedQuotesMap(limit = 5000): Promise<Map<string, StockQuote>> {
     const map = new Map<string, StockQuote>();
     const pageSize = 500;
-    let page = 1;
-    let fetched = 0;
-    while (fetched < limit) {
-      const take = Math.min(pageSize, limit - fetched);
-      try {
-        const { data } = await axios.get<{ data: StockQuote[] }>(`${this.marketDataUrl}/stocks`, {
-          params: { page, limit: take, sort: 'symbol' },
-          timeout: 30_000,
-        });
-        const rows = data.data ?? [];
-        if (rows.length === 0) break;
-        for (const q of rows) {
-          if (q?.symbol) map.set(q.symbol.toUpperCase(), q);
+    const exchanges: Array<string | undefined> = [undefined, 'CRYPTO'];
+    for (const exchange of exchanges) {
+      let page = 1;
+      let fetched = 0;
+      while (fetched < limit) {
+        const take = Math.min(pageSize, limit - fetched);
+        try {
+          const { data } = await axios.get<{ data: StockQuote[] }>(`${this.marketDataUrl}/stocks`, {
+            params: { page, limit: take, sort: 'symbol', ...(exchange ? { exchange } : {}) },
+            timeout: 30_000,
+          });
+          const rows = data.data ?? [];
+          if (rows.length === 0) break;
+          for (const q of rows) {
+            if (q?.symbol) {
+              map.set(q.symbol, q);
+              map.set(q.symbol.toUpperCase(), q);
+            }
+          }
+          fetched += rows.length;
+          if (rows.length < take) break;
+          page += 1;
+        } catch {
+          break;
         }
-        fetched += rows.length;
-        if (rows.length < take) break;
-        page += 1;
-      } catch {
-        break;
       }
     }
     return map;
@@ -2029,7 +2039,7 @@ export class AgentService implements OnModuleInit {
     userId?: string,
     quantityOverride?: number,
     brandId?: string,
-    opts?: { autonomous?: boolean },
+    opts?: { autonomous?: boolean; userRole?: string; views?: string[]; status?: string },
   ): Promise<{
     recommendation: AgentRecommendation;
     trade: unknown;
@@ -2323,10 +2333,15 @@ export class AgentService implements OnModuleInit {
           soakRunId: this.soakController?.getActiveRunId(),
         },
         {
-          headers: {
-            ...(userId ? { 'x-user-id': userId } : {}),
-            ...(brandId ? { 'x-brand-id': brandId } : {}),
-          },
+          headers: mergeExecutionIdentityHeaders('trader-agent', {
+            sub: userId,
+            role: (opts?.userRole as UserRole) || UserRole.USER,
+            brandId: brandId ?? null,
+            views: (opts?.views as AppView[] | undefined)?.length
+              ? (opts.views as AppView[])
+              : [AppView.AGENT],
+            status: (opts?.status as UserStatus) || UserStatus.ACTIVE,
+          }),
           timeout: 30_000,
         },
       );
@@ -3773,14 +3788,45 @@ export class AgentService implements OnModuleInit {
   }
 
   async fetchSectorMembersForIntelligenceBatch(sector: string): Promise<string[]> {
+    return (await this.fetchSectorSnapshotForIntelligenceBatch(sector))?.symbols ?? [];
+  }
+
+  async fetchSectorSnapshotForIntelligenceBatch(sector: string): Promise<{
+    symbols: string[];
+    source: string;
+    universeVersion: string;
+    sectorVersion: string;
+    effectiveFrom: string;
+  } | null> {
     try {
-      const { data } = await axios.get<{ symbols?: string[] }>(
-        `${this.marketDataUrl}/intelligence/sectors/${encodeURIComponent(sector)}/members`,
-        { timeout: 10_000, validateStatus: (s) => s >= 200 && s < 500 },
-      );
-      return Array.isArray(data?.symbols) ? data.symbols.map((s) => String(s).toUpperCase()) : [];
+      const { data } = await axios.get<{
+        symbols?: string[];
+        source?: string;
+        universeVersion?: string;
+        sectorVersion?: string;
+        effectiveFrom?: string;
+      }>(`${this.marketDataUrl}/intelligence/sectors/${encodeURIComponent(sector)}/members`, {
+        timeout: 10_000,
+        validateStatus: (s) => s >= 200 && s < 500,
+      });
+      if (
+        !Array.isArray(data?.symbols) ||
+        !data.source ||
+        !data.universeVersion ||
+        !data.sectorVersion ||
+        !data.effectiveFrom
+      ) {
+        return null;
+      }
+      return {
+        symbols: data.symbols.map((s) => String(s).toUpperCase()),
+        source: data.source,
+        universeVersion: data.universeVersion,
+        sectorVersion: data.sectorVersion,
+        effectiveFrom: data.effectiveFrom,
+      };
     } catch {
-      return [];
+      return null;
     }
   }
 

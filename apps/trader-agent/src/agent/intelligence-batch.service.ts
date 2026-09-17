@@ -5,6 +5,12 @@
  */
 
 import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import {
+  canonicalInstrumentExists,
+  resolveGatedCanonicalUniverse,
+  resolveNseAllMembership,
+  type CanonicalUniverseId,
+} from '@stockpred/database';
 import type {
   AgentAnalysis,
   CreateIntelligenceBatchRequest,
@@ -13,6 +19,9 @@ import type {
   IntelligenceBatchResultRow,
   StockQuote,
   TradeDecision,
+  MultiAssetReadiness,
+  UniverseCatalogEntry,
+  BatchDataSnapshot,
 } from '@stockpred/shared-types';
 import {
   assertB1ExecutableBatchRequest,
@@ -47,7 +56,27 @@ import {
   diagnoseMlForBatch,
   diagnoseRsForBatch,
   rollupOmitReasons,
-  DEFAULT_ALL_UNIVERSE_LIMIT,
+  resolveAssetAdapter,
+  resolveAdapterFromInstrumentRef,
+  adapterHintFromUniverse,
+  adapterHintFromInstrumentRef,
+  canonicalNiftySnapshot,
+  defaultAnalysisTimeframe,
+  defaultAnalysisPeriod,
+  defaultAnalysisResolution,
+  normalizeAnalysisPeriod,
+  normalizeAnalysisResolution,
+  parseAnalysisWindow,
+  universeRequiresManualInstruments,
+  hydrateBatchDataSnapshot,
+  quotesMapFromSnapshot,
+  instrumentDataBySymbol,
+  attachBatchInstrumentToIntelligenceSnapshot,
+  bindFrozenResultIdentity,
+  deriveBatchResultRecommendation,
+  isValidSnapshotRow,
+  quarantinedResultRow,
+  cloneInstrumentRef,
 } from '@stockpred/shared-utils';
 import { AgentService } from './agent.service';
 import {
@@ -58,11 +87,14 @@ import {
   writeIntelligenceBatch,
   writeIntelligenceBatchResults,
   writeIntelligenceBatchResearchReport,
+  writeBatchDataSnapshot,
+  readBatchDataSnapshot,
   readIntelligenceBatchResearchReport,
   readLatestIntelligenceBatchResearchReport,
   findPriorSameUniverseResearchReport,
 } from './intelligence-batch-store';
 import { writeFocusUniverseBatch } from './focus-universe-store';
+import { listUniverseCatalog } from './universe-catalog';
 
 type ControlFlags = { pauseRequested: boolean; cancelRequested: boolean };
 
@@ -88,6 +120,180 @@ export class IntelligenceBatchService implements OnModuleInit {
     }
   }
 
+  async universeCatalogWithAvailability(): Promise<UniverseCatalogEntry[]> {
+    const catalog = listUniverseCatalog();
+    let quotes = new Map<string, StockQuote>();
+    try {
+      quotes = await this.agent.fetchCachedQuotesMap(5000);
+    } catch {
+      // Runtime availability is explicitly missing; canonical membership remains available.
+    }
+    return catalog.map((entry) => {
+      const symbols = this.catalogSymbols(entry.universeId);
+      const capability = resolveAssetAdapter(symbols[0] ?? '', entry.adapterHint).capabilities();
+      if (!entry.supported || symbols.length === 0) return { ...entry, capability };
+      const quoteRows = symbols.map((symbol) => quotes.get(symbol));
+      const statuses = quoteRows.map((quote) => quote?.freshnessStatus ?? 'UNKNOWN');
+      const live = statuses.filter((status) => status === 'LIVE').length;
+      const delayed = statuses.filter((status) => status === 'DELAYED').length;
+      const stale = statuses.filter((status) => status === 'STALE').length;
+      const historical = statuses.filter((status) => status === 'CLOSED_MARKET').length;
+      const available = quoteRows.filter(Boolean).length;
+      const latest = symbols.reduce(
+        (max, symbol) => Math.max(max, quotes.get(symbol)?.updatedAt ?? 0),
+        0,
+      );
+      const coverageCount = (state: string): number | null => {
+        if (state === 'UNAVAILABLE') return 0;
+        if (state === 'AVAILABLE') return symbols.length;
+        return null;
+      };
+      const dataStatus =
+        available === 0
+          ? 'MISSING'
+          : stale > 0 || available < symbols.length
+            ? 'STALE'
+            : live > 0
+              ? 'LIVE'
+              : delayed > 0
+                ? 'DELAYED'
+                : 'HISTORICAL';
+      return {
+        ...entry,
+        capability,
+        universeProvider: entry.universeProvider,
+        dataStatus,
+        availability: {
+          totalEligible: symbols.length,
+          marketDataAvailable: available,
+          live,
+          delayed,
+          stale,
+          historical,
+          missing: symbols.length - available,
+          historicalCandlesAvailable: coverageCount(capability.historicalCandles),
+          historicalAnaloguesAvailable: coverageCount(capability.historicalAnalogues),
+          bullRunAvailable: coverageCount(capability.bullRun),
+          dataAsOf: latest || null,
+          dataStatus,
+          source: 'MDS quote intersection with immutable canonical membership',
+          universeProvider: entry.universeProvider,
+        },
+      };
+    });
+  }
+
+  async universeReadiness(universe: string): Promise<MultiAssetReadiness> {
+    const catalog = await this.universeCatalogWithAvailability();
+    const entry = catalog.find(
+      (candidate) => candidate.universeId === universe.trim().toUpperCase(),
+    );
+    if (!entry) throw new BadRequestException(`Unknown universe: ${universe}`);
+    const available = entry.availability?.marketDataAvailable ?? 0;
+    const total = entry.availability?.totalEligible ?? entry.instrumentCount ?? 0;
+    const marketDataState =
+      total === 0 || available === 0 ? 'UNAVAILABLE' : available < total ? 'PARTIAL' : 'AVAILABLE';
+    const capability = entry.capability;
+    return {
+      universe: entry,
+      generatedAt: Date.now(),
+      dataSources: [
+        {
+          id: 'canonical-membership',
+          label: 'Universe membership',
+          capability: 'universe',
+          capabilityState: entry.supported ? 'AVAILABLE' : 'UNAVAILABLE',
+          dataStatus: 'UNKNOWN',
+          provider: 'canonical-universe-registry',
+          source: entry.membershipSource,
+          authorityRole: 'PRIMARY',
+          fallbackUsed: false,
+          productionCertified: entry.validationStatus === 'COMPLETE',
+          runtimeHealthy: entry.supported,
+          reasonCode: entry.reasonCode,
+          reason: entry.reason,
+        },
+        {
+          id: 'market-data',
+          label: 'Market data availability',
+          capability: 'marketData',
+          capabilityState: marketDataState,
+          dataStatus: entry.dataStatus ?? 'UNKNOWN',
+          source: entry.availability?.source,
+          dataAsOf: entry.availability?.dataAsOf,
+          fallbackUsed: false,
+          productionCertified: false,
+          runtimeHealthy: available > 0,
+          reasonCode: available === 0 ? 'NO_PROVIDER' : undefined,
+          reason:
+            available === 0
+              ? 'No real MDS records intersect the selected canonical membership.'
+              : `${available} of ${total} eligible instruments have MDS records.`,
+        },
+        {
+          id: 'historical-candles',
+          label: 'Historical candles',
+          capability: 'historicalCandles',
+          capabilityState: capability?.historicalCandles ?? 'UNAVAILABLE',
+          dataStatus: 'UNKNOWN',
+          productionCertified: false,
+          reason: 'Adapter capability is declared; universe-wide runtime health is not measured.',
+        },
+        {
+          id: 'fundamentals',
+          label: 'Fundamentals',
+          capability: 'fundamentals',
+          capabilityState: capability?.fundamentals ?? 'UNAVAILABLE',
+          dataStatus: 'UNKNOWN',
+          productionCertified: false,
+          reason: 'Runtime coverage is reported by completed batch capability coverage.',
+        },
+        {
+          id: 'news',
+          label: 'News',
+          capability: 'news',
+          capabilityState: capability?.catalyst ?? 'UNAVAILABLE',
+          dataStatus: 'UNKNOWN',
+          productionCertified: false,
+          reason: 'Runtime coverage is reported by completed batch capability coverage.',
+        },
+      ],
+    };
+  }
+
+  private catalogSymbols(universe: IntelligenceBatch['universe']): string[] {
+    if (
+      universe === 'NIFTY50' ||
+      universe === 'NIFTY100' ||
+      universe === 'NIFTY150' ||
+      universe === 'NIFTY500'
+    ) {
+      return canonicalNiftySnapshot(universe).symbols;
+    }
+    if (universe === 'NSE_ALL') {
+      try {
+        return resolveNseAllMembership().symbols;
+      } catch {
+        return [];
+      }
+    }
+    if (
+      universe === 'US_SP500' ||
+      universe === 'US_ALL' ||
+      universe === 'CRYPTO_ALL' ||
+      universe === 'CRYPTO_SPOT_ALL' ||
+      universe === 'CRYPTO_FUTURES_ALL' ||
+      universe === 'COMMODITY_ALL' ||
+      universe === 'FUTURES_ALL' ||
+      universe === 'MCX_FUTURES_ALL' ||
+      universe === 'CME_FUTURES_ALL' ||
+      universe === 'FOREX_ALL'
+    ) {
+      return resolveGatedCanonicalUniverse(universe).symbols ?? [];
+    }
+    return [];
+  }
+
   list(limit = 50): IntelligenceBatch[] {
     return listIntelligenceBatches(limit);
   }
@@ -95,7 +301,14 @@ export class IntelligenceBatchService implements OnModuleInit {
   get(batchId: string): IntelligenceBatch {
     const batch = readIntelligenceBatch(batchId);
     if (!batch) throw new NotFoundException(`Batch ${batchId} not found`);
-    return batch;
+    const snapshot = readBatchDataSnapshot(batchId);
+    return {
+      ...batch,
+      capabilityCoverage: snapshot?.capabilityCoverage ?? batch.capabilityCoverage,
+      identityCounts: snapshot?.identityCounts ?? batch.identityCounts,
+      snapshotProvider: snapshot?.provider ?? batch.snapshotProvider,
+      snapshotDataAsOf: snapshot?.dataAsOf ?? batch.snapshotDataAsOf,
+    };
   }
 
   getResults(
@@ -217,10 +430,17 @@ export class IntelligenceBatchService implements OnModuleInit {
       batchId: batch.batchId,
       completedAt: batch.completedAt ?? batch.updatedAt ?? results.generatedAt ?? Date.now(),
       universe: String(batch.universe ?? 'CUSTOM'),
+      universeVersion: batch.universeVersion,
+      membershipSource: batch.membershipSource,
+      adapterVersion: batch.adapterVersion,
+      providerSelection: batch.providerSelection,
+      analysisTimeframe: batch.analysisTimeframe,
+      predictionHorizon: batch.predictionHorizon,
+      sessionContext: batch.sessionContext,
       coverage: {
-        total: batch.progress?.total ?? results.rankings.length,
+        total: batch.eligibleCount ?? batch.progress?.total ?? results.rankings.length,
         processed: results.rankings.length,
-        failed: batch.progress?.failed ?? 0,
+        failed: (batch.tasks ?? []).filter((t) => t.status === 'FAILED').length,
       },
       rankings: results.rankings,
       dataStatus:
@@ -296,12 +516,176 @@ export class IntelligenceBatchService implements OnModuleInit {
       throw err;
     }
 
-    let allSymbols: string[] | undefined;
-    if (req.universe === 'ALL') {
-      const map = await this.agent.fetchCachedQuotesMap(
-        Math.min(req.allLimit ?? DEFAULT_ALL_UNIVERSE_LIMIT, 5000),
+    const manualUniverse = universeRequiresManualInstruments(req.universe);
+    const universeScanKind =
+      req.universe === 'SECTOR'
+        ? 'SECTOR'
+        : req.universe === 'SINGLE_STOCK'
+          ? 'SINGLE_STOCK'
+          : req.universe === 'US_SP500' || req.universe === 'US_ALL' || req.universe === 'US_CUSTOM'
+            ? 'US_SCAN'
+            : req.universe === 'CRYPTO_ALL' ||
+                req.universe === 'CRYPTO_SPOT_ALL' ||
+                req.universe === 'CRYPTO_FUTURES_ALL' ||
+                req.universe === 'CRYPTO_CUSTOM'
+              ? 'CRYPTO_SCAN'
+              : req.universe === 'COMMODITY_ALL' || req.universe === 'COMMODITIES_CUSTOM'
+                ? 'COMMODITIES_SCAN'
+                : req.universe === 'FUTURES_ALL' ||
+                    req.universe === 'MCX_FUTURES_ALL' ||
+                    req.universe === 'CME_FUTURES_ALL' ||
+                    req.universe === 'FUTURES_CUSTOM'
+                  ? 'FUTURES_SCAN'
+                  : req.universe === 'FOREX_ALL'
+                    ? 'FOREX_SCAN'
+                    : req.universe === 'CUSTOM'
+                      ? 'CUSTOM'
+                      : 'FULL_MARKET';
+    const inferredScanKind = req.scanKind ?? universeScanKind;
+    const strictScanKinds = new Set([
+      'SECTOR',
+      'SINGLE_STOCK',
+      'US_SCAN',
+      'CRYPTO_SCAN',
+      'COMMODITIES_SCAN',
+      'FUTURES_SCAN',
+      'FOREX_SCAN',
+      'CUSTOM',
+    ]);
+    if (strictScanKinds.has(universeScanKind) && inferredScanKind !== universeScanKind) {
+      throw new BadRequestException(
+        `Invalid scanKind ${inferredScanKind} for ${req.universe}; expected ${universeScanKind}`,
       );
-      allSymbols = [...map.keys()].sort();
+    }
+    const requestedInstruments = [
+      ...(req.instruments ?? []),
+      ...(req.instrument ? [req.instrument] : []),
+    ];
+    if (!manualUniverse && ((req.symbols?.length ?? 0) > 0 || requestedInstruments.length > 0)) {
+      throw new BadRequestException(
+        `BATCH_UNIVERSE_RULE:${req.universe} resolves canonical membership on the backend; symbols are forbidden`,
+      );
+    }
+    if (req.universe === 'CUSTOM' && requestedInstruments.length === 0) {
+      throw new BadRequestException('CUSTOM requires canonical instruments from instrument search');
+    }
+    if (req.universe === 'SINGLE_STOCK' && requestedInstruments.length !== 1) {
+      throw new BadRequestException('SINGLE_STOCK requires exactly one canonical instrument');
+    }
+    if (
+      (req.universe === 'CUSTOM' || req.universe === 'SINGLE_STOCK') &&
+      requestedInstruments.some((instrument) => !canonicalInstrumentExists(instrument))
+    ) {
+      throw new BadRequestException(
+        'CONTRACT_UNRESOLVED:custom instruments must match the canonical Instrument Registry',
+      );
+    }
+    if (req.allLimit != null) {
+      throw new BadRequestException(
+        'BATCH_UNIVERSE_RULE:allLimit is not accepted for canonical predefined universes',
+      );
+    }
+    if ((req.universe === 'SECTOR' || req.scanKind === 'SECTOR') && !req.sector?.trim()) {
+      throw new BadRequestException('SECTOR requires a backend-provided sector');
+    }
+    if (req.scanKind === 'INVERSE_SCAN' && req.inverseDownsideThreshold == null) {
+      throw new BadRequestException('INVERSE_SCAN requires inverseDownsideThreshold');
+    }
+    if (req.scanKind === 'GLOBAL_EVENT_SCAN' && !req.globalEventType?.trim()) {
+      throw new BadRequestException('GLOBAL_EVENT_SCAN requires globalEventType');
+    }
+    const requestedPeriod = normalizeAnalysisPeriod(
+      req.analysisPeriod ?? req.analysisTimeframe ?? defaultAnalysisPeriod(),
+    );
+    const requestedResolution = normalizeAnalysisResolution(
+      req.analysisResolution ?? defaultAnalysisResolution(),
+    );
+    let analysisWindow = req.analysisWindow;
+    if (requestedPeriod === 'CUSTOM') {
+      try {
+        analysisWindow = parseAnalysisWindow(req.analysisWindow);
+      } catch (error) {
+        throw new BadRequestException(error instanceof Error ? error.message : String(error));
+      }
+    } else {
+      analysisWindow = undefined;
+    }
+    const requestedTimeframe = requestedPeriod;
+    const requestedHorizon = req.predictionHorizon ?? '1M';
+    const createHint = requestedInstruments[0]
+      ? adapterHintFromInstrumentRef(requestedInstruments[0])
+      : adapterHintFromUniverse(req.universe);
+    if (createHint) {
+      try {
+        resolveAssetAdapter(requestedInstruments[0]?.symbol ?? '', createHint).resolveHorizon(
+          requestedHorizon,
+        );
+      } catch {
+        throw new BadRequestException(
+          `Unsupported predictionHorizon ${requestedHorizon} for ${req.universe}`,
+        );
+      }
+    }
+
+    let allSymbols: string[] | undefined;
+    let universeVersion: string | undefined;
+    let membershipSource: string | undefined;
+    let eligibleCount: number | undefined;
+    let sourceCount: number | undefined;
+
+    if (req.universe === 'ALL' || req.universe === 'NSE_ALL') {
+      // Canonical Universe Registry (equity-master / NSE listings) — NEVER MDS cache.
+      try {
+        const { symbols: membership, snapshot } = resolveNseAllMembership();
+        allSymbols = membership;
+        universeVersion = snapshot.version;
+        membershipSource = snapshot.source;
+        eligibleCount = snapshot.eligibleRecordCount;
+        sourceCount = snapshot.sourceCount;
+      } catch (err) {
+        throw new BadRequestException(
+          err instanceof Error
+            ? err.message
+            : 'NSE_ALL canonical membership unavailable — run npm run ingest:listings',
+        );
+      }
+    }
+
+    if (
+      req.universe === 'NIFTY50' ||
+      req.universe === 'NIFTY100' ||
+      req.universe === 'NIFTY150' ||
+      req.universe === 'NIFTY500'
+    ) {
+      const snapshot = canonicalNiftySnapshot(req.universe);
+      universeVersion = snapshot.version;
+      membershipSource = snapshot.membershipSource;
+      eligibleCount = snapshot.symbols.length;
+      sourceCount = snapshot.symbols.length;
+    }
+
+    const gatedId = req.universe as CanonicalUniverseId;
+    if (
+      req.universe === 'US_SP500' ||
+      req.universe === 'US_ALL' ||
+      req.universe === 'CRYPTO_ALL' ||
+      req.universe === 'CRYPTO_SPOT_ALL' ||
+      req.universe === 'CRYPTO_FUTURES_ALL' ||
+      req.universe === 'COMMODITY_ALL' ||
+      req.universe === 'FUTURES_ALL' ||
+      req.universe === 'MCX_FUTURES_ALL' ||
+      req.universe === 'CME_FUTURES_ALL' ||
+      req.universe === 'FOREX_ALL'
+    ) {
+      const gated = resolveGatedCanonicalUniverse(gatedId);
+      if (!gated.supported || !gated.symbols?.length) {
+        throw new BadRequestException(gated.detail ?? `UNSUPPORTED_UNIVERSE:${req.universe}`);
+      }
+      allSymbols = gated.symbols;
+      universeVersion = gated.snapshot?.version;
+      membershipSource = gated.snapshot?.source;
+      eligibleCount = gated.snapshot?.eligibleRecordCount;
+      sourceCount = gated.snapshot?.sourceCount;
     }
 
     let sectorSymbols: string[] | undefined;
@@ -309,17 +693,27 @@ export class IntelligenceBatchService implements OnModuleInit {
       if (!req.sector?.trim()) {
         throw new BadRequestException('SECTOR universe requires sector');
       }
-      sectorSymbols = await this.agent.fetchSectorMembersForIntelligenceBatch(req.sector.trim());
-      if (sectorSymbols.length === 0) {
+      const sectorSnapshot = await this.agent.fetchSectorSnapshotForIntelligenceBatch(
+        req.sector.trim(),
+      );
+      sectorSymbols = sectorSnapshot?.symbols;
+      if (!sectorSnapshot || sectorSnapshot.symbols.length === 0) {
         throw new BadRequestException(`No members found for sector ${req.sector.trim()}`);
       }
+      universeVersion = sectorSnapshot.sectorVersion;
+      membershipSource = sectorSnapshot.source;
+      eligibleCount = sectorSnapshot.symbols.length;
+      sourceCount = sectorSnapshot.symbols.length;
     }
 
     let symbols: string[];
     try {
       symbols = resolveIntelligenceUniverse({
         universe: req.universe,
-        customSymbols: req.symbols,
+        customSymbols:
+          requestedInstruments.length > 0
+            ? requestedInstruments.map((instrument) => instrument.symbol)
+            : req.symbols,
         allSymbols,
         allLimit: req.allLimit,
         sectorSymbols,
@@ -340,11 +734,45 @@ export class IntelligenceBatchService implements OnModuleInit {
       batchType,
       mode,
       symbols,
+      instrumentSet:
+        requestedInstruments.length > 0
+          ? requestedInstruments.map((instrument) => ({ ...instrument }))
+          : symbols.map((symbol) => {
+              const hint = adapterHintFromUniverse(req.universe);
+              if (!hint) {
+                throw new BadRequestException(
+                  `No adapter mapping for universe ${req.universe}; frozen InstrumentRef required`,
+                );
+              }
+              return resolveAssetAdapter(symbol, hint).resolveInstrument(symbol);
+            }),
       now,
-      scanKind: req.scanKind ?? 'FULL_MARKET',
+      scanKind: inferredScanKind,
       sector: req.sector?.trim() || undefined,
       inverseDownsideThreshold: req.inverseDownsideThreshold,
       globalEventType: req.globalEventType?.trim() || undefined,
+      universeVersion,
+      membershipSource,
+      eligibleCount: eligibleCount ?? symbols.length,
+      sourceCount,
+      adapterVersion: 'asset-adapter.v1',
+      providerSelection: membershipSource ? 'canonical-universe-registry' : undefined,
+      analysisTimeframe: requestedTimeframe,
+      analysisPeriod: requestedPeriod,
+      analysisResolution: requestedResolution,
+      analysisWindow,
+      predictionHorizon: requestedHorizon,
+      sessionContext: (() => {
+        const sessionRef = requestedInstruments[0];
+        const sessionHint = sessionRef
+          ? adapterHintFromInstrumentRef(sessionRef)
+          : adapterHintFromUniverse(req.universe);
+        if (!sessionHint) return undefined;
+        return resolveAssetAdapter(
+          sessionRef?.symbol ?? symbols[0] ?? '',
+          sessionHint,
+        ).temporalContext(now).sessionContextId;
+      })(),
     });
     batch.status = 'QUEUED';
     batch.updatedAt = now;
@@ -456,13 +884,71 @@ export class IntelligenceBatchService implements OnModuleInit {
         status: 'RUNNING',
         startedAt: batch.startedAt ?? now,
         updatedAt: now,
+        lifecycleStage: 'DATA_PREPARING',
       };
       writeIntelligenceBatch(batch);
 
-      const quotesMap = await this.agent.fetchCachedQuotesMap(5000);
+      const snapshot = await this.prepareBatchDataSnapshot(batch);
+      batch = this.get(batchId);
+      if (snapshot.coverage.readiness === 'NOT_READY') {
+        const failedAt = Date.now();
+        writeIntelligenceBatch({
+          ...batch,
+          status: 'FAILED',
+          dataReadiness: 'NOT_READY',
+          dataReadinessReport: snapshot.coverage,
+          lifecycleStage: 'DATA_VALIDATED',
+          error: snapshot.coverage.reasons.join('; ') || 'NOT_READY',
+          updatedAt: failedAt,
+          completedAt: failedAt,
+        });
+        return;
+      }
+
+      const quotesMap = quotesMapFromSnapshot(snapshot);
+      const bySymbol = instrumentDataBySymbol(snapshot);
+      const skipAt = Date.now();
+      const tasks = batch.tasks.map((t) => {
+        const row = bySymbol.get(t.symbol);
+        if (t.status !== 'PENDING') return t;
+        if (!row || !isValidSnapshotRow(row)) {
+          const bind = bindFrozenResultIdentity({
+            frozen: row,
+            universeId: batch.universe,
+            taskSymbol: t.symbol,
+          });
+          return {
+            ...t,
+            status: 'SKIPPED' as const,
+            completedAt: skipAt,
+            error: bind.reasonCode ?? 'IDENTITY_MISMATCH',
+          };
+        }
+        if (row.dataStatus === 'UNAVAILABLE' || row.dataStatus === 'FAILED') {
+          return {
+            ...t,
+            status: 'SKIPPED' as const,
+            completedAt: skipAt,
+            error: row.reasonCode ?? row.message,
+          };
+        }
+        return t;
+      });
+      batch = {
+        ...this.get(batchId),
+        tasks,
+        progress: computeProgress(tasks),
+        lifecycleStage: 'RUNNING_INTELLIGENCE',
+        dataReadiness: snapshot.coverage.readiness,
+        dataReadinessReport: snapshot.coverage,
+        dataSnapshotVersion: snapshot.dataSnapshotVersion,
+        updatedAt: skipAt,
+      };
+      writeIntelligenceBatch(batch);
+
       const concurrency = Math.max(1, this.agent.getAnalysisConcurrency());
       console.log(
-        `[intelligence-batch] ${batchId} RUNNING universe=${batch.universe} symbols=${batch.symbols.length} concurrency=${concurrency}`,
+        `[intelligence-batch] ${batchId} RUNNING universe=${batch.universe} symbols=${batch.symbols.length} concurrency=${concurrency} readiness=${snapshot.coverage.readiness}`,
       );
 
       while (true) {
@@ -504,14 +990,7 @@ export class IntelligenceBatchService implements OnModuleInit {
           if (latestFlags?.cancelRequested || latestFlags?.pauseRequested) {
             return;
           }
-          let quote = quotesMap.get(task.symbol);
-          if (!quote) {
-            const recovered = await this.agent.fetchQuoteForIntelligenceBatch(task.symbol);
-            if (recovered) {
-              quotesMap.set(task.symbol, recovered);
-              quote = recovered;
-            }
-          }
+          const quote = quotesMap.get(task.symbol);
           await this.processOneSymbol(batchId, task.symbol, quote);
         });
       }
@@ -536,6 +1015,59 @@ export class IntelligenceBatchService implements OnModuleInit {
     } finally {
       this.activeLoops.delete(batchId);
     }
+  }
+
+  private async prepareBatchDataSnapshot(batch: IntelligenceBatch): Promise<BatchDataSnapshot> {
+    writeIntelligenceBatch({
+      ...batch,
+      lifecycleStage: 'DATA_HYDRATING',
+      updatedAt: Date.now(),
+    });
+
+    const nseHint = adapterHintFromUniverse(batch.universe);
+    let mdsQuotes = new Map<string, StockQuote>();
+    if (nseHint === 'NSE_EQUITY' || nseHint === 'BSE_EQUITY') {
+      try {
+        mdsQuotes = await this.agent.fetchCachedQuotesMap(5000);
+      } catch {
+        /* NSE hydrate without MDS cache */
+      }
+    }
+
+    const instruments =
+      batch.instrumentSet && batch.instrumentSet.length > 0
+        ? batch.instrumentSet
+        : batch.symbols.map((symbol) => {
+            const hint = adapterHintFromUniverse(batch.universe);
+            if (!hint) {
+              throw new Error(
+                `No adapter mapping for universe ${batch.universe}; frozen InstrumentRef required`,
+              );
+            }
+            return resolveAssetAdapter(symbol, hint).resolveInstrument(symbol);
+          });
+
+    const { snapshot, report } = await hydrateBatchDataSnapshot({
+      batchId: batch.batchId,
+      universeId: batch.universe,
+      universeVersion: batch.universeVersion,
+      instruments,
+      eligible: batch.eligibleCount ?? instruments.length,
+      deps: {
+        fetchNseQuote: async (symbol) => mdsQuotes.get(symbol) ?? null,
+      },
+    });
+    writeBatchDataSnapshot(snapshot);
+    writeIntelligenceBatch({
+      ...this.get(batch.batchId),
+      lifecycleStage: 'DATA_VALIDATED',
+      dataSnapshotVersion: snapshot.dataSnapshotVersion,
+      dataReadiness: report.readiness,
+      dataReadinessReport: report,
+      providerSelection: snapshot.provider,
+      updatedAt: Date.now(),
+    });
+    return snapshot;
   }
 
   private async processOneSymbol(
@@ -674,6 +1206,14 @@ export class IntelligenceBatchService implements OnModuleInit {
     const failedCount = batch.tasks.filter((t) => t.status === 'FAILED').length;
     const generatedAt = Date.now();
     const cache = this.analysisCache.get(batch.batchId) ?? new Map<string, AgentAnalysis>();
+    const frozenSnapshot = readBatchDataSnapshot(batch.batchId);
+    const frozenBySymbol = frozenSnapshot ? instrumentDataBySymbol(frozenSnapshot) : new Map();
+
+    writeIntelligenceBatch({
+      ...this.get(batch.batchId),
+      lifecycleStage: 'RUNNING_PROFESSIONAL_TRADER',
+      updatedAt: generatedAt,
+    });
 
     // Ensure MDS prediction cache is refreshed before per-symbol ML fetch (usable-only).
     try {
@@ -707,13 +1247,36 @@ export class IntelligenceBatchService implements OnModuleInit {
       presence: ReturnType<typeof presenceFromUsedCapabilities>;
       dataAsOf?: number;
       lifecycleState?: import('@stockpred/shared-types').IntelligenceLifecycleState;
+      instrument?: import('@stockpred/shared-types').InstrumentRef;
+      membershipIdentity?: string;
+      recommendation?: import('@stockpred/shared-types').BatchResultRecommendation;
+      reasonCode?: string;
+      reason?: string;
     }> = [];
 
     const skippedEnrichment: Array<{ symbol: string; reason: string }> = [];
     const mlOmitReasons: string[] = [];
     const rsOmitReasons: string[] = [];
+    const quarantinedRows: IntelligenceBatchResultRow[] = [];
 
     for (const task of doneTasks) {
+      const frozenRow = frozenBySymbol.get(task.symbol);
+      const bind = bindFrozenResultIdentity({
+        frozen: frozenRow,
+        universeId: String(batch.universe ?? ''),
+        taskSymbol: task.symbol,
+      });
+      if (!bind.ok) {
+        quarantinedRows.push(
+          quarantinedResultRow({
+            symbol: task.symbol,
+            frozen: frozenRow,
+            bind,
+          }),
+        );
+        continue;
+      }
+
       let analysis = cache.get(task.symbol);
       if (!analysis) {
         const quote = quotesMap.get(task.symbol);
@@ -734,8 +1297,8 @@ export class IntelligenceBatchService implements OnModuleInit {
         }
       }
 
-      // P0b — prefer quotesMap; on miss, single-symbol MDS fetch (Case B). Case A stays null.
-      let quote = quotesMap.get(task.symbol) ?? null;
+      // Quotes come only from frozen BatchDataSnapshot — never MDS after freeze.
+      const quote = quotesMap.get(task.symbol) ?? null;
       let quoteStatus:
         | 'VALID'
         | 'MDS_UNAVAILABLE'
@@ -743,22 +1306,11 @@ export class IntelligenceBatchService implements OnModuleInit {
         | 'MAP_MISS_RECOVERED'
         | undefined;
       if (!quote) {
-        const recovered = await this.agent.fetchQuoteForIntelligenceBatch(task.symbol);
-        if (recovered) {
-          quote = recovered;
-          quotesMap.set(task.symbol, recovered);
-          quoteStatus = 'MAP_MISS_RECOVERED';
-          console.log(
-            `[IBATCH][QUOTE] batchId=${batch.batchId} symbol=${task.symbol} ` +
-              `map=MISS recovered=true price=${recovered.price}`,
-          );
-        } else {
-          quoteStatus = 'MDS_UNAVAILABLE';
-          console.log(
-            `[IBATCH][QUOTE] batchId=${batch.batchId} symbol=${task.symbol} ` +
-              `map=MISS mds=UNAVAILABLE case=A`,
-          );
-        }
+        quoteStatus = 'MDS_UNAVAILABLE';
+        console.log(
+          `[IBATCH][QUOTE] batchId=${batch.batchId} symbol=${task.symbol} ` +
+            `snapshot=MISS case=A`,
+        );
       } else if (!(quote.price > 0)) {
         quoteStatus = 'PRICE_ZERO';
       } else {
@@ -862,22 +1414,26 @@ export class IntelligenceBatchService implements OnModuleInit {
         analysis.generatedAt,
       ]);
 
-      const snap = buildIntelligenceSnapshot({
-        analysis,
-        decision: stubDecision,
-        sourceDataTimestamp: dataAsOfBase ?? analysis.generatedAt,
-        marketContext,
-        crossSectional: ti.crossSectional,
-        multiHorizon: ti.multiHorizon,
-        catalyst: catalyst
-          ? {
-              candidates: catalyst.candidates,
-              decisionTimestamp: catalyst.decisionTimestamp,
-              asOf: catalyst.asOf,
-            }
-          : undefined,
-        mlPrediction: mlSnap ?? mlPrediction,
-      });
+      const snap = attachBatchInstrumentToIntelligenceSnapshot(
+        buildIntelligenceSnapshot({
+          analysis,
+          decision: stubDecision,
+          sourceDataTimestamp: dataAsOfBase ?? analysis.generatedAt,
+          marketContext,
+          crossSectional: ti.crossSectional,
+          multiHorizon: ti.multiHorizon,
+          catalyst: catalyst
+            ? {
+                candidates: catalyst.candidates,
+                decisionTimestamp: catalyst.decisionTimestamp,
+                asOf: catalyst.asOf,
+              }
+            : undefined,
+          mlPrediction: mlSnap ?? mlPrediction,
+        }),
+        frozenBySymbol.get(task.symbol),
+        frozenSnapshot ?? undefined,
+      );
 
       const structuredThesis = this.agent.buildThesisForIntelligenceBatch(
         analysis,
@@ -995,8 +1551,8 @@ export class IntelligenceBatchService implements OnModuleInit {
         opportunityId: stubDecision.decisionId,
         symbol: identity.symbol,
         companyName: identity.companyName,
-        exchange: identity.exchange,
-        identityStatus: identity.identityStatus,
+        exchange: bind.instrument?.venue ?? identity.exchange,
+        identityStatus: bind.identityStatus,
         price: identity.price,
         sector: quote?.sector ?? batch.sector ?? undefined,
         snapshot: snap,
@@ -1006,24 +1562,62 @@ export class IntelligenceBatchService implements OnModuleInit {
         presence,
         dataAsOf,
         lifecycleState,
+        instrument: bind.instrument ? cloneInstrumentRef(bind.instrument) : undefined,
+        membershipIdentity: bind.membershipIdentity,
+        ...deriveBatchResultRecommendation({
+          tradePlanRecommendation: intelligenceContext.tradePlanRecommendation,
+          analysisDecision: analysis.decision,
+          waitState: intelligenceContext.waitState,
+        }),
       });
     }
 
-    let results: IntelligenceBatchResults | null = null;
-    if (rankingCandidates.length > 0) {
-      const opportunityRanking = assessOpportunityRanking({
-        context: {
-          tradeHorizon: 'SWING_TRADE',
-          strategyTag: 'BREAKOUT',
-          timestamp: new Date(generatedAt).toISOString(),
-        },
-        candidates: rankingCandidates.map((c) => ({
-          opportunityId: c.opportunityId,
-          symbol: c.symbol,
-          snapshot: c.snapshot,
-          portfolioFit: c.portfolioFit,
-        })),
+    for (const task of batch.tasks) {
+      if (task.status !== 'SKIPPED') continue;
+      if (
+        task.error !== 'IDENTITY_MISMATCH' &&
+        !String(task.error ?? '').includes('IDENTITY_MISMATCH')
+      ) {
+        continue;
+      }
+      if (quarantinedRows.some((row) => row.symbol === task.symbol)) continue;
+      const frozenRow = frozenBySymbol.get(task.symbol);
+      const bind = bindFrozenResultIdentity({
+        frozen: frozenRow,
+        universeId: String(batch.universe ?? ''),
+        taskSymbol: task.symbol,
       });
+      quarantinedRows.push(
+        quarantinedResultRow({
+          symbol: task.symbol,
+          frozen: frozenRow,
+          bind,
+        }),
+      );
+    }
+
+    let results: IntelligenceBatchResults | null = null;
+    const identityCounts = {
+      eligible: batch.eligibleCount ?? batch.tasks.length,
+      valid: rankingCandidates.length,
+      quarantined: quarantinedRows.length,
+    };
+    if (rankingCandidates.length > 0 || quarantinedRows.length > 0) {
+      const opportunityRanking = rankingCandidates.length
+        ? assessOpportunityRanking({
+            context: {
+              tradeHorizon: 'SWING_TRADE',
+              strategyTag: 'BREAKOUT',
+              timestamp: new Date(generatedAt).toISOString(),
+            },
+            candidates: rankingCandidates.map((c) => ({
+              opportunityId: c.opportunityId,
+              symbol: c.symbol,
+              snapshot: c.snapshot,
+              portfolioFit: c.portfolioFit,
+            })),
+          })
+        : null;
 
       const dataAsOf = rankingCandidates.reduce((max, c) => {
         const v = c.dataAsOf ?? 0;
@@ -1031,28 +1625,58 @@ export class IntelligenceBatchService implements OnModuleInit {
       }, 0);
       const dataStatus = classifyQuoteStatus(dataAsOf > 0 ? dataAsOf : null, generatedAt);
 
-      const rankings: IntelligenceBatchResultRow[] = opportunityRanking.rankings.map((r) => {
-        const row = rankingCandidates.find((c) => c.opportunityId === r.opportunityId);
-        return {
-          rank: r.rank,
-          symbol: row?.symbol ?? r.symbol,
-          opportunityId: r.opportunityId,
-          companyName: row?.companyName,
-          exchange: row?.exchange,
-          identityStatus: row?.identityStatus,
-          price: row?.price,
-          sector: row?.sector,
-          dominance: r.dominance,
-          stale: r.stale,
-          dataCompleteness: r.dataCompleteness,
-          intelligenceContext: row?.intelligenceContext,
-          dataAsOf: row?.dataAsOf,
-          rankingEngineVersion: opportunityRanking.engineVersion,
-          calculationVersion: opportunityRanking.calculationVersion,
-          tradeHorizon: opportunityRanking.context.tradeHorizon,
-          strategyTag: opportunityRanking.context.strategyTag,
-        };
-      });
+      const rankings: IntelligenceBatchResultRow[] = (opportunityRanking?.rankings ?? []).map(
+        (r) => {
+          const row = rankingCandidates.find((c) => c.opportunityId === r.opportunityId);
+          const symbol = row?.symbol ?? r.symbol;
+          const instrument = row?.instrument
+            ? cloneInstrumentRef(row.instrument)
+            : frozenBySymbol.get(symbol)?.instrumentRef
+              ? cloneInstrumentRef(frozenBySymbol.get(symbol)!.instrumentRef)
+              : undefined;
+          const adapter = instrument ? resolveAdapterFromInstrumentRef(instrument) : null;
+          const temporal = adapter?.temporalContext(generatedAt);
+          const series = adapter?.normalizeSeries([]);
+          return {
+            rank: r.rank,
+            symbol,
+            opportunityId: r.opportunityId,
+            companyName: row?.companyName,
+            exchange: instrument?.venue ?? row?.exchange,
+            identityStatus: row?.identityStatus ?? 'VALID',
+            price: row?.price,
+            sector: row?.sector,
+            dominance: r.dominance,
+            stale: r.stale,
+            dataCompleteness: r.dataCompleteness,
+            intelligenceContext: row?.intelligenceContext,
+            dataAsOf: row?.dataAsOf,
+            rankingEngineVersion: opportunityRanking?.engineVersion,
+            calculationVersion: opportunityRanking?.calculationVersion,
+            tradeHorizon: opportunityRanking?.context.tradeHorizon,
+            strategyTag: opportunityRanking?.context.strategyTag,
+            instrument,
+            adapterId: adapter?.id,
+            analysisTimeframe: batch.analysisTimeframe ?? defaultAnalysisTimeframe(),
+            predictionHorizon: batch.predictionHorizon ?? '1M',
+            sessionContext: temporal?.sessionContextId ?? batch.sessionContext,
+            seriesProvenance: series?.seriesProvenance,
+            membershipIdentity: row?.membershipIdentity,
+            quarantined: false,
+            recommendation: row?.recommendation,
+            reasonCode: row?.reasonCode,
+            reason: row?.reason,
+            multiAssetDataStatus:
+              row?.intelligenceContext?.quoteStatus === 'MDS_UNAVAILABLE'
+                ? 'MISSING'
+                : row?.intelligenceContext?.bullRunDataStatus === 'LIVE'
+                  ? 'LIVE'
+                  : row?.intelligenceContext?.bullRunDataStatus === 'STALE'
+                    ? 'STALE'
+                    : 'UNKNOWN',
+          };
+        },
+      );
 
       results = {
         schemaVersion: 'intelligence-batch-results.v1',
@@ -1060,11 +1684,13 @@ export class IntelligenceBatchService implements OnModuleInit {
         generatedAt,
         dataAsOf: dataAsOf > 0 ? dataAsOf : generatedAt,
         dataStatus,
-        rankingEngineVersion: opportunityRanking.engineVersion,
-        calculationVersion: opportunityRanking.calculationVersion,
-        tradeHorizon: opportunityRanking.context.tradeHorizon ?? 'SWING_TRADE',
-        strategyTag: opportunityRanking.context.strategyTag ?? 'BREAKOUT',
+        rankingEngineVersion: opportunityRanking?.engineVersion ?? 'ranking-context.v1',
+        calculationVersion: opportunityRanking?.calculationVersion ?? 'ranking-context.v1',
+        tradeHorizon: opportunityRanking?.context.tradeHorizon ?? 'SWING_TRADE',
+        strategyTag: opportunityRanking?.context.strategyTag ?? 'BREAKOUT',
         rankings,
+        quarantined: quarantinedRows,
+        identityCounts,
       };
       const resultsDoc = results;
       writeIntelligenceBatchResults(resultsDoc);
@@ -1091,8 +1717,15 @@ export class IntelligenceBatchService implements OnModuleInit {
           batchId: batch.batchId,
           completedAt: generatedAt,
           universe: String(batch.universe ?? 'CUSTOM'),
+          universeVersion: batch.universeVersion,
+          membershipSource: batch.membershipSource,
+          adapterVersion: batch.adapterVersion,
+          providerSelection: batch.providerSelection,
+          analysisTimeframe: batch.analysisTimeframe,
+          predictionHorizon: batch.predictionHorizon,
+          sessionContext: batch.sessionContext,
           coverage: {
-            total: batch.progress?.total ?? batch.tasks.length,
+            total: batch.eligibleCount ?? batch.progress?.total ?? batch.tasks.length,
             processed: doneTasks.length,
             failed: failedCount,
           },
@@ -1104,6 +1737,7 @@ export class IntelligenceBatchService implements OnModuleInit {
           marketBreadth,
           priorReport: prior,
           sectorLeadersBySector,
+          snapshotCapabilityCoverage: frozenSnapshot?.capabilityCoverage,
         });
         writeIntelligenceBatchResearchReport(report);
       } catch (err) {
@@ -1206,6 +1840,7 @@ export class IntelligenceBatchService implements OnModuleInit {
     writeIntelligenceBatch({
       ...latest,
       status,
+      lifecycleStage: 'FINALIZING',
       updatedAt: generatedAt,
       completedAt: generatedAt,
       resultsArtifactId: results ? `${batch.batchId}.results` : undefined,

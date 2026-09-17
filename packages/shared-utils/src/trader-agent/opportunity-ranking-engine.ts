@@ -8,7 +8,11 @@
  * Never feeds Risk / Portfolio / Policy / Gate.
  */
 import type {
+  BatchSentiment,
   DecisionConflict,
+  FundamentalPayload,
+  IntelligenceMacroBlock,
+  IntelligenceNewsBlock,
   IntelligenceSnapshot,
   OpportunityRankingAssessment,
   OpportunityRankingResult,
@@ -24,7 +28,7 @@ import type {
 } from '@stockpred/shared-types';
 
 export const OPPORTUNITY_RANKING_ENGINE_VERSION = 'opportunity-ranking.v1';
-export const OPPORTUNITY_RANKING_CALCULATION_VERSION = 'lexicographic-context-precedence.v1';
+export const OPPORTUNITY_RANKING_CALCULATION_VERSION = 'lexicographic-context-precedence.v2';
 
 /** Soft freshness windows (ms) by horizon — older asOf → stale. */
 const FRESHNESS_MS: Record<TiTradeHorizon, number> = {
@@ -155,10 +159,79 @@ function portfolioFitBand(fit: OpportunityRankingCandidate['portfolioFit']): TiR
   return 'UNKNOWN';
 }
 
+const C_EVIDENCE_TAIL: TiRankingDimension[] = ['FUNDAMENTAL', 'NEWS', 'SENTIMENT', 'MACRO'];
+
+function withCEvidenceBeforePortfolioFit(core: TiRankingDimension[]): TiRankingDimension[] {
+  const withoutFit = core.filter((d) => d !== 'PORTFOLIO_FIT');
+  return [...withoutFit, ...C_EVIDENCE_TAIL, 'PORTFOLIO_FIT'];
+}
+
+/** Phase C fundamental payload only — never AgentAnalysis / tradeQuality numeric scores. */
+function bandFromFundamental(payload: FundamentalPayload | undefined): TiRankingBand {
+  if (!payload || payload.kind === 'UNAVAILABLE') return 'UNKNOWN';
+  if (payload.kind === 'EQUITY_STATEMENTS') {
+    if (payload.roe != null && Number.isFinite(payload.roe)) {
+      if (payload.roe >= 15) return 'HIGH';
+      if (payload.roe >= 5) return 'MED';
+      return 'LOW';
+    }
+    if (payload.netIncome != null && Number.isFinite(payload.netIncome)) {
+      if (payload.netIncome > 0) return 'HIGH';
+      if (payload.netIncome === 0) return 'MED';
+      return 'LOW';
+    }
+    if (payload.revenue != null && Number.isFinite(payload.revenue)) return 'MED';
+    return 'UNKNOWN';
+  }
+  if (payload.kind === 'COMMODITY_ECONOMICS') {
+    const demand = payload.demand;
+    const supply = payload.supply;
+    if (demand != null && supply != null && Number.isFinite(demand) && Number.isFinite(supply)) {
+      if (demand > supply) return 'HIGH';
+      if (demand < supply) return 'LOW';
+      return 'MED';
+    }
+    if (
+      (payload.inventory != null && Number.isFinite(payload.inventory)) ||
+      (supply != null && Number.isFinite(supply)) ||
+      (demand != null && Number.isFinite(demand))
+    ) {
+      return 'MED';
+    }
+    return 'UNKNOWN';
+  }
+  // NETWORK_PROJECT has no rankable fields — do not invent MED/NEUTRAL.
+  return 'UNKNOWN';
+}
+
+function bandFromNews(news: IntelligenceNewsBlock | undefined): TiRankingBand {
+  if (!news) return 'UNKNOWN';
+  if (news.headlineCount == null || !Number.isFinite(news.headlineCount)) return 'UNKNOWN';
+  if (news.headlineCount >= 3) return 'HIGH';
+  if (news.headlineCount >= 1) return 'MED';
+  return 'LOW';
+}
+
+function bandFromCSentiment(sentiment: BatchSentiment | undefined): TiRankingBand {
+  if (sentiment == null) return 'UNKNOWN';
+  if (sentiment.source !== 'MODEL_DERIVED') return 'UNKNOWN';
+  if (typeof sentiment.score !== 'number' || !Number.isFinite(sentiment.score)) return 'UNKNOWN';
+  if (sentiment.score >= 0.2) return 'HIGH';
+  if (sentiment.score <= -0.2) return 'LOW';
+  return 'MED';
+}
+
+function bandFromMacro(macro: IntelligenceMacroBlock | undefined): TiRankingBand {
+  if (!macro) return 'UNKNOWN';
+  if (!macro.seriesId && macro.asOf == null) return 'UNKNOWN';
+  return 'HIGH';
+}
+
 export function dimensionPrecedenceForContext(horizon: TiTradeHorizon): TiRankingDimension[] {
   // PORTFOLIO_FIT is always last — tie-break only.
+  // C evidence sits immediately before it so T1.8 head (CLEAR_PREFIX) is unchanged.
   if (horizon === 'DAY_TRADE') {
-    return [
+    return withCEvidenceBeforePortfolioFit([
       'LIQUIDITY',
       'FRESHNESS',
       'MTF',
@@ -169,10 +242,10 @@ export function dimensionPrecedenceForContext(horizon: TiTradeHorizon): TiRankin
       'TECHNICAL',
       'SECTOR',
       'PORTFOLIO_FIT',
-    ];
+    ]);
   }
   // SWING_TRADE and POSITION share swing-style precedence.
-  return [
+  return withCEvidenceBeforePortfolioFit([
     'RS',
     'SECTOR',
     'REGIME',
@@ -183,7 +256,7 @@ export function dimensionPrecedenceForContext(horizon: TiTradeHorizon): TiRankin
     'LIQUIDITY',
     'FRESHNESS',
     'PORTFOLIO_FIT',
-  ];
+  ]);
 }
 
 function stripFromCandidate(
@@ -212,6 +285,10 @@ function stripFromCandidate(
     technical: bandFromScore(technical),
     liquidity: bandFromLiquidity(typeof liquidity === 'string' ? liquidity : undefined),
     freshness: freshnessBand(snap, context),
+    fundamental: bandFromFundamental(snap.fundamental),
+    news: bandFromNews(snap.news),
+    sentiment: bandFromCSentiment(snap.sentiment),
+    macro: bandFromMacro(snap.macro),
     portfolioFit: portfolioFitBand(c.portfolioFit),
     expectedValueR: ev ?? null,
   };
@@ -237,6 +314,14 @@ function bandOf(strip: RankingDimensionStrip, dim: TiRankingDimension): TiRankin
       return strip.liquidity;
     case 'FRESHNESS':
       return strip.freshness;
+    case 'FUNDAMENTAL':
+      return strip.fundamental;
+    case 'NEWS':
+      return strip.news;
+    case 'SENTIMENT':
+      return strip.sentiment;
+    case 'MACRO':
+      return strip.macro;
     case 'PORTFOLIO_FIT':
       return strip.portfolioFit;
     default:
@@ -270,6 +355,10 @@ function unknownDimensions(strip: RankingDimensionStrip): TiRankingDimension[] {
     'TECHNICAL',
     'LIQUIDITY',
     'FRESHNESS',
+    'FUNDAMENTAL',
+    'NEWS',
+    'SENTIMENT',
+    'MACRO',
   ];
   return dims.filter((d) => bandOf(strip, d) === 'UNKNOWN');
 }
@@ -333,6 +422,26 @@ function strengthsWeaknesses(
       'EV',
       'STRENGTH',
     );
+  if (strip.fundamental === 'HIGH')
+    push(
+      strengths,
+      'FUNDAMENTAL_STRONG',
+      'Phase C fundamental band HIGH',
+      'FUNDAMENTAL',
+      'STRENGTH',
+    );
+  if (strip.news === 'HIGH')
+    push(strengths, 'NEWS_COVERAGE', 'Phase C news coverage HIGH', 'NEWS', 'STRENGTH');
+  if (strip.sentiment === 'HIGH')
+    push(
+      strengths,
+      'SENTIMENT_POSITIVE',
+      'Phase C MODEL_DERIVED sentiment HIGH',
+      'SENTIMENT',
+      'STRENGTH',
+    );
+  if (strip.macro === 'HIGH')
+    push(strengths, 'MACRO_CONTEXT', 'Batch-level macro context present', 'MACRO', 'STRENGTH');
   if (stale)
     push(
       weaknesses,

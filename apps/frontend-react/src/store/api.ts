@@ -14,6 +14,8 @@ import type {
   IndexQuote,
   MarketContext,
   MarketDepth,
+  InstrumentRef,
+  MultiAssetReadiness,
   PortfolioSnapshot,
   PredictionAccuracy,
   RelativeComparison,
@@ -23,6 +25,7 @@ import type {
   SymbolPatternPayload,
   UserRole,
   UserStatus,
+  UniverseCatalogEntry,
   WaitRecommendation,
   StructuredThesis,
   ExitRecommendation,
@@ -274,6 +277,39 @@ export interface MarketDataContract {
   note: string;
 }
 
+/** Backend-owned market session — FE must not clock-derive OPEN/CLOSED. */
+export interface MarketSessionStateDto {
+  venue: string;
+  assetClass: string;
+  status: string;
+  timezone: string;
+  sessionDate: string;
+  isLive: boolean;
+  isTradable: boolean;
+  lastMarketUpdateAt?: number | null;
+  dataAsOf?: number | null;
+  dataAgeMs?: number | null;
+  source?: string;
+  dataStatus?: string;
+}
+
+export interface MarketSessionCardResponse {
+  nse: MarketSessionStateDto;
+  sessions: Array<{
+    venue: string;
+    status: string;
+    liveLabel: string;
+    dataAsOf?: number | null;
+    dataAgeMs?: number | null;
+    source?: string;
+    dataStatus?: string;
+  }>;
+  note: string;
+}
+
+/** Canonical universe coverage preview — backend-owned membership, never MDS cache. */
+export type UniverseCoveragePreview = UniverseCatalogEntry;
+
 /** M4 drift report per horizon (read-only artifact). */
 export interface MlDriftHorizonReport {
   status?: string;
@@ -489,6 +525,7 @@ export const api = createApi({
     'AgentSuggestions',
     'AgentOpportunities',
     'IntelligenceBatches',
+    'PaperExperiments',
     'ContinuousIntel',
     'Fundamentals',
     'AltData',
@@ -602,6 +639,9 @@ export const api = createApi({
     }),
     getMarketDataContract: builder.query<MarketDataContract, void>({
       query: () => '/market/data-contract',
+    }),
+    getMarketSessionState: builder.query<MarketSessionCardResponse, void>({
+      query: () => '/market/session-state',
     }),
     getScanner: builder.query<
       {
@@ -1559,9 +1599,13 @@ export const api = createApi({
       Array<{
         batchId: string;
         universe: string;
+        mode?: string;
         status: string;
         progress?: {
           processed: number;
+          pending: number;
+          failed: number;
+          totalEligible: number;
           total: number;
           percent: number;
           stages: Array<{ id: string; availability: string; done: number; total: number }>;
@@ -1580,9 +1624,40 @@ export const api = createApi({
       {
         batchId: string;
         universe: string;
+        universeVersion?: string;
+        membershipSource?: string;
+        eligibleCount?: number;
+        sourceCount?: number;
+        adapterVersion?: string;
+        providerSelection?: string;
+        analysisTimeframe?: string;
+        analysisPeriod?: string;
+        analysisResolution?: string;
+        analysisWindow?: { startDate: string; endDate: string };
+        predictionHorizon?: string;
+        sessionContext?: string;
         status: string;
+        lifecycleStage?: string;
+        dataSnapshotVersion?: string;
+        dataReadiness?: 'READY' | 'READY_PARTIAL' | 'NOT_READY';
+        dataReadinessReport?: {
+          readiness: string;
+          eligible: number;
+          processed: number;
+          available: number;
+          partial: number;
+          unavailable: number;
+          failed: number;
+          pending: number;
+          coveragePct?: number;
+          minRequiredCoveragePct?: number;
+          reasons?: string[];
+        };
         progress?: {
           processed: number;
+          pending: number;
+          failed: number;
+          totalEligible: number;
           total: number;
           percent: number;
           stages: Array<{ id: string; availability: string; done: number; total: number }>;
@@ -1602,6 +1677,24 @@ export const api = createApi({
           intelligenceContext?: { overallScore?: number; decision?: string };
         }>;
         updatedAt?: number;
+        startedAt?: number;
+        completedAt?: number;
+        capabilityCoverage?: Array<{
+          capability: string;
+          group?: string;
+          status: string;
+          eligible: number;
+          available: number;
+          partial: number;
+          unavailable: number;
+          pending?: number;
+          na: number;
+          coveragePct: number | null;
+          reason?: string;
+        }>;
+        identityCounts?: { eligible: number; valid: number; quarantined: number };
+        snapshotProvider?: string;
+        snapshotDataAsOf?: number;
       },
       string
     >({
@@ -1617,9 +1710,22 @@ export const api = createApi({
           opportunityId: string;
           companyName?: string;
           exchange?: string;
+          sector?: string;
           identityStatus?: string;
           price?: number;
           intelligenceContext?: Record<string, unknown>;
+          instrument?: {
+            symbol: string;
+            assetClass: string;
+            venue: string;
+            quoteCurrency?: string;
+          };
+          membershipIdentity?: string;
+          quarantined?: boolean;
+          quarantineStatus?: string;
+          recommendation?: string;
+          reasonCode?: string;
+          reason?: string;
         }>;
         total: number;
         page: number;
@@ -1698,22 +1804,135 @@ export const api = createApi({
       providesTags: (_r, _e, arg) => [{ type: 'IntelligenceBatches', id: arg.id }],
     }),
     createIntelligenceBatch: builder.mutation<
-      { batchId: string },
+      { batchId: string; universeVersion?: string; eligibleCount?: number },
       {
         universe: string;
+        mode?: string;
         symbols?: string[];
+        instruments?: InstrumentRef[];
+        instrument?: InstrumentRef;
         scanKind?: string;
         sector?: string;
         allLimit?: number;
         inverseDownsideThreshold?: number;
         globalEventType?: string;
+        analysisTimeframe?: string;
+        analysisPeriod?: string;
+        analysisResolution?: string;
+        analysisWindow?: { startDate: string; endDate: string };
+        predictionHorizon?: string;
       }
     >({
       query: (body) => ({ url: '/agent/intelligence-batches', method: 'POST', body }),
       invalidatesTags: ['IntelligenceBatches'],
     }),
+    getCanonicalUniverses: builder.query<
+      {
+        universes: UniverseCoveragePreview[];
+        note?: string;
+      },
+      { universe?: string } | void
+    >({
+      query: (arg) => {
+        const universe = arg && typeof arg === 'object' ? arg.universe : undefined;
+        const qs = universe ? `?universe=${encodeURIComponent(universe)}` : '';
+        return `/agent/multi-asset/universes${qs}`;
+      },
+    }),
+    searchCanonicalInstruments: builder.query<
+      {
+        instruments: Array<{
+          instrument: InstrumentRef;
+          name: string;
+          source: string;
+          identityKey: string;
+          eligibilityStatus: 'ELIGIBLE';
+        }>;
+      },
+      { q: string; assetClass?: string; venue?: string; limit?: number }
+    >({
+      query: ({ q, assetClass, venue, limit = 20 }) => ({
+        url: '/agent/multi-asset/instruments/search',
+        params: { q, assetClass, venue, limit },
+      }),
+    }),
+    getMultiAssetReadiness: builder.query<MultiAssetReadiness, string>({
+      query: (universe) => `/agent/multi-asset/readiness?universe=${encodeURIComponent(universe)}`,
+    }),
+    getMultiAssetRegistry: builder.query<
+      {
+        providers: Array<Record<string, unknown>>;
+        adapters: Array<{
+          id: string;
+          productLabel: string;
+          benchmarkId: string | null;
+          capabilities: Record<string, string>;
+          featureHints: string[];
+          temporal: Record<string, unknown>;
+        }>;
+        learningTouchesRiskOrGate: false;
+      },
+      void
+    >({
+      query: () => '/agent/multi-asset/registry',
+    }),
+    resolveMultiAssetInstrument: builder.query<
+      {
+        instrument: {
+          symbol: string;
+          assetClass: string;
+          venue: string;
+          quoteCurrency: string;
+          canonicalSymbol?: string;
+        };
+        adapterId: string;
+        capabilities: Record<string, string>;
+        temporal: Record<string, unknown>;
+        seriesProvenance: Record<string, unknown>;
+      },
+      { symbol: string; universe?: string; hint?: string }
+    >({
+      query: (params) => ({
+        url: '/agent/multi-asset/resolve',
+        params: {
+          symbol: params.symbol,
+          universe: params.universe,
+          hint: params.hint,
+        },
+      }),
+    }),
+    listPaperExperiments: builder.query<Array<Record<string, unknown>>, void>({
+      query: () => '/agent/paper-experiments',
+      providesTags: ['PaperExperiments'],
+    }),
+    createPaperExperiment: builder.mutation<
+      Record<string, unknown>,
+      {
+        symbol: string;
+        adapterHint?: string;
+        batchId?: string;
+        predictionHorizon?: string;
+        thesis?: string;
+        recommendation?: string;
+        probability?: number;
+        note?: string;
+      }
+    >({
+      query: (body) => ({ url: '/agent/paper-experiments', method: 'POST', body }),
+      invalidatesTags: ['PaperExperiments'],
+    }),
     getIntelligenceSectors: builder.query<
-      { sectors: Array<{ sector: string; memberCount: number }> },
+      {
+        sectors: Array<{
+          sector: string;
+          memberCount: number;
+          taxonomy: string;
+          source: string;
+          universeVersion: string;
+          sectorVersion: string;
+          effectiveFrom: string;
+        }>;
+      },
       void
     >({
       query: () => '/intelligence/sectors',
@@ -2176,6 +2395,14 @@ export const api = createApi({
             fabricated: number;
             insufficientHistory?: number;
           };
+          capabilityCoverage?: Array<{
+            capability: string;
+            available: number;
+            partial: number;
+            unavailable: number;
+            coverageCount: number;
+            totalCount: number;
+          }>;
           dataStatus?: string;
         };
       },
@@ -2527,6 +2754,7 @@ export const {
   useGetIndicesQuery,
   useGetMarketContextQuery,
   useGetMarketDataContractQuery,
+  useGetMarketSessionStateQuery,
   useGetScannerQuery,
   useGetCandlesQuery,
   useGetIndexCandlesQuery,
@@ -2611,6 +2839,13 @@ export const {
   useGetIntelligenceBatchQuery,
   useGetIntelligenceBatchResultsQuery,
   useCreateIntelligenceBatchMutation,
+  useGetCanonicalUniversesQuery,
+  useSearchCanonicalInstrumentsQuery,
+  useGetMultiAssetReadinessQuery,
+  useGetMultiAssetRegistryQuery,
+  useResolveMultiAssetInstrumentQuery,
+  useListPaperExperimentsQuery,
+  useCreatePaperExperimentMutation,
   useGetIntelligenceSectorsQuery,
   useGetAllSectorsIntelligenceQuery,
   useGetSectorMediansQuery,

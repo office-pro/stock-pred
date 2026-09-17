@@ -505,6 +505,14 @@ export default function ResearchReportsPage(): JSX.Element {
           insufficientHistory: number;
           fabricated: number;
         };
+        capabilityCoverage?: Array<{
+          capability: string;
+          available: number;
+          partial: number;
+          unavailable: number;
+          coverageCount: number;
+          totalCount: number;
+        }>;
         sectorRotation?: {
           leading: string[];
           improving: string[];
@@ -1456,6 +1464,23 @@ export default function ResearchReportsPage(): JSX.Element {
                 {report.dataQuality?.quoteGaps ?? '—'}, fabricated:{' '}
                 {report.dataQuality?.fabricated ?? 0}
               </Typography>
+              {(report.capabilityCoverage?.length ?? 0) > 0 ? (
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
+                    Capability coverage (backend-owned)
+                  </Typography>
+                  {report.capabilityCoverage!.map((c) => (
+                    <Typography key={c.capability} variant="caption" display="block">
+                      {c.capability}: {c.available} available / {c.partial} partial /{' '}
+                      {c.unavailable} unavailable ({c.coverageCount}/{c.totalCount})
+                    </Typography>
+                  ))}
+                </Box>
+              ) : (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  Capability coverage: Not available
+                </Typography>
+              )}
             </Paper>
           ) : null}
 

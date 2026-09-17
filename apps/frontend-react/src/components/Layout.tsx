@@ -32,7 +32,7 @@ const MAIN_NAV: NavItem[] = [
   { label: 'Market', to: '/market', view: AppView.DASHBOARD },
   { label: 'Sectors', to: '/sectors', view: AppView.DASHBOARD },
   { label: 'Prep', to: '/prep', view: AppView.AGENT },
-  { label: 'Batch', to: '/batch', view: AppView.AGENT },
+  { label: 'Multi-Asset Batch', to: '/batch', view: AppView.AGENT },
   { label: 'Bull Run', to: '/bull-run', view: AppView.AGENT },
   { label: 'Research', to: '/research-reports', view: AppView.AGENT },
   { label: 'Desk', to: '/agent', view: AppView.AGENT },

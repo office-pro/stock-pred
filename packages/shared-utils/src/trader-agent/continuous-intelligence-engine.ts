@@ -246,3 +246,27 @@ export function planTargetedIntelligenceRefresh(input: {
     note: 'Batch baseline + targeted refresh only — do not re-run full universe every tick. No authorization.',
   };
 }
+
+/** Hard forbid: continuous cycles must not request a full NIFTY500 (or larger) deep scan. */
+export function assertContinuousNotFullUniverseScan(input: {
+  mode: string;
+  symbolCount: number;
+  maxTargetedSymbols?: number;
+}): { ok: boolean; reasonCode?: string; detail: string } {
+  const max = input.maxTargetedSymbols ?? 50;
+  if (input.mode !== 'TARGETED_REFRESH') {
+    return {
+      ok: false,
+      reasonCode: 'UNSUPPORTED_ASSET',
+      detail: `continuous_mode_must_be_TARGETED_REFRESH got=${input.mode}`,
+    };
+  }
+  if (input.symbolCount > max) {
+    return {
+      ok: false,
+      reasonCode: 'DATA_INCOMPLETE',
+      detail: `full_universe_deep_scan_forbidden count=${input.symbolCount} max=${max}`,
+    };
+  }
+  return { ok: true, detail: 'targeted_ok' };
+}

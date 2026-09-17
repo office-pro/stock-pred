@@ -43,6 +43,12 @@ export interface BullRunV2EvidenceInput {
   analogueMaxForwardReturnsByHorizon?: Partial<
     Record<BullRunCalendarHorizon, { sampleSize: number; maxForwardReturns: number[] }>
   >;
+  /**
+   * Optional adapter-resolved bar counts per horizon (DURATION only).
+   * When omitted, uses BULL_RUN_HORIZON_BARS (NSE cash equity defaults).
+   * NEXT_CANDLE / NEXT_SESSION must not be coerced into fixed bar counts here.
+   */
+  horizonBarsByHorizon?: Partial<Record<BullRunCalendarHorizon, number>>;
   dataStatus?: BullRunDataStatus;
   dataAsOf?: number | string | null;
   targets?: number[];
@@ -131,8 +137,12 @@ function confidenceFromSample(sampleSize: number): BullRunConfidenceBand {
 function buildDistribution(
   horizon: BullRunCalendarHorizon,
   closes: number[],
+  horizonBarsOverride?: number,
 ): ForwardReturnDistribution {
-  const horizonBars = BULL_RUN_HORIZON_BARS[horizon];
+  const horizonBars =
+    horizonBarsOverride != null && Number.isFinite(horizonBarsOverride) && horizonBarsOverride > 0
+      ? Math.floor(horizonBarsOverride)
+      : BULL_RUN_HORIZON_BARS[horizon];
   const samples = computeMaxForwardReturns(closes, horizonBars);
   const sampleSize = samples.length;
   if (sampleSize < MIN_SAMPLES) {
@@ -298,7 +308,7 @@ export function buildBullRunV2FromEvidence(
         status: 'UNAVAILABLE',
         reason: 'INSUFFICIENT_HISTORY',
         horizon: h,
-        horizonBars: BULL_RUN_HORIZON_BARS[h],
+        horizonBars: input.horizonBarsByHorizon?.[h] ?? BULL_RUN_HORIZON_BARS[h],
         sampleSize: 0,
       })),
       cells: unavailableCells,
@@ -309,7 +319,9 @@ export function buildBullRunV2FromEvidence(
     };
   }
 
-  const distributions = BULL_RUN_CALENDAR_HORIZONS.map((h) => buildDistribution(h, closes));
+  const distributions = BULL_RUN_CALENDAR_HORIZONS.map((h) =>
+    buildDistribution(h, closes, input.horizonBarsByHorizon?.[h]),
+  );
   // Prefer analogue-fed samples when available and above MIN_SAMPLES (same empirical P(≥T)).
   for (const dist of distributions) {
     const alt = input.analogueMaxForwardReturnsByHorizon?.[dist.horizon];

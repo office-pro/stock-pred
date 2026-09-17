@@ -244,6 +244,12 @@ export class MarketController {
     return this.market.getDataContract();
   }
 
+  /** Backend-owned MarketSessionState — FE must not clock-derive OPEN/CLOSED. */
+  @Get('market/session-state')
+  getMarketSessionState(): ReturnType<MarketService['getMarketSessionStates']> {
+    return this.market.getMarketSessionStates();
+  }
+
   /**
    * P5 Focus handoff — prioritize live quote refresh (Tier order from caller).
    * Optimization only; not trade authorization.

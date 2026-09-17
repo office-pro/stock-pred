@@ -200,6 +200,14 @@ export interface BatchResearchReportBestOpportunity {
   historicalStatus?: 'AVAILABLE' | 'UNAVAILABLE';
   historicalSampleSize?: number | null;
   historicalNote?: string;
+  /** Multi-asset row identity (canonical). */
+  instrument?: import('./instrument').InstrumentRef;
+  adapterId?: string;
+  analysisTimeframe?: import('./instrument').AnalysisTimeframe;
+  predictionHorizon?: string;
+  sessionContext?: import('./instrument').SessionContextId;
+  seriesProvenance?: import('./instrument').SeriesProvenance;
+  multiAssetDataStatus?: import('./instrument').MultiAssetDataStatus;
 }
 
 export interface BatchResearchReportIntegritySummary {
@@ -291,6 +299,13 @@ export interface BatchResearchReport {
   batchId: string;
   completedAt: number;
   universe: string;
+  universeVersion?: string;
+  membershipSource?: string;
+  adapterVersion?: string;
+  providerSelection?: string;
+  analysisTimeframe?: string;
+  predictionHorizon?: string;
+  sessionContext?: string;
   coverage: { total: number; processed: number; failed: number };
   outcome: BatchOutcomeKind;
   /** Command Center default horizon for Best Picks matrix (UI may override). */
@@ -338,6 +353,11 @@ export interface BatchResearchReport {
   /** Comparative improvement vs prior prediction engine — never assume PASS. */
   predictionImprovementNote?: string;
   dataQuality: BatchResearchReportDataQuality;
+  /**
+   * Backend-owned capability coverage (AVAILABLE/PARTIAL/UNAVAILABLE counts).
+   * Never FE-derived; never uniform fake completeness.
+   */
+  capabilityCoverage?: import('./instrument').BatchCapabilityCoverageItem[];
   dataAsOf?: number | string | null;
   dataStatus?: BullRunDataStatus;
   provenance: IntelligenceProvenance;

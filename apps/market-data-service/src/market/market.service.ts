@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import {
+  EIA_ENERGY_SERIES,
   getPrismaClient,
   UniverseStock,
   getStockUniverse,
@@ -59,6 +60,13 @@ import {
   isNseCashSessionOpen,
   computeCurrentSessionReturn1d,
   sessionReturn1dToPercent,
+  buildNseMarketSessionState,
+  buildCryptoMarketSessionState,
+  buildCommodityMarketSessionState,
+  buildMarketsSessionCard,
+  sanitizeSessionLiveConsistency,
+  COINGECKO_FRESH_QUOTE_MAX_AGE_MS,
+  COINGECKO_MAX_QUOTE_AGE_MS,
 } from '@stockpred/shared-utils';
 import { CandleCache } from './candle-cache';
 import {
@@ -77,6 +85,19 @@ import { IndexState, INTRADAY_BUFFER, SymbolState } from './market-state';
 import { MarketDataProvider } from './providers/provider.interface';
 import { mulberry32, seedFromSymbol, SimulatedProvider } from './providers/simulated.provider';
 import { YahooProvider } from './providers/yahoo.provider';
+import { CryptoMarketBook } from './providers/crypto-book';
+import { CommodityMarketBook } from './providers/commodity-book';
+import {
+  configuredCryptoMarketDataProvider,
+  normalizeBinanceKlines,
+  normalizeBinanceTicker24hr,
+  normalizeCoinGeckoMarketChart,
+  normalizeCoinGeckoSimplePrice,
+} from './providers/crypto-market-data';
+import {
+  normalizeAlphaVantageCommoditySeries,
+  normalizeEiaSeries,
+} from './providers/commodity-market-data';
 import { RedisService } from './redis.service';
 import { RealTimeOrchestrator, getOrchestrator, AnalysisTask } from './real-time-orchestrator';
 
@@ -106,6 +127,9 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private readonly onDemandYahoo = new YahooProvider();
   private readonly simulated = new SimulatedProvider();
   private readonly stocks = new Map<string, SymbolState>();
+  private readonly cryptoBook = new CryptoMarketBook();
+  private readonly commodityBook = new CommodityMarketBook();
+  private cryptoRefreshTimer: NodeJS.Timeout | null = null;
   private readonly byIsin = new Map<string, string>();
   private readonly byBseCode = new Map<string, string>();
   private readonly indices = new Map<string, IndexState>();
@@ -188,6 +212,8 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       this.registerListed(stock);
     }
     console.log(`[market-data] listed ${universe.length} symbols (candles load in background)`);
+    this.initCryptoBooks();
+    this.initCommodityBook();
 
     // Official EOD first (prices on the dashboard), then cache/yahoo history.
     void this.hydrateThenBootstrap(universe);
@@ -352,6 +378,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     if (this.predictionTimer) clearInterval(this.predictionTimer);
     if (this.scannerAlertTimer) clearInterval(this.scannerAlertTimer);
     if (this.liveWatchTimer) clearInterval(this.liveWatchTimer);
+    if (this.cryptoRefreshTimer) clearInterval(this.cryptoRefreshTimer);
     if (this.orchestrator) {
       await this.orchestrator.shutdown();
     }
@@ -360,7 +387,11 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   // ---------------------------------------------------------------- queries
 
   getQuotes(): StockQuote[] {
-    return [...this.stocks.values()].map((state) => this.toQuote(state));
+    return [
+      ...this.stocks.values(),
+      ...this.cryptoBook.states.values(),
+      ...this.commodityBook.states.values(),
+    ].map((state) => this.toQuote(state));
   }
 
   /** In-memory daily candles only — no hydrate (B9–B17 advisory). */
@@ -368,14 +399,17 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     const sym = symbol.toUpperCase();
     const index = this.indices.get(sym);
     if (index) return index.daily.slice(-limit);
-    const state = this.stocks.get(sym);
+    const state = this.stocks.get(sym) ?? this.cryptoBook.get(sym) ?? this.commodityBook.get(sym);
     if (!state) return [];
     return state.daily.slice(-limit);
   }
 
   /** Lightweight quote with scanner when available — no live refresh. */
   peekQuote(symbol: string): StockQuote | null {
-    const state = this.stocks.get(symbol.toUpperCase());
+    const state =
+      this.stocks.get(symbol.toUpperCase()) ??
+      this.cryptoBook.get(symbol) ??
+      this.commodityBook.get(symbol);
     if (!state) return null;
     return this.toQuote(state, PredictionHorizon.NEXT_WEEK, true);
   }
@@ -426,13 +460,22 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     const bestPickMode = suggestionUpper === 'BEST';
     // Always attach scanner + manipulation so dashboard/predictions can show Risk / Suspicious.
     let quotes = [...this.stocks.values()].map((state) => this.toQuote(state, horizonKey, true));
+    const exchangeUpper = exchange?.trim().toUpperCase();
+    if (exchangeUpper === 'CRYPTO' || exchangeUpper === 'BINANCE') {
+      quotes = [...this.cryptoBook.states.values()].map((state) =>
+        this.toQuote(state, horizonKey, true),
+      );
+    } else if (exchangeUpper === 'COMMODITY' || exchangeUpper === 'COMMODITIES') {
+      quotes = [...this.commodityBook.states.values()].map((state) =>
+        this.toQuote(state, horizonKey, true),
+      );
+    }
     const counts = {
       NSE: quotes.filter((q) => q.exchange === Exchange.NSE).length,
       BSE: quotes.filter((q) => q.exchange === Exchange.BSE).length,
       all: quotes.length,
     };
 
-    const exchangeUpper = exchange?.trim().toUpperCase();
     if (exchangeUpper === Exchange.NSE || exchangeUpper === Exchange.BSE) {
       quotes = quotes.filter((q) => q.exchange === exchangeUpper);
     }
@@ -507,10 +550,17 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   async getQuote(symbol: string): Promise<StockQuote> {
     const state = this.requireSymbol(symbol);
     this.watched.set(state.info.symbol, Date.now());
-    await Promise.race([
-      this.refreshSymbolLive(state),
-      new Promise<void>((resolve) => setTimeout(resolve, this.liveQuoteWaitMs)),
-    ]);
+    if (this.isCommodityState(state)) {
+      await this.refreshCommodityOnDemand(state.info.symbol);
+    } else if (this.isCryptoState(state) && configuredCryptoMarketDataProvider() === 'coingecko') {
+      const row = this.cryptoBook.rows.get(state.info.symbol);
+      await this.refreshCoinGeckoOnDemand(row?.providerAssetId ?? state.info.symbol);
+    } else if (!this.isCryptoState(state)) {
+      await Promise.race([
+        this.refreshSymbolLive(state),
+        new Promise<void>((resolve) => setTimeout(resolve, this.liveQuoteWaitMs)),
+      ]);
+    }
     return this.toQuote(state, PredictionHorizon.NEXT_WEEK, true);
   }
 
@@ -912,6 +962,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
    * Throttled; concurrent callers share one in-flight Yahoo request.
    */
   private async refreshSymbolLive(state: SymbolState): Promise<void> {
+    if (this.isCryptoState(state) || this.isCommodityState(state)) return;
     const now = Date.now();
     const inflight = this.liveRefreshInflight.get(state.info.symbol);
     if (inflight) return inflight;
@@ -1173,7 +1224,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
         manipulation: null,
         // Do not fake freshness with Date.now() when no bar exists.
         updatedAt: 0,
-        ...this.freshnessFields(0),
+        ...this.freshnessFields(0, this.isCryptoState(state), this.isCommodityState(state)),
       };
     }
     const price = state.lastTick?.price ?? today.close;
@@ -1240,14 +1291,43 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       scanner: includeScanner ? this.scannerFor(state) : null,
       manipulation: this.manipulationFor(state),
       updatedAt: state.lastTick?.time ?? today.time,
-      ...this.freshnessFields(state.lastTick?.time ?? today.time),
+      ...this.freshnessFields(
+        state.lastTick?.time ?? today.time,
+        this.isCryptoState(state),
+        this.isCommodityState(state),
+      ),
     };
+  }
+
+  private isCryptoState(state: SymbolState): boolean {
+    return (
+      state.info.sector === 'CRYPTO_SPOT' ||
+      state.info.sector === 'CRYPTO_FUTURE' ||
+      this.cryptoBook.states.has(state.info.symbol)
+    );
+  }
+
+  private isCommodityState(state: SymbolState): boolean {
+    return state.info.sector === 'COMMODITY' || this.commodityBook.states.has(state.info.symbol);
   }
 
   private freshnessFields(
     updatedAt: number,
+    crypto = false,
+    commodity = false,
   ): Pick<StockQuote, 'ingestMode' | 'freshnessStatus' | 'liveUsable'> {
-    const freshnessStatus = classifyQuoteStatus(updatedAt);
+    const md = configuredCryptoMarketDataProvider();
+    const freshnessStatus = classifyQuoteStatus(
+      updatedAt,
+      Date.now(),
+      crypto && md === 'coingecko'
+        ? COINGECKO_MAX_QUOTE_AGE_MS
+        : commodity
+          ? 7 * 86_400_000
+          : undefined,
+      crypto && md === 'coingecko' ? COINGECKO_FRESH_QUOTE_MAX_AGE_MS : commodity ? 0 : undefined,
+      crypto || commodity ? { alwaysOpen: true } : undefined,
+    );
     return {
       ingestMode: this.ingestMode,
       freshnessStatus,
@@ -1341,6 +1421,70 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       note: open
         ? 'LIVE/DELAYED require LIVE_INGEST + session open (LIVE≤30s, DELAYED≤60s). Risk still enforces 60s quote age. DELAYED is not authorization. Data status is not trade authorization.'
         : 'Session closed: EOD/historical data is for ML/analysis only — not live entry freshness. Data status is not trade authorization.',
+    };
+  }
+
+  /**
+   * Backend-owned MarketSessionState + MARKETS card projection.
+   * FE must not clock-derive OPEN/CLOSED; consume this endpoint.
+   */
+  getMarketSessionStates(): {
+    sessions: ReturnType<typeof buildMarketsSessionCard>;
+    nse: ReturnType<typeof buildNseMarketSessionState>;
+    commodity: ReturnType<typeof buildCommodityMarketSessionState> | null;
+    note: string;
+  } {
+    const contract = this.getDataContract();
+    const nse = sanitizeSessionLiveConsistency(
+      buildNseMarketSessionState({
+        lastMarketUpdateAt: contract.sampleUpdatedAt,
+        source: `mds:${this.ingestMode}`,
+      }),
+    );
+    const cryptoSample = [...this.cryptoBook.states.values()].find((s) => s.lastTick?.time);
+    const md = configuredCryptoMarketDataProvider();
+    const crypto = cryptoSample
+      ? buildCryptoMarketSessionState({
+          lastMarketUpdateAt: cryptoSample.lastTick?.time ?? null,
+          source: `mds:crypto:${md}`,
+          venue: 'BINANCE',
+          freshMaxAgeMs: md === 'coingecko' ? COINGECKO_FRESH_QUOTE_MAX_AGE_MS : undefined,
+          maxLiveAgeMs: md === 'coingecko' ? COINGECKO_MAX_QUOTE_AGE_MS : undefined,
+        })
+      : this.cryptoBook.states.size > 0
+        ? buildCryptoMarketSessionState({
+            source: `mds:crypto:${md}`,
+            lastMarketUpdateAt: null,
+          })
+        : null;
+    const commoditySample = [...this.commodityBook.states.values()].find((s) => s.lastTick?.time);
+    const commodity = this.commodityBook.states.size
+      ? buildCommodityMarketSessionState({
+          lastMarketUpdateAt: commoditySample?.lastTick?.time ?? null,
+          source: 'mds:commodity:alpha-vantage|eia',
+        })
+      : null;
+    const futuresSample = [...this.cryptoBook.states.values()].find(
+      (s) => s.info.sector === 'CRYPTO_FUTURE' && s.lastTick?.time,
+    );
+    const futures = this.cryptoBook.hasFutures()
+      ? buildCryptoMarketSessionState({
+          lastMarketUpdateAt: futuresSample?.lastTick?.time ?? null,
+          source: 'mds:crypto:binance-futures',
+          venue: 'BINANCE',
+          assetClass: 'CRYPTO_FUTURE',
+        })
+      : null;
+    return {
+      nse,
+      sessions: buildMarketsSessionCard({
+        nse,
+        us: null,
+        crypto,
+        futures,
+      }),
+      note: 'MarketSessionState is independent of universe membership and ExecutionReady. Simulated never becomes production LIVE.',
+      commodity,
     };
   }
 
@@ -1645,9 +1789,211 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   private requireSymbol(symbol: string): SymbolState {
-    const state = this.stocks.get(symbol);
+    const state =
+      this.stocks.get(symbol) ?? this.cryptoBook.get(symbol) ?? this.commodityBook.get(symbol);
     if (!state) throw new NotFoundException(`Unknown symbol: ${symbol}`);
     return state;
+  }
+
+  private initCryptoBooks(): void {
+    try {
+      this.cryptoBook.loadSnapshots();
+      console.log(`[market-data] crypto book ${this.cryptoBook.states.size} instruments`);
+      if (this.cryptoBook.states.size === 0) return;
+      if (!this.cryptoBook.marketDataMatchesSpotUniverse()) {
+        console.warn(
+          '[market-data] CRYPTO_MARKET_DATA_PROVIDER does not match crypto spot universe provider; spot quotes will not be ticker-joined',
+        );
+      }
+      void this.refreshCryptoQuotes();
+      this.cryptoRefreshTimer = setInterval(() => void this.refreshCryptoQuotes(), 60_000);
+    } catch (error) {
+      console.warn(`[market-data] crypto book skipped: ${(error as Error).message}`);
+    }
+  }
+
+  private initCommodityBook(): void {
+    try {
+      this.commodityBook.loadSnapshots();
+      console.log(
+        `[market-data] commodity book ${this.commodityBook.states.size} products (on-demand AV/EIA, no HF poll)`,
+      );
+    } catch (error) {
+      console.warn(`[market-data] commodity book skipped: ${(error as Error).message}`);
+    }
+  }
+
+  private async refreshCryptoQuotes(): Promise<void> {
+    const md = configuredCryptoMarketDataProvider();
+    try {
+      if (md === 'binance' && this.cryptoBook.marketDataMatchesSpotUniverse()) {
+        const response = await fetch('https://api.binance.com/api/v3/ticker/24hr', {
+          headers: { Accept: 'application/json', 'User-Agent': 'stockpred-mds/1.0' },
+        });
+        if (response.ok) {
+          const rows = (await response.json()) as Array<{
+            symbol?: string;
+            lastPrice?: string;
+            volume?: string;
+            highPrice?: string;
+            lowPrice?: string;
+            openPrice?: string;
+            closeTime?: number;
+          }>;
+          this.cryptoBook.applyPrints(
+            normalizeBinanceTicker24hr(rows, this.cryptoBook.eligibleSpotIds()),
+          );
+        }
+      }
+      if (this.cryptoBook.hasFutures()) {
+        const fut = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr', {
+          headers: { Accept: 'application/json', 'User-Agent': 'stockpred-mds/1.0' },
+        });
+        if (fut.ok) {
+          const futRows = (await fut.json()) as Array<{
+            symbol?: string;
+            lastPrice?: string;
+            volume?: string;
+            highPrice?: string;
+            lowPrice?: string;
+            openPrice?: string;
+            closeTime?: number;
+          }>;
+          const futPrints = normalizeBinanceTicker24hr(
+            futRows,
+            this.cryptoBook.eligibleFuturesSymbols(),
+          ).map((print) => ({ ...print, provider: 'binance-futures' as const }));
+          this.cryptoBook.applyFuturesTickers(futPrints);
+        }
+      }
+    } catch (error) {
+      console.warn(`[market-data] crypto refresh failed: ${(error as Error).message}`);
+    }
+  }
+
+  private async refreshCoinGeckoOnDemand(id: string): Promise<void> {
+    if (!this.cryptoBook.marketDataMatchesSpotUniverse()) return;
+    try {
+      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(id)}&vs_currencies=usd&include_24hr_vol=true`;
+      const response = await fetch(url, {
+        headers: { Accept: 'application/json', 'User-Agent': 'stockpred-mds/1.0' },
+      });
+      if (!response.ok) return;
+      const payload = (await response.json()) as Record<
+        string,
+        { usd?: number; usd_24h_vol?: number }
+      >;
+      this.cryptoBook.applyPrints(normalizeCoinGeckoSimplePrice(payload, new Set([id])));
+    } catch (error) {
+      console.warn(`[market-data] coingecko on-demand failed: ${(error as Error).message}`);
+    }
+  }
+
+  private async refreshCommodityOnDemand(symbol: string): Promise<void> {
+    const row = this.commodityBook.rows.get(symbol);
+    const state = this.commodityBook.get(symbol);
+    if (!row || !state) return;
+    const functionId = row.providerAssetId ?? row.symbol;
+    const apiKey = String(process.env.ALPHA_VANTAGE_API_KEY ?? '').trim();
+    const eiaKey = String(process.env.EIA_API_KEY ?? '').trim();
+    const energy = EIA_ENERGY_SERIES.find(
+      (s) => s.symbol === row.symbol || s.symbol === functionId,
+    );
+    try {
+      if (eiaKey && energy) {
+        const url = `https://api.eia.gov/v2/seriesid/${encodeURIComponent(energy.id)}?api_key=${encodeURIComponent(eiaKey)}`;
+        const response = await fetch(url, { headers: { Accept: 'application/json' } });
+        if (response.ok) {
+          const parsed = normalizeEiaSeries(
+            (await response.json()) as Parameters<typeof normalizeEiaSeries>[0],
+            functionId,
+          );
+          if (parsed.print) {
+            this.commodityBook.applyPrint(parsed.print, parsed.history);
+            return;
+          }
+        }
+      }
+      if (!apiKey) return;
+      const url = `https://www.alphavantage.co/query?function=${encodeURIComponent(functionId)}&interval=monthly&apikey=${encodeURIComponent(apiKey)}`;
+      const response = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!response.ok) return;
+      const parsed = normalizeAlphaVantageCommoditySeries(
+        (await response.json()) as Parameters<typeof normalizeAlphaVantageCommoditySeries>[0],
+        functionId,
+      );
+      if (parsed.print) this.commodityBook.applyPrint(parsed.print, parsed.history);
+    } catch (error) {
+      console.warn(`[market-data] commodity on-demand failed: ${(error as Error).message}`);
+    }
+  }
+
+  private async ensureCryptoHistory(symbol: string): Promise<void> {
+    const state = this.cryptoBook.get(symbol);
+    if (!state || state.daily.length >= 30) return;
+    const row = this.cryptoBook.rows.get(symbol);
+    if (!row) return;
+    const md = configuredCryptoMarketDataProvider();
+    try {
+      if (row.assetClass === 'CRYPTO_FUTURE') {
+        const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${encodeURIComponent(row.symbol)}&interval=1d&limit=500`;
+        const response = await fetch(url, { headers: { Accept: 'application/json' } });
+        if (!response.ok) return;
+        const klines = normalizeBinanceKlines((await response.json()) as unknown[]);
+        state.daily = klines.map((bar) => ({
+          symbol,
+          timeframe: Timeframe.ONE_DAY,
+          time: bar.time,
+          open: bar.open,
+          high: bar.high,
+          low: bar.low,
+          close: bar.close,
+          volume: bar.volume,
+        }));
+        return;
+      }
+      if (md === 'coingecko') {
+        const id = row.providerAssetId ?? symbol;
+        const url = `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=365`;
+        const response = await fetch(url, { headers: { Accept: 'application/json' } });
+        if (!response.ok) return;
+        const klines = normalizeCoinGeckoMarketChart(
+          (await response.json()) as {
+            prices?: Array<[number, number]>;
+            total_volumes?: Array<[number, number]>;
+          },
+        );
+        state.daily = klines.map((bar) => ({
+          symbol,
+          timeframe: Timeframe.ONE_DAY,
+          time: bar.time,
+          open: bar.open,
+          high: bar.high,
+          low: bar.low,
+          close: bar.close,
+          volume: bar.volume,
+        }));
+        return;
+      }
+      if (md === 'binance' && this.cryptoBook.marketDataMatchesSpotUniverse()) {
+        const url = `https://api.binance.com/api/v3/klines?symbol=${encodeURIComponent(row.symbol)}&interval=1d&limit=500`;
+        const response = await fetch(url, { headers: { Accept: 'application/json' } });
+        if (!response.ok) return;
+        const klines = normalizeBinanceKlines((await response.json()) as unknown[]);
+        state.daily = klines.map((bar) => ({
+          symbol,
+          timeframe: Timeframe.ONE_DAY,
+          time: bar.time,
+          open: bar.open,
+          high: bar.high,
+          low: bar.low,
+          close: bar.close,
+          volume: bar.volume,
+        }));
+      }
+    } catch (error) {
+      console.warn(`[market-data] crypto history failed: ${(error as Error).message}`);
+    }
   }
 
   /**
@@ -1656,6 +2002,14 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
    * page must not wait for that queue.
    */
   private async ensureLoaded(symbol: string): Promise<void> {
+    if (this.cryptoBook.get(symbol)) {
+      await this.ensureCryptoHistory(symbol);
+      return;
+    }
+    if (this.commodityBook.get(symbol)) {
+      await this.refreshCommodityOnDemand(symbol);
+      return;
+    }
     const state = this.stocks.get(symbol);
     if (!state) throw new NotFoundException(`Unknown symbol: ${symbol}`);
     if (state.daily.length >= 500) return;

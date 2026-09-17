@@ -1,4 +1,14 @@
-import { atr, bollinger, computeIndicatorSnapshot, ema, macd, rsi, sma, vwap } from './indicators';
+import {
+  adx,
+  atr,
+  bollinger,
+  computeIndicatorSnapshot,
+  ema,
+  macd,
+  rsi,
+  sma,
+  vwap,
+} from './indicators';
 import { lastFinite } from './math';
 import { candlesFromCloses, uptrendCloses } from './test-helpers';
 
@@ -131,6 +141,17 @@ describe('computeIndicatorSnapshot', () => {
     expect(snapshot.vwap).not.toBeNull();
     expect(snapshot.bollingerUpper).not.toBeNull();
     expect(snapshot.avgVolume20).not.toBeNull();
+    expect(snapshot.adx).not.toBeNull();
     expect(snapshot.symbol).toBe('TEST');
+  });
+});
+
+describe('adx', () => {
+  it('stays defined on a trending series and padded until 2*period', () => {
+    const candles = candlesFromCloses(uptrendCloses(80));
+    const out = adx(candles, 14);
+    expect(out.slice(0, 27).every((v) => Number.isNaN(v))).toBe(true);
+    expect(lastFinite(out)).not.toBeNull();
+    expect(lastFinite(out) as number).toBeGreaterThan(0);
   });
 });

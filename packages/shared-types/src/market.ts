@@ -78,6 +78,7 @@ export interface IndicatorSnapshot {
   bollingerMiddle: number | null;
   bollingerLower: number | null;
   avgVolume20: number | null;
+  adx?: number | null;
 }
 
 /** A tradable instrument. */
@@ -163,6 +164,8 @@ export interface TradeAdvisory {
 
 /** Live quote merged with indicator snapshot for dashboard rows. */
 export interface StockQuote extends StockInfo {
+  /** Frozen venue from InstrumentRef — BINANCE/US/FX/commodity never become NSE. */
+  venue?: string;
   price: number;
   change: number;
   changePercent: number;

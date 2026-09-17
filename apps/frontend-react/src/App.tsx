@@ -9,6 +9,7 @@ import AdvancedIntelligencePage from './pages/AdvancedIntelligencePage';
 import AgentDeskPage from './pages/AgentDeskPage';
 import BacktestPage from './pages/BacktestPage';
 import BatchCenterPage from './pages/BatchCenterPage';
+import MultiAssetBatchPage from './pages/MultiAssetBatchPage';
 import BullRunPage from './pages/BullRunPage';
 import BookPage from './pages/BookPage';
 import BrandSettingsPage from './pages/BrandSettingsPage';
@@ -78,7 +79,9 @@ export default function App(): JSX.Element {
         <Route path="/market" element={gated(AppView.DASHBOARD, <DashboardPage />)} />
         <Route path="/sectors" element={gated(AppView.DASHBOARD, <SectorOverviewPage />)} />
         <Route path="/prep" element={gated(AppView.AGENT, <PrepFocusPage />)} />
-        <Route path="/batch" element={gated(AppView.AGENT, <BatchCenterPage />)} />
+        <Route path="/batch" element={gated(AppView.AGENT, <MultiAssetBatchPage />)} />
+        <Route path="/batch/multi-asset" element={gated(AppView.AGENT, <MultiAssetBatchPage />)} />
+        <Route path="/batch/legacy" element={gated(AppView.AGENT, <BatchCenterPage />)} />
         <Route path="/bull-run" element={gated(AppView.AGENT, <BullRunPage />)} />
         <Route path="/research-reports" element={gated(AppView.AGENT, <ResearchReportsPage />)} />
         <Route path="/live" element={gated(AppView.AGENT, <LiveMonitorPage />)} />

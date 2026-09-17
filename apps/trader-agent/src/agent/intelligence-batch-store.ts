@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join, resolve } from 'path';
 import type {
   BatchResearchReport,
+  BatchDataSnapshot,
   IntelligenceBatch,
   IntelligenceBatchResults,
 } from '@stockpred/shared-types';
@@ -41,6 +42,10 @@ function researchReportPath(batchId: string): string {
   return join(intelligenceBatchesDir(), `${batchId}.research-report.json`);
 }
 
+function dataSnapshotPath(batchId: string): string {
+  return join(intelligenceBatchesDir(), `${batchId}.data-snapshot.json`);
+}
+
 export function writeIntelligenceBatch(batch: IntelligenceBatch): string {
   const path = batchPath(batch.batchId);
   writeFileSync(path, `${JSON.stringify(batch, null, 2)}\n`, 'utf8');
@@ -64,7 +69,13 @@ export function readIntelligenceBatch(batchId: string): IntelligenceBatch | null
 export function listIntelligenceBatches(limit = 50): IntelligenceBatch[] {
   const dir = intelligenceBatchesDir();
   const files = readdirSync(dir)
-    .filter((f) => f.endsWith('.json') && !f.endsWith('.results.json'))
+    .filter(
+      (f) =>
+        f.endsWith('.json') &&
+        !f.endsWith('.results.json') &&
+        !f.endsWith('.research-report.json') &&
+        !f.endsWith('.data-snapshot.json'),
+    )
     .sort()
     .reverse();
   const out: IntelligenceBatch[] = [];
@@ -172,4 +183,24 @@ export function recoverInterruptedBatches(): IntelligenceBatch[] {
     }
   }
   return recovered;
+}
+
+export function writeBatchDataSnapshot(snapshot: BatchDataSnapshot): string {
+  const path = dataSnapshotPath(snapshot.batchId);
+  writeFileSync(path, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
+  return path;
+}
+
+export function readBatchDataSnapshot(batchId: string): BatchDataSnapshot | null {
+  const path = dataSnapshotPath(batchId);
+  if (!existsSync(path)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as BatchDataSnapshot;
+    if (parsed?.schemaVersion !== 'batch-data-snapshot.v1' || !Array.isArray(parsed.instruments)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
 }

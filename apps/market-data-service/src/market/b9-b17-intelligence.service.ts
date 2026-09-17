@@ -3,6 +3,8 @@
  * Never authorization / never fabricate when history insufficient.
  */
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { createHash } from 'crypto';
+import { resolveNseAllMembership } from '@stockpred/database';
 import { Timeframe } from '@stockpred/shared-types';
 import type {
   BullRunIntelligenceSnapshot,
@@ -30,24 +32,55 @@ import {
   buildSectorIntelligenceSnapshot,
   closesFromCandles,
   targetedUniverseFromGlobalEvent,
+  resolveAssetAdapter,
+  adapterHorizonBars,
   type GlobalEventInput,
   type SectorMemberInput,
 } from '@stockpred/shared-utils';
-import type { BullRunV2Assessment } from '@stockpred/shared-types';
+import type { BullRunCalendarHorizon, BullRunV2Assessment } from '@stockpred/shared-types';
+import { BULL_RUN_CALENDAR_HORIZONS } from '@stockpred/shared-types';
 import { MarketService } from './market.service';
 
 @Injectable()
 export class B9B17IntelligenceService {
   constructor(private readonly market: MarketService) {}
 
-  listSectors(): { sectors: Array<{ sector: string; memberCount: number }> } {
-    const counts = new Map<string, number>();
+  listSectors(): {
+    sectors: Array<{
+      sector: string;
+      memberCount: number;
+      taxonomy: string;
+      source: string;
+      universeVersion: string;
+      sectorVersion: string;
+      effectiveFrom: string;
+    }>;
+  } {
+    const snapshot = resolveNseAllMembership().snapshot;
+    const eligible = new Set(snapshot.instruments.map((row) => row.symbol));
+    const members = new Map<string, string[]>();
     for (const row of this.market.listSectorMembership()) {
+      if (!eligible.has(row.symbol)) continue;
       const key = row.sector || 'Unknown';
-      counts.set(key, (counts.get(key) ?? 0) + 1);
+      const symbols = members.get(key) ?? [];
+      symbols.push(row.symbol);
+      members.set(key, symbols);
     }
-    const sectors = [...counts.entries()]
-      .map(([sector, memberCount]) => ({ sector, memberCount }))
+    const sectors = [...members.entries()]
+      .map(([sector, symbols]) => ({
+        sector,
+        memberCount: symbols.length,
+        taxonomy: 'MDS_SECTOR_CLASSIFICATION_V1',
+        source: 'MDS sector classification intersected with Canonical NSE_ALL',
+        universeVersion: snapshot.version,
+        sectorVersion: `sector-${createHash('sha256')
+          .update(
+            JSON.stringify({ sector, symbols: [...symbols].sort(), universe: snapshot.version }),
+          )
+          .digest('hex')
+          .slice(0, 16)}`,
+        effectiveFrom: snapshot.effectiveDate,
+      }))
       .sort((a, b) => a.sector.localeCompare(b.sector));
     return { sectors };
   }
@@ -59,16 +92,42 @@ export class B9B17IntelligenceService {
     return buildSectorIntelligenceSnapshot(name, members);
   }
 
-  sectorMembers(sector: string): { sector: string; symbols: string[] } {
+  sectorMembers(sector: string): {
+    sector: string;
+    symbols: string[];
+    memberCount: number;
+    taxonomy: string;
+    source: string;
+    universeVersion: string;
+    sectorVersion: string;
+    effectiveFrom: string;
+  } {
     const name = sector?.trim();
     if (!name) throw new BadRequestException('sector is required');
     const want = name.toUpperCase();
+    const snapshot = resolveNseAllMembership().snapshot;
+    const eligible = new Set(snapshot.instruments.map((row) => row.symbol));
     const symbols = this.market
       .listSectorMembership()
-      .filter((m) => (m.sector || '').toUpperCase() === want)
+      .filter((m) => eligible.has(m.symbol) && (m.sector || '').toUpperCase() === want)
       .map((m) => m.symbol)
       .sort();
-    return { sector: name, symbols };
+    if (symbols.length === 0) {
+      throw new BadRequestException(`UNKNOWN_SECTOR:${name}`);
+    }
+    return {
+      sector: name,
+      symbols,
+      memberCount: symbols.length,
+      taxonomy: 'MDS_SECTOR_CLASSIFICATION_V1',
+      source: 'MDS sector classification intersected with Canonical NSE_ALL',
+      universeVersion: snapshot.version,
+      sectorVersion: `sector-${createHash('sha256')
+        .update(JSON.stringify({ sector: want, symbols, universe: snapshot.version }))
+        .digest('hex')
+        .slice(0, 16)}`,
+      effectiveFrom: snapshot.effectiveDate,
+    };
   }
 
   allSectorsIntelligence(limit = 40): {
@@ -216,12 +275,20 @@ export class B9B17IntelligenceService {
     }
 
     const historicalEvents = this.historicalEvents(sym);
+    const adapter = resolveAssetAdapter(sym, 'NSE_EQUITY');
+    const horizonBarsByHorizon = Object.fromEntries(
+      BULL_RUN_CALENDAR_HORIZONS.map((h: BullRunCalendarHorizon) => [
+        h,
+        adapterHorizonBars(adapter, h) ?? undefined,
+      ]),
+    ) as Partial<Record<BullRunCalendarHorizon, number>>;
     const v2 = buildBullRunV2FromEvidence({
       symbol: sym,
       closes,
       bullRunSnapshot: b10,
       historical: historicalEvents,
       analogueMaxForwardReturnsByHorizon,
+      horizonBarsByHorizon,
       dataStatus,
       dataAsOf: quote?.updatedAt ?? undefined,
     });

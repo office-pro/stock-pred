@@ -5,6 +5,7 @@
  * Bull-Run availability must not change Best Pick membership or order.
  */
 import type {
+  BatchCapabilityCoverageItem,
   BatchResearchReport,
   BatchResearchReportBestOpportunity,
   BatchResearchReportBullRunCounts,
@@ -19,6 +20,8 @@ import type {
   BatchResearchReportVsPrevious,
   BullRunCalendarHorizon,
   BullRunDataStatus,
+  CapabilityState,
+  DataCapability,
   IntelligenceBatchResultRow,
 } from '@stockpred/shared-types';
 import {
@@ -29,11 +32,20 @@ import {
 } from '@stockpred/shared-types';
 import { provenance } from './b9-b17-helpers';
 import { evidenceFromAdvisoryLabels, validateEvidencePackage } from './evidence-validation-layer';
+import { resolveAssetAdapter } from './asset-adapter';
+import { adapterHintFromInstrumentRef, adapterHintFromUniverse } from './instrument-registry';
 
 export interface BuildBatchResearchReportInput {
   batchId: string;
   completedAt: number;
   universe: string;
+  universeVersion?: string;
+  membershipSource?: string;
+  adapterVersion?: string;
+  providerSelection?: string;
+  analysisTimeframe?: string;
+  predictionHorizon?: string;
+  sessionContext?: string;
   coverage: { total: number; processed: number; failed: number };
   rankings: IntelligenceBatchResultRow[];
   dataStatus?: BullRunDataStatus;
@@ -51,6 +63,8 @@ export interface BuildBatchResearchReportInput {
    * Keys are uppercased sector names; values are symbol lists.
    */
   sectorLeadersBySector?: Record<string, { leaders?: string[]; laggards?: string[] }>;
+  /** Snapshot-owned coverage — preferred over ranking-derived coverage. */
+  snapshotCapabilityCoverage?: import('@stockpred/shared-types').SnapshotCapabilityCoverageItem[];
 }
 
 /** Signed KPI deltas from two dashboard summaries — batch-owned only. */
@@ -281,7 +295,141 @@ function projectOpportunityRow(
     historicalSampleSize: null,
     historicalNote:
       'Historical analogues require candle series at stock detail / MDS refresh. Batch report does not invent matches. Min sample threshold applies.',
+    instrument: row.instrument,
+    adapterId: row.adapterId,
+    analysisTimeframe: row.analysisTimeframe,
+    predictionHorizon: row.predictionHorizon,
+    sessionContext: row.sessionContext,
+    seriesProvenance: row.seriesProvenance,
+    multiAssetDataStatus: row.multiAssetDataStatus,
   };
+}
+
+type CapKey = keyof DataCapability;
+
+function rowCapabilitySnapshot(row: IntelligenceBatchResultRow, universe: string): DataCapability {
+  const hint = row.instrument
+    ? adapterHintFromInstrumentRef(row.instrument)
+    : adapterHintFromUniverse(universe);
+  const adapter = resolveAssetAdapter(row.instrument?.symbol ?? row.symbol, hint);
+  const base = adapter.capabilities();
+  const labels = row.intelligenceContext ?? {};
+  const override = (key: CapKey, state: CapabilityState): void => {
+    base[key] = state;
+  };
+  if (labels.mlModelVersion != null || labels.mlDirection != null) {
+    override('ml', 'AVAILABLE');
+  } else if (base.ml === 'AVAILABLE') {
+    override('ml', 'PARTIAL');
+  }
+  if (labels.rsBucket != null) override('relationships', 'PARTIAL');
+  if ((labels.bullRunV2Cells?.length ?? 0) > 0 || labels.bullRunStage) {
+    override('bullRun', 'AVAILABLE');
+  } else if (base.bullRun === 'AVAILABLE') {
+    override('bullRun', 'PARTIAL');
+  }
+  if (labels.sectorState != null) override('sector', 'AVAILABLE');
+  if (labels.fundamentalScore != null) override('fundamentals', 'AVAILABLE');
+  if (labels.eventRisk != null) override('catalyst', 'AVAILABLE');
+  if (labels.sentimentScore != null) override('sentiment', 'PARTIAL');
+  if (labels.globalEventImpact != null) override('globalImpact', 'AVAILABLE');
+  if (labels.fnoStatus != null) override('fno', 'AVAILABLE');
+  if (labels.quoteStatus === 'MDS_UNAVAILABLE') override('marketData', 'UNAVAILABLE');
+  return base;
+}
+
+/** Backend-owned capabilityCoverage — counts real per-row states; never uniform fake. */
+export function buildBatchCapabilityCoverage(
+  rankings: IntelligenceBatchResultRow[],
+  universe: string,
+  denominators?: {
+    totalEligible?: number;
+    processedCount?: number;
+    pendingCount?: number;
+    failedCount?: number;
+    asOf?: number | string | null;
+  },
+): BatchCapabilityCoverageItem[] {
+  const keys: CapKey[] = [
+    'marketData',
+    'historicalCandles',
+    'benchmark',
+    'sector',
+    'fundamentals',
+    'catalyst',
+    'sentiment',
+    'ml',
+    'historicalAnalogues',
+    'bullRun',
+    'relationships',
+    'fno',
+    'derivatives',
+    'positioning',
+    'globalImpact',
+    'paperTrading',
+  ];
+  /** Capabilities that do not apply to all asset classes for this universe. */
+  const notApplicableForUniverse = (capability: CapKey): boolean => {
+    const u = String(universe ?? '').toUpperCase();
+    if (capability === 'fno' && (u.startsWith('US_') || u.startsWith('CRYPTO_'))) return true;
+    if (capability === 'bullRun' && u.startsWith('CRYPTO_')) return true;
+    return false;
+  };
+
+  const totalEligible = denominators?.totalEligible ?? rankings.length;
+  const processedCount = denominators?.processedCount ?? rankings.length;
+  const pendingCount = denominators?.pendingCount ?? Math.max(0, totalEligible - processedCount);
+  const failedCount = denominators?.failedCount ?? 0;
+  const asOf = denominators?.asOf ?? null;
+
+  return keys.map((capability) => {
+    let available = 0;
+    let partial = 0;
+    let unavailable = 0;
+    let notApplicable = 0;
+    if (notApplicableForUniverse(capability)) {
+      notApplicable = totalEligible;
+      return {
+        capability,
+        available: 0,
+        partial: 0,
+        unavailable: 0,
+        notApplicable,
+        coverageCount: 0,
+        totalCount: totalEligible,
+        totalEligible,
+        eligibleCount: totalEligible,
+        processedCount,
+        pendingCount,
+        failedCount,
+        asOf,
+      };
+    }
+    for (const row of rankings) {
+      const snap = rowCapabilitySnapshot(row, universe);
+      const st = snap[capability];
+      if (st === 'AVAILABLE') available += 1;
+      else if (st === 'PARTIAL') partial += 1;
+      else unavailable += 1;
+    }
+    // Unprocessed eligible slots count as pending, not as UNAVAILABLE failures.
+    const unprocessed = Math.max(0, totalEligible - rankings.length);
+    return {
+      capability,
+      available,
+      partial,
+      unavailable,
+      notApplicable: 0,
+      coverageCount: available + partial,
+      totalCount: totalEligible,
+      totalEligible,
+      eligibleCount: totalEligible,
+      processedCount,
+      pendingCount: pendingCount + (unprocessed > pendingCount ? unprocessed - pendingCount : 0),
+      failedCount,
+      asOf,
+    };
+  });
 }
 
 export function buildBatchResearchReport(
@@ -511,6 +659,13 @@ export function buildBatchResearchReport(
     batchId: input.batchId,
     completedAt: input.completedAt,
     universe: input.universe,
+    universeVersion: input.universeVersion,
+    membershipSource: input.membershipSource,
+    adapterVersion: input.adapterVersion,
+    providerSelection: input.providerSelection,
+    analysisTimeframe: input.analysisTimeframe,
+    predictionHorizon: input.predictionHorizon,
+    sessionContext: input.sessionContext,
     coverage: input.coverage,
     outcome: finalOutcome,
     commandCenterHorizon: COMMAND_CENTER_DEFAULT_HORIZON,
@@ -561,6 +716,29 @@ export function buildBatchResearchReport(
       insufficientHistory,
       fabricated: 0,
     },
+    capabilityCoverage: input.snapshotCapabilityCoverage?.length
+      ? input.snapshotCapabilityCoverage.map((item) => ({
+          capability: item.capability,
+          available: item.available,
+          partial: item.partial,
+          unavailable: item.unavailable,
+          notApplicable: item.na,
+          coverageCount: item.available + item.partial,
+          totalCount: item.eligible + item.na,
+          totalEligible: item.eligible,
+          eligibleCount: item.eligible,
+          processedCount: input.coverage.processed,
+          pendingCount: item.pending,
+          failedCount: input.coverage.failed,
+          asOf: input.dataAsOf ?? null,
+        }))
+      : buildBatchCapabilityCoverage(rankings, input.universe, {
+          totalEligible: input.coverage.total,
+          processedCount: input.coverage.processed,
+          failedCount: input.coverage.failed,
+          pendingCount: Math.max(0, input.coverage.total - input.coverage.processed),
+          asOf: input.dataAsOf ?? null,
+        }),
     dataAsOf: input.dataAsOf,
     dataStatus: input.dataStatus ?? 'UNKNOWN',
     provenance: provenance('batch-research-report', {
