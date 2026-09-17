@@ -1,7 +1,7 @@
 import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { UserRole, UserStatus } from '@stockpred/shared-types';
-import { RolesGuard } from './roles.guard';
+import { identityHeaders, RolesGuard } from './roles.guard';
 
 function reflectorRequiring(roles: UserRole[] | undefined): Reflector {
   return {
@@ -60,5 +60,20 @@ describe('RolesGuard (RBAC)', () => {
   it('rejects unauthenticated requests', () => {
     const guard = new RolesGuard(reflectorRequiring([UserRole.USER]));
     expect(() => guard.canActivate(contextWithUser(undefined))).toThrow(UnauthorizedException);
+  });
+
+  it('stamps s2s identity headers for execution fan-out', () => {
+    const headers = identityHeaders({
+      sub: 'u1',
+      email: 'a@b.c',
+      role: UserRole.USER,
+      brandId: 'b1',
+      views: [],
+      status: UserStatus.ACTIVE,
+      accessExpiresAt: null,
+    });
+    expect(headers['x-user-id']).toBe('u1');
+    expect(headers['x-stockpred-service']).toBe('api-gateway');
+    expect(headers['x-stockpred-service-token']).toBeTruthy();
   });
 });

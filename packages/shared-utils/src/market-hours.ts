@@ -47,22 +47,27 @@ export function classifyQuoteStatus(
   now = Date.now(),
   maxLiveAgeMs = DEFAULT_LIVE_QUOTE_MAX_AGE_MS,
   freshMaxAgeMs = DEFAULT_FRESH_QUOTE_MAX_AGE_MS,
+  session?: { alwaysOpen?: boolean },
 ): DataFreshnessStatus {
   if (quoteTimestampMs == null || !Number.isFinite(quoteTimestampMs) || quoteTimestampMs <= 0) {
     return 'UNKNOWN';
   }
-  if (!isNseCashSessionOpen(now)) {
+  const sessionOpen = session?.alwaysOpen === true ? true : isNseCashSessionOpen(now);
+  if (!sessionOpen) {
     return 'CLOSED_MARKET';
   }
   const age = now - quoteTimestampMs;
   if (age < 0) {
-    // Clock skew: treat as stale rather than inventing LIVE.
     return 'STALE';
   }
   if (age <= freshMaxAgeMs) return 'LIVE';
   if (age <= maxLiveAgeMs) return 'DELAYED';
   return 'STALE';
 }
+
+/** CoinGecko Demo advertises ~60s freshness — never invent sub-30s LIVE. */
+export const COINGECKO_FRESH_QUOTE_MAX_AGE_MS = 0;
+export const COINGECKO_MAX_QUOTE_AGE_MS = 180_000;
 
 /**
  * Freshness alone does not block when status is LIVE or DELAYED

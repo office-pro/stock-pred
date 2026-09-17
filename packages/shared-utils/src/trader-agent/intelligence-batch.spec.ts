@@ -73,8 +73,16 @@ describe('partitionSymbols / createIntelligenceBatchSkeleton', () => {
       symbols,
       now: 1_700_000_000_000,
       partitionSize: 50,
+      analysisPeriod: '6M',
+      analysisResolution: '1D',
+      analysisTimeframe: '6M',
+      predictionHorizon: '1M',
     });
     expect(batch.schemaVersion).toBe('intelligence-batch.v1');
+    expect(batch.analysisPeriod).toBe('6M');
+    expect(batch.analysisResolution).toBe('1D');
+    expect(batch.analysisTimeframe).toBe('6M');
+    expect(batch.predictionHorizon).toBe('1M');
     expect(batch.tasks).toHaveLength(120);
     expect(batch.tasks.every((t) => t.status === 'PENDING')).toBe(true);
     expect(batch.progress.total).toBe(120);

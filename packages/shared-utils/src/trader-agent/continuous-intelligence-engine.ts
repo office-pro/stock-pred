@@ -206,3 +206,67 @@ export function continuousExecutionEligibleHint(dataStatus: ContinuousDataStatus
   // Hint only — real eligibility remains with evaluateRisk / Gate.
   return dataStatus === 'LIVE';
 }
+
+/**
+ * Continuous targeted refresh — affected symbols only (no full-universe every tick).
+ * Advisory reassessment trigger; never authorize.
+ */
+export function planTargetedIntelligenceRefresh(input: {
+  eventId: string;
+  trigger: ContinuousTrigger;
+  affectedSymbols: string[];
+  affectedSectors?: string[];
+  dataStatus: ContinuousDataStatus;
+  message: string;
+  now?: number;
+}): {
+  mode: 'TARGETED_REFRESH';
+  symbols: string[];
+  sectors: string[];
+  event: ContinuousIntelligenceEvent;
+  note: string;
+} {
+  const symbols = [...new Set(input.affectedSymbols.map((s) => s.toUpperCase()))];
+  const sectors = [...new Set((input.affectedSectors ?? []).map((s) => s.toUpperCase()))];
+  const event = buildContinuousEvent({
+    eventId: input.eventId,
+    symbol: symbols[0] ?? 'MULTI',
+    priority: symbols.length > 20 ? 'P1' : 'P2',
+    trigger: input.trigger,
+    dataStatus: input.dataStatus,
+    message: input.message,
+    now: input.now,
+    dedupeKey: `targeted:${input.trigger}:${input.eventId}`,
+  });
+  return {
+    mode: 'TARGETED_REFRESH',
+    symbols,
+    sectors,
+    event,
+    note: 'Batch baseline + targeted refresh only — do not re-run full universe every tick. No authorization.',
+  };
+}
+
+/** Hard forbid: continuous cycles must not request a full NIFTY500 (or larger) deep scan. */
+export function assertContinuousNotFullUniverseScan(input: {
+  mode: string;
+  symbolCount: number;
+  maxTargetedSymbols?: number;
+}): { ok: boolean; reasonCode?: string; detail: string } {
+  const max = input.maxTargetedSymbols ?? 50;
+  if (input.mode !== 'TARGETED_REFRESH') {
+    return {
+      ok: false,
+      reasonCode: 'UNSUPPORTED_ASSET',
+      detail: `continuous_mode_must_be_TARGETED_REFRESH got=${input.mode}`,
+    };
+  }
+  if (input.symbolCount > max) {
+    return {
+      ok: false,
+      reasonCode: 'DATA_INCOMPLETE',
+      detail: `full_universe_deep_scan_forbidden count=${input.symbolCount} max=${max}`,
+    };
+  }
+  return { ok: true, detail: 'targeted_ok' };
+}

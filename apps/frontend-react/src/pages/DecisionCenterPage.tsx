@@ -43,7 +43,8 @@ export default function DecisionCenterPage(): JSX.Element {
         B9–B17 sector / bull-run / F&amp;O / global-event labels are advisory context only. They
         never sort opportunities, never set position size, and never bypass evaluateTrade → Risk →
         Gate. APPROVE + PARTIAL TradePlan is advisory only — Not execution-ready until COMPLETE
-        geometry exists and the frozen auth chain passes.
+        geometry exists and the frozen auth chain passes. ExecutionReady is backend-owned only; the
+        UI must not derive ready from APPROVE + confidence / Bull-Run / LIVE.
       </Alert>
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>

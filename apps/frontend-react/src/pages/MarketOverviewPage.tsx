@@ -10,20 +10,22 @@ import {
   Button,
   Chip,
   CircularProgress,
-  Divider,
-  Drawer,
+  LinearProgress,
   Paper,
   Stack,
+  Tab,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
+  Tabs,
   TextField,
   Typography,
 } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
-import { useGetBullRunIntelligenceQuery, useGetLatestBatchResearchReportQuery } from '../store/api';
+import { useGetLatestBatchResearchReportQuery } from '../store/api';
+import OpportunityDetailPanel from '../components/OpportunityDetailPanel';
 import {
   COMMAND_CENTER_DISPLAY_TARGETS,
   COMMAND_CENTER_HORIZONS,
@@ -55,7 +57,17 @@ type BestPickRow = {
   tradePlanExpectedR?: number;
   tradePlanHorizon?: string;
   invalidationPrice?: number;
+  evidenceQuality?: string;
+  conflictSummary?: string;
+  supportingEvidence?: string[];
+  conflictingEvidence?: string[];
+  missingEvidence?: string[];
+  historicalStatus?: string;
+  historicalSampleSize?: number | null;
+  historicalNote?: string;
 };
+
+type CenterTab = 'best' | 'bull' | 'evidence' | 'integrity' | 'pro' | 'paper';
 
 function completedAtLabel(ts: number | undefined): string {
   if (ts == null || !Number.isFinite(ts)) return 'Not available';
@@ -66,12 +78,55 @@ function completedAtLabel(ts: number | undefined): string {
   }
 }
 
+function toDetailInput(row: BestPickRow) {
+  return {
+    symbol: row.symbol,
+    rank: row.rank,
+    sector: row.sector,
+    bullRunMatrix: row.bullRunMatrix,
+    supportingEvidence: row.supportingEvidence,
+    conflictingEvidence: row.conflictingEvidence,
+    missingEvidence: row.missingEvidence,
+    evidenceQuality: row.evidenceQuality,
+    conflictSummary: row.conflictSummary,
+    historicalStatus: row.historicalStatus,
+    historicalSampleSize: row.historicalSampleSize,
+    historicalNote: row.historicalNote,
+    thesis: row.thesis,
+    recommendation: row.recommendation,
+    tradePlanExecutionReady: row.tradePlanExecutionReady,
+    tradePlanStatus: row.tradePlanStatus,
+    tradePlanExpectedR: row.tradePlanExpectedR,
+    tradePlanHorizon: row.tradePlanHorizon,
+    invalidationPrice: row.invalidationPrice,
+    integrityStatus: row.integrityStatus,
+    intelligenceContext: {
+      tradePlanRecommendation: row.recommendation,
+      tradePlanExecutionReady: row.tradePlanExecutionReady,
+      tradePlanStatus: row.tradePlanStatus,
+      tradePlanExpectedR: row.tradePlanExpectedR,
+      tradePlanHorizon: row.tradePlanHorizon,
+      invalidationPrice: row.invalidationPrice,
+      integrityStatus: row.integrityStatus,
+      thesis: row.thesis,
+      supportingEvidence: row.supportingEvidence,
+      conflictingEvidence: row.conflictingEvidence,
+      missingEvidence: row.missingEvidence,
+      evidenceQuality: row.evidenceQuality,
+      conflictSummary: row.conflictSummary,
+      historicalStatus: row.historicalStatus,
+      historicalSampleSize: row.historicalSampleSize,
+    },
+  };
+}
+
 export default function MarketOverviewPage(): JSX.Element {
   const { data, isLoading, isError } = useGetLatestBatchResearchReportQuery();
   const [horizon, setHorizon] = useState<BullRunHorizon>('3M');
   const [oppTarget, setOppTarget] = useState<number | 'custom'>(0.2);
   const [customTargetPct, setCustomTargetPct] = useState('20');
   const [detail, setDetail] = useState<BestPickRow | null>(null);
+  const [centerTab, setCenterTab] = useState<CenterTab>('best');
 
   const report = data?.report;
   const matrixTargets = useMemo(() => {
@@ -84,7 +139,6 @@ export default function MarketOverviewPage(): JSX.Element {
     if (report.bestPicks?.length) return report.bestPicks as BestPickRow[];
     const flagged = (report.bestOpportunities ?? []).filter((o) => o.isBestPick);
     if (flagged.length) return flagged as BestPickRow[];
-    // v1 report fallback — RankingContext order only (never re-sort by Bull-Run)
     return (report.bestOpportunities ?? []).slice(0, 10) as BestPickRow[];
   }, [report]);
 
@@ -106,6 +160,8 @@ export default function MarketOverviewPage(): JSX.Element {
         Number.isFinite(o.probability),
     );
   }, [report?.bullRunOpportunities, horizon, resolvedOppTarget]);
+
+  const activeDetail = detail ?? bestPicks[0] ?? null;
 
   if (isLoading) {
     return (
@@ -133,9 +189,13 @@ export default function MarketOverviewPage(): JSX.Element {
 
   const integ = report.integritySummary;
   const proPick = bestPicks[0];
+  const coveragePct =
+    report.coverage.total > 0
+      ? Math.round((100 * report.coverage.processed) / report.coverage.total)
+      : 0;
 
   return (
-    <Box sx={{ p: 2, maxWidth: 1200 }}>
+    <Box sx={{ p: { xs: 1, md: 2 }, maxWidth: 1400 }}>
       <Stack
         direction={{ xs: 'column', sm: 'row' }}
         justifyContent="space-between"
@@ -160,7 +220,7 @@ export default function MarketOverviewPage(): JSX.Element {
             variant="outlined"
           />
           <Chip size="small" label={report.outcome} variant="outlined" />
-          <Button size="small" component={RouterLink} to="/batch" variant="outlined">
+          <Button size="small" component={RouterLink} to="/batch" variant="contained">
             Batch Center
           </Button>
         </Stack>
@@ -170,483 +230,369 @@ export default function MarketOverviewPage(): JSX.Element {
         {report.disclaimer}
       </Alert>
 
-      {/* Market strip */}
-      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Market Regime
-            </Typography>
-            <Typography variant="body2" fontWeight={600}>
-              {report.marketSummary?.regime ?? report.marketSummary?.note ?? 'Not available'}
-            </Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Breadth
-            </Typography>
-            <Typography variant="body2" fontWeight={600}>
-              {report.marketSummary?.breadth ?? 'Not available'}
-            </Typography>
-          </Box>
-          <Box sx={{ minWidth: 180 }}>
-            <Typography variant="caption" color="text.secondary">
-              Sector Rotation
-            </Typography>
-            <Typography variant="body2" fontWeight={600}>
-              Leading: {(report.sectorRotation?.leading ?? []).slice(0, 3).join(', ') || '—'}
-            </Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Data
-            </Typography>
-            <Typography variant="body2" fontWeight={600}>
-              {report.dataStatus ?? 'UNKNOWN'}
-            </Typography>
-          </Box>
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Integrity
-            </Typography>
-            <Typography variant="body2" fontWeight={600}>
-              {integ
-                ? `N ${integ.normal} · I ${integ.investigate} · S ${integ.suspicious}`
-                : 'Not available'}
-            </Typography>
-          </Box>
-        </Stack>
-      </Paper>
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+        <Paper variant="outlined" sx={{ p: 1.5, minWidth: 150, flex: '1 1 150px' }}>
+          <Typography variant="caption" color="text.secondary">
+            Market Regime
+          </Typography>
+          <Typography variant="subtitle1" fontWeight={800}>
+            {report.marketSummary?.regime ?? report.marketSummary?.note ?? 'Not available'}
+          </Typography>
+        </Paper>
+        <Paper variant="outlined" sx={{ p: 1.5, minWidth: 150, flex: '1 1 150px' }}>
+          <Typography variant="caption" color="text.secondary">
+            Breadth / Sector Rotation
+          </Typography>
+          <Typography variant="body2" fontWeight={700}>
+            {report.marketSummary?.breadth ?? 'Not available'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Leading: {(report.sectorRotation?.leading ?? []).slice(0, 3).join(', ') || '—'}
+          </Typography>
+        </Paper>
+        <Paper variant="outlined" sx={{ p: 1.5, minWidth: 150, flex: '1 1 150px' }}>
+          <Typography variant="caption" color="text.secondary">
+            Data Status
+          </Typography>
+          <Typography variant="subtitle1" fontWeight={800}>
+            {report.dataStatus ?? 'UNKNOWN'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {completedAtLabel(report.completedAt)}
+          </Typography>
+        </Paper>
+        <Paper variant="outlined" sx={{ p: 1.5, minWidth: 150, flex: '1 1 150px' }}>
+          <Typography variant="caption" color="text.secondary">
+            Integrity
+          </Typography>
+          <Typography variant="body2" fontWeight={700}>
+            {integ
+              ? `N ${integ.normal} · I ${integ.investigate} · S ${integ.suspicious}`
+              : 'Not available'}
+          </Typography>
+        </Paper>
+        <Paper variant="outlined" sx={{ p: 1.5, minWidth: 150, flex: '1 1 150px' }}>
+          <Typography variant="caption" color="text.secondary">
+            Batch Coverage
+          </Typography>
+          <Typography variant="subtitle1" fontWeight={800}>
+            {report.coverage.processed}/{report.coverage.total} ({coveragePct}%)
+          </Typography>
+          <LinearProgress variant="determinate" value={coveragePct} sx={{ mt: 1, height: 6 }} />
+        </Paper>
+      </Stack>
 
-      {/* Best Picks */}
-      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 0.5 }}>
-          ★ Best Picks
-        </Typography>
-        <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-          RankingContext / BEST_OPPORTUNITIES order — not sorted by Bull-Run probability. Columns
-          are P(≥ target within selected horizon). Confidence ≠ probability. Exec Ready is
-          backend-owned.
-        </Typography>
-        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
-          {COMMAND_CENTER_HORIZONS.map((h) => (
-            <Chip
-              key={h}
-              size="small"
-              label={h}
-              color={horizon === h ? 'primary' : 'default'}
-              variant={horizon === h ? 'filled' : 'outlined'}
-              onClick={() => setHorizon(h)}
-            />
-          ))}
-        </Stack>
-        {bestPicks.length === 0 ? (
-          <Alert severity="info">No suitable Best Pick for this batch (backend outcome).</Alert>
-        ) : (
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Stock</TableCell>
-                <TableCell>Pick</TableCell>
-                <TableCell>Confidence</TableCell>
-                {matrixTargets.map((t) => (
-                  <TableCell key={t} align="right">
-                    {formatTargetLabel(t)}
-                  </TableCell>
-                ))}
-                <TableCell>Integrity</TableCell>
-                <TableCell>Rec</TableCell>
-                <TableCell>Exec Ready</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {bestPicks.slice(0, 25).map((o) => {
-                const conf =
-                  lookupMatrixConfidence(o.bullRunMatrix, horizon) ?? o.confidence ?? null;
-                return (
-                  <TableRow
-                    key={o.symbol}
-                    hover
-                    sx={{ cursor: 'pointer' }}
-                    onClick={() => setDetail(o)}
-                  >
-                    <TableCell>
-                      <Typography variant="body2" fontWeight={700}>
-                        {o.symbol}
-                      </Typography>
+      <Tabs
+        value={centerTab}
+        onChange={(_, v: CenterTab) => setCenterTab(v)}
+        variant="scrollable"
+        scrollButtons="auto"
+        sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}
+      >
+        <Tab value="best" label="Best Picks" sx={{ textTransform: 'none' }} />
+        <Tab value="bull" label="Bull-Run Opportunities" sx={{ textTransform: 'none' }} />
+        <Tab value="evidence" label="Evidence & Insights" sx={{ textTransform: 'none' }} />
+        <Tab value="integrity" label="Market Integrity" sx={{ textTransform: 'none' }} />
+        <Tab value="pro" label="Professional Trader" sx={{ textTransform: 'none' }} />
+        <Tab value="paper" label="Paper Trading" sx={{ textTransform: 'none' }} />
+      </Tabs>
+
+      {centerTab === 'best' ? (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+            RankingContext / BEST_OPPORTUNITIES order — not sorted by Bull-Run probability. Columns
+            are P(≥ target within selected horizon). Confidence ≠ probability. Exec Ready is
+            backend-owned.
+          </Typography>
+          <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
+            {COMMAND_CENTER_HORIZONS.map((h) => (
+              <Chip
+                key={h}
+                size="small"
+                label={h}
+                color={horizon === h ? 'primary' : 'default'}
+                variant={horizon === h ? 'filled' : 'outlined'}
+                onClick={() => setHorizon(h)}
+              />
+            ))}
+          </Stack>
+          {bestPicks.length === 0 ? (
+            <Alert severity="info">No suitable Best Pick for this batch (backend outcome).</Alert>
+          ) : (
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>#</TableCell>
+                  <TableCell>Symbol</TableCell>
+                  <TableCell>Sector</TableCell>
+                  <TableCell>Confidence</TableCell>
+                  {matrixTargets.map((t) => (
+                    <TableCell key={t} align="right">
+                      {formatTargetLabel(t)}
                     </TableCell>
-                    <TableCell>{o.isBestPick !== false ? '★' : '—'}</TableCell>
-                    <TableCell>{formatConfidence(conf)}</TableCell>
-                    {matrixTargets.map((t) => (
-                      <TableCell key={t} align="right">
-                        {formatProbabilityCell(
-                          lookupMatrixProbability(o.bullRunMatrix, horizon, t),
-                        )}
+                  ))}
+                  <TableCell>Integrity</TableCell>
+                  <TableCell>Rec</TableCell>
+                  <TableCell>Exec Ready</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {bestPicks.slice(0, 25).map((o) => {
+                  const conf =
+                    lookupMatrixConfidence(o.bullRunMatrix, horizon) ?? o.confidence ?? null;
+                  const selected =
+                    activeDetail?.symbol === o.symbol && activeDetail?.rank === o.rank;
+                  return (
+                    <TableRow
+                      key={`${o.symbol}-${o.rank}`}
+                      hover
+                      selected={selected}
+                      sx={{ cursor: 'pointer' }}
+                      onClick={() => setDetail(o)}
+                    >
+                      <TableCell>{o.rank}</TableCell>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={700}>
+                          {o.symbol}
+                          {o.isBestPick !== false ? ' ★' : ''}
+                        </Typography>
                       </TableCell>
-                    ))}
+                      <TableCell>{o.sector ?? '—'}</TableCell>
+                      <TableCell>{formatConfidence(conf)}</TableCell>
+                      {matrixTargets.map((t) => (
+                        <TableCell key={t} align="right">
+                          {formatProbabilityCell(
+                            lookupMatrixProbability(o.bullRunMatrix, horizon, t),
+                          )}
+                        </TableCell>
+                      ))}
+                      <TableCell>{formatIntegrity(o.integrityStatus)}</TableCell>
+                      <TableCell>{o.recommendation ?? 'Not available'}</TableCell>
+                      <TableCell>{formatExecReady(o.tradePlanExecutionReady)}</TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </Paper>
+      ) : null}
+
+      {centerTab === 'bull' ? (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+            Backend candidates with AVAILABLE P(≥T) for horizon {horizon}. Missing → Not available.
+          </Typography>
+          <Stack
+            direction="row"
+            spacing={0.5}
+            flexWrap="wrap"
+            useFlexGap
+            sx={{ mb: 1.5 }}
+            alignItems="center"
+          >
+            {COMMAND_CENTER_OPPORTUNITY_TARGETS.map((t) => (
+              <Chip
+                key={t}
+                size="small"
+                label={formatTargetLabel(t)}
+                color={oppTarget === t ? 'primary' : 'default'}
+                variant={oppTarget === t ? 'filled' : 'outlined'}
+                onClick={() => setOppTarget(t)}
+              />
+            ))}
+            <Chip
+              size="small"
+              label="Custom"
+              color={oppTarget === 'custom' ? 'primary' : 'default'}
+              variant={oppTarget === 'custom' ? 'filled' : 'outlined'}
+              onClick={() => setOppTarget('custom')}
+            />
+            {oppTarget === 'custom' ? (
+              <TextField
+                size="small"
+                label="Target %"
+                value={customTargetPct}
+                onChange={(e) => setCustomTargetPct(e.target.value)}
+                sx={{ width: 100 }}
+              />
+            ) : null}
+          </Stack>
+          {bullRunOpps.length === 0 ? (
+            <Alert severity="info">No Bull-Run opportunities for this target/horizon.</Alert>
+          ) : (
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Symbol</TableCell>
+                  <TableCell>Rank</TableCell>
+                  <TableCell>P(≥T)</TableCell>
+                  <TableCell>Confidence</TableCell>
+                  <TableCell>Integrity</TableCell>
+                  <TableCell>Rec</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {bullRunOpps.slice(0, 40).map((o) => (
+                  <TableRow key={`${o.symbol}-${o.targetReturn}-${o.horizon}`}>
+                    <TableCell>{o.symbol}</TableCell>
+                    <TableCell>{o.rank}</TableCell>
+                    <TableCell>{formatProbabilityPercent(o.probability)}</TableCell>
+                    <TableCell>{formatConfidence(o.confidence)}</TableCell>
                     <TableCell>{formatIntegrity(o.integrityStatus)}</TableCell>
                     <TableCell>{o.recommendation ?? 'Not available'}</TableCell>
-                    <TableCell>{formatExecReady(o.tradePlanExecutionReady)}</TableCell>
                   </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        )}
-      </Paper>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </Paper>
+      ) : null}
 
-      {/* Bull-Run Opportunities */}
-      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 0.5 }}>
-          Bull-Run Opportunities
-        </Typography>
-        <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-          Backend candidates with AVAILABLE P(≥T) for horizon {horizon}. UI support for +500% does
-          not invent probabilities — missing → Not available.
-        </Typography>
-        <Stack
-          direction="row"
-          spacing={0.5}
-          flexWrap="wrap"
-          useFlexGap
-          sx={{ mb: 1.5 }}
-          alignItems="center"
-        >
-          {COMMAND_CENTER_OPPORTUNITY_TARGETS.map((t) => (
-            <Chip
-              key={t}
-              size="small"
-              label={formatTargetLabel(t)}
-              color={oppTarget === t ? 'primary' : 'default'}
-              variant={oppTarget === t ? 'filled' : 'outlined'}
-              onClick={() => setOppTarget(t)}
-            />
-          ))}
-          <Chip
-            size="small"
-            label="Custom"
-            color={oppTarget === 'custom' ? 'primary' : 'default'}
-            variant={oppTarget === 'custom' ? 'filled' : 'outlined'}
-            onClick={() => setOppTarget('custom')}
-          />
-          {oppTarget === 'custom' ? (
-            <TextField
-              size="small"
-              label="Target %"
-              value={customTargetPct}
-              onChange={(e) => setCustomTargetPct(e.target.value)}
-              sx={{ width: 100 }}
-            />
-          ) : null}
-        </Stack>
-        {bullRunOpps.length === 0 ? (
-          <Typography variant="body2" color="text.secondary">
-            No AVAILABLE cells for {formatTargetLabel(resolvedOppTarget)} @ {horizon}.
+      {centerTab === 'evidence' ? (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+          <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>
+            Evidence & Insights (lead pick)
           </Typography>
-        ) : (
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Stock</TableCell>
-                <TableCell>Rank</TableCell>
-                <TableCell>P(≥T)</TableCell>
-                <TableCell>Confidence</TableCell>
-                <TableCell>Integrity</TableCell>
-                <TableCell>Best Pick</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {bullRunOpps.slice(0, 30).map((o) => (
-                <TableRow key={`${o.symbol}-${o.targetReturn}-${o.horizon}`}>
-                  <TableCell>
-                    <RouterLink to={`/bull-run?symbol=${encodeURIComponent(o.symbol)}`}>
-                      {o.symbol}
-                    </RouterLink>
-                  </TableCell>
-                  <TableCell>{o.rank}</TableCell>
-                  <TableCell>{formatProbabilityPercent(o.probability)}</TableCell>
-                  <TableCell>{formatConfidence(o.confidence)}</TableCell>
-                  <TableCell>{formatIntegrity(o.integrityStatus)}</TableCell>
-                  <TableCell>{o.isBestPick ? '★' : '—'}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </Paper>
-
-      {/* Integrity */}
-      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>
-          Market Integrity
-        </Typography>
-        <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
-          <Chip label={`NORMAL ${integ?.normal ?? '—'}`} color="success" variant="outlined" />
-          <Chip
-            label={`INVESTIGATE ${integ?.investigate ?? '—'}`}
-            color="warning"
-            variant="outlined"
-          />
-          <Chip label={`SUSPICIOUS ${integ?.suspicious ?? '—'}`} color="error" variant="outlined" />
-        </Stack>
-        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
-          Advisory only — does not auto-reject unless policy already rejects.
-        </Typography>
-      </Paper>
-
-      {/* Professional Trader */}
-      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>
-          Professional Trader
-        </Typography>
-        {proPick ? (
-          <Stack spacing={0.5}>
-            <Typography variant="body2">
-              Lead pick: <strong>{proPick.symbol}</strong> (rank {proPick.rank})
-            </Typography>
-            <Typography variant="body2">
-              Thesis: {proPick.thesis?.trim() || 'Not available'}
-            </Typography>
-            <Typography variant="body2">
-              Expected R:{' '}
-              {proPick.tradePlanExpectedR != null && Number.isFinite(proPick.tradePlanExpectedR)
-                ? proPick.tradePlanExpectedR.toFixed(2)
-                : 'Not available'}
-            </Typography>
-            <Typography variant="body2">
-              Invalidation:{' '}
-              {proPick.invalidationPrice != null
-                ? String(proPick.invalidationPrice)
-                : 'Not available'}
-            </Typography>
-            <Typography variant="body2">
-              Horizon: {proPick.tradePlanHorizon ?? 'Not available'}
-            </Typography>
-            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-              <Button
-                size="small"
-                component={RouterLink}
-                to={`/desk/trade-plan/${encodeURIComponent(proPick.symbol)}`}
-                variant="outlined"
-              >
-                Trade Plan
-              </Button>
-              <Button size="small" component={RouterLink} to="/advanced/thesis" variant="text">
-                Thesis
-              </Button>
+          {proPick ? (
+            <Stack spacing={0.5}>
+              <Typography variant="body2">
+                {proPick.symbol} · Quality: {proPick.evidenceQuality ?? 'Not available'}
+              </Typography>
+              <Typography variant="body2">{proPick.conflictSummary ?? 'Not available'}</Typography>
+              <Typography variant="body2">
+                Supporting: {(proPick.supportingEvidence ?? []).join(', ') || '—'}
+              </Typography>
+              <Typography variant="body2">
+                Conflicting: {(proPick.conflictingEvidence ?? []).join(', ') || '—'}
+              </Typography>
+              <Typography variant="body2">
+                Missing: {(proPick.missingEvidence ?? []).join(', ') || '—'}
+              </Typography>
+              <Typography variant="body2">
+                Historical: {proPick.historicalStatus ?? 'Not available'}
+                {proPick.historicalSampleSize != null
+                  ? ` · sampleSize=${proPick.historicalSampleSize}`
+                  : ''}
+              </Typography>
             </Stack>
-          </Stack>
-        ) : (
-          <Typography variant="body2" color="text.secondary">
-            Not available — no Best Pick in report.
-          </Typography>
-        )}
-      </Paper>
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              Not available
+            </Typography>
+          )}
+        </Paper>
+      ) : null}
 
-      {/* Paper */}
-      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>
-          Paper Trading
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          Paper orders still require Recommendation → evaluateTrade() → Risk → Portfolio → Policy →
-          Gate → Execution. Offline analysis ≠ execution-ready.
-        </Typography>
-        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-          <Button size="small" component={RouterLink} to="/agent" variant="outlined">
-            Agent Desk
-          </Button>
-          <Button size="small" component={RouterLink} to="/book" variant="outlined">
-            Book / Positions
-          </Button>
-        </Stack>
-      </Paper>
+      {centerTab === 'integrity' ? (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+          <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>
+            Market Integrity
+          </Typography>
+          <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+            <Chip label={`NORMAL ${integ?.normal ?? '—'}`} color="success" variant="outlined" />
+            <Chip
+              label={`INVESTIGATE ${integ?.investigate ?? '—'}`}
+              color="warning"
+              variant="outlined"
+            />
+            <Chip
+              label={`SUSPICIOUS ${integ?.suspicious ?? '—'}`}
+              color="error"
+              variant="outlined"
+            />
+          </Stack>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+            Advisory only — does not auto-reject unless policy already rejects.
+          </Typography>
+        </Paper>
+      ) : null}
+
+      {centerTab === 'pro' ? (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+          <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>
+            Professional Trader
+          </Typography>
+          {proPick ? (
+            <Stack spacing={0.5}>
+              <Typography variant="body2">
+                Lead pick: <strong>{proPick.symbol}</strong> (rank {proPick.rank})
+              </Typography>
+              <Typography variant="body2">
+                Thesis: {proPick.thesis?.trim() || 'Not available'}
+              </Typography>
+              <Typography variant="body2">
+                Expected R:{' '}
+                {proPick.tradePlanExpectedR != null && Number.isFinite(proPick.tradePlanExpectedR)
+                  ? proPick.tradePlanExpectedR.toFixed(2)
+                  : 'Not available'}
+              </Typography>
+              <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                <Button
+                  size="small"
+                  component={RouterLink}
+                  to={`/desk/trade-plan/${encodeURIComponent(proPick.symbol)}`}
+                  variant="outlined"
+                >
+                  Trade Plan
+                </Button>
+                <Button size="small" component={RouterLink} to="/advanced/thesis" variant="text">
+                  Thesis
+                </Button>
+              </Stack>
+            </Stack>
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              Not available — no Best Pick in report.
+            </Typography>
+          )}
+        </Paper>
+      ) : null}
+
+      {centerTab === 'paper' ? (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+          <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1 }}>
+            Paper Trading
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Paper orders still require Recommendation → evaluateTrade() → Risk → Portfolio → Policy
+            → Gate → Execution. Offline analysis ≠ execution-ready.
+          </Typography>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            <Button size="small" component={RouterLink} to="/agent" variant="outlined">
+              Agent Desk
+            </Button>
+            <Button size="small" component={RouterLink} to="/book" variant="outlined">
+              Book / Positions
+            </Button>
+          </Stack>
+        </Paper>
+      ) : null}
+
+      {centerTab === 'best' && activeDetail ? (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2, minHeight: 520 }}>
+          <Typography variant="overline" color="text.secondary">
+            Selected · {activeDetail.symbol} · Rank #{activeDetail.rank}
+          </Typography>
+          <OpportunityDetailPanel
+            row={toDetailInput(activeDetail)}
+            selectedHorizon={horizon}
+            batchId={report.batchId}
+            onClose={detail ? () => setDetail(null) : undefined}
+            initialTab="Overview"
+          />
+        </Paper>
+      ) : null}
 
       <Typography variant="caption" color="text.secondary" display="block">
         {report.calibrationNote ??
           'Bull-Run cell calibration: Not available. Sample size on detail is historical window count.'}{' '}
-        Data quality: analyzed {report.dataQuality.analyzed}, incomplete{' '}
-        {report.dataQuality.incomplete}, fabricated {report.dataQuality.fabricated} (must stay 0).{' '}
-        <RouterLink to="/research-reports">Research reports →</RouterLink>
+        Data quality: analyzed {report.dataQuality?.analyzed ?? '—'}, incomplete{' '}
+        {report.dataQuality?.incomplete ?? '—'}, fabricated {report.dataQuality?.fabricated ?? 0}{' '}
+        (must stay 0). <RouterLink to="/research-reports">Research reports →</RouterLink>
+        {' · '}
+        <RouterLink to="/intelligence-validation">Intelligence validation →</RouterLink>
       </Typography>
-
-      <StockDetailDrawer
-        open={detail != null}
-        row={detail}
-        batchId={report.batchId}
-        defaultHorizon={horizon}
-        onClose={() => setDetail(null)}
-      />
     </Box>
-  );
-}
-
-function StockDetailDrawer({
-  open,
-  row,
-  batchId,
-  defaultHorizon,
-  onClose,
-}: {
-  open: boolean;
-  row: BestPickRow | null;
-  batchId: string;
-  defaultHorizon: BullRunHorizon;
-  onClose: () => void;
-}): JSX.Element {
-  const symbol = row?.symbol ?? '';
-  const { data: live, isFetching } = useGetBullRunIntelligenceQuery(symbol, {
-    skip: !open || !symbol,
-  });
-
-  const liveCells = live?.v2?.cells ?? [];
-  const sampleSize =
-    liveCells.find((c) => typeof c.sampleSize === 'number' && c.sampleSize != null)?.sampleSize ??
-    null;
-  const calibration =
-    liveCells.find((c) => c.calibration != null && String(c.calibration).length > 0)?.calibration ??
-    null;
-
-  return (
-    <Drawer
-      anchor="right"
-      open={open}
-      onClose={onClose}
-      PaperProps={{ sx: { width: { xs: '100%', sm: 440 } } }}
-    >
-      <Box sx={{ p: 2 }}>
-        <Typography variant="h6" fontWeight={800}>
-          {symbol || 'Stock'}
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          Batch {batchId} · Horizon default {defaultHorizon}
-        </Typography>
-        <Divider sx={{ my: 1.5 }} />
-        {row ? (
-          <Stack spacing={0.75}>
-            <Typography variant="body2">
-              Best Pick: {row.isBestPick !== false ? '★ YES' : 'NO'}
-            </Typography>
-            <Typography variant="body2">
-              Recommendation: {row.recommendation ?? 'Not available'}
-            </Typography>
-            <Typography variant="body2">
-              Exec Ready: {formatExecReady(row.tradePlanExecutionReady)} (backend only)
-            </Typography>
-            <Typography variant="body2">
-              Integrity: {formatIntegrity(row.integrityStatus)}
-            </Typography>
-            <Typography variant="body2">Thesis: {row.thesis?.trim() || 'Not available'}</Typography>
-          </Stack>
-        ) : null}
-
-        <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 2, mb: 1 }}>
-          Target × Horizon — P(≥T within H)
-        </Typography>
-        {row?.bullRunMatrix?.length ? (
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Target</TableCell>
-                {COMMAND_CENTER_HORIZONS.map((h) => (
-                  <TableCell key={h} align="right">
-                    {h}
-                  </TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {COMMAND_CENTER_OPPORTUNITY_TARGETS.map((t) => (
-                <TableRow key={t}>
-                  <TableCell>{formatTargetLabel(t)}</TableCell>
-                  {COMMAND_CENTER_HORIZONS.map((h) => (
-                    <TableCell key={h} align="right">
-                      {formatProbabilityCell(lookupMatrixProbability(row.bullRunMatrix, h, t))}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        ) : (
-          <Typography variant="body2" color="text.secondary">
-            Batch matrix Not available for this symbol.
-          </Typography>
-        )}
-
-        <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 2 }}>
-          Evidence / Why Now
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Labels from RankingContext / Trade Plan only — no FE score.
-        </Typography>
-        <ul style={{ margin: '4px 0', paddingLeft: 18 }}>
-          {row?.recommendation ? (
-            <li>
-              <Typography variant="body2">Rec: {row.recommendation}</Typography>
-            </li>
-          ) : null}
-          {row?.tradePlanStatus ? (
-            <li>
-              <Typography variant="body2">TradePlan: {row.tradePlanStatus}</Typography>
-            </li>
-          ) : null}
-          {row?.integrityStatus ? (
-            <li>
-              <Typography variant="body2">Integrity: {row.integrityStatus}</Typography>
-            </li>
-          ) : null}
-          {!row?.recommendation && !row?.tradePlanStatus && !row?.integrityStatus ? (
-            <li>
-              <Typography variant="body2">Not available</Typography>
-            </li>
-          ) : null}
-        </ul>
-
-        <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 1 }}>
-          Sample size / Calibration
-        </Typography>
-        {isFetching ? (
-          <CircularProgress size={18} />
-        ) : (
-          <>
-            <Typography variant="body2">
-              Sample size:{' '}
-              {sampleSize != null && Number.isFinite(Number(sampleSize))
-                ? String(sampleSize)
-                : 'Not available'}
-            </Typography>
-            <Typography variant="body2">
-              Calibration:{' '}
-              {calibration != null && String(calibration).length
-                ? String(calibration)
-                : 'Not available'}
-            </Typography>
-          </>
-        )}
-
-        <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
-          <Button
-            size="small"
-            variant="contained"
-            component={RouterLink}
-            to={`/desk/trade-plan/${encodeURIComponent(symbol)}`}
-          >
-            Trade Plan
-          </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            component={RouterLink}
-            to={`/bull-run?symbol=${encodeURIComponent(symbol)}`}
-          >
-            Bull-Run deep-dive
-          </Button>
-          <Button size="small" onClick={onClose}>
-            Close
-          </Button>
-        </Stack>
-      </Box>
-    </Drawer>
   );
 }

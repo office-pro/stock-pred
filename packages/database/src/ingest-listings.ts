@@ -14,6 +14,7 @@ import {
   upsertListings,
 } from './listings';
 import { disconnectPrisma } from './index';
+import { publishNseAllFromEquityMaster } from './canonical-universe-registry';
 
 async function main(): Promise<void> {
   console.log('[listings] downloading NSE EQUITY_L.csv (EQ series only)...');
@@ -41,6 +42,14 @@ async function main(): Promise<void> {
     console.warn(
       `[listings] database upsert skipped (${(error as Error).message}). JSON snapshot is still saved.`,
     );
+  }
+  const published = publishNseAllFromEquityMaster();
+  if (published.published) {
+    console.log(
+      `[listings] published NSE_ALL version=${published.snapshot?.version} eligible=${published.snapshot?.eligibleRecordCount}`,
+    );
+  } else {
+    console.warn(`[listings] NSE_ALL publish skipped: ${published.reason}`);
   }
 }
 

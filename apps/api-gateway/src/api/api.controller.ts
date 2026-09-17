@@ -301,6 +301,12 @@ export class ApiController {
     return this.proxy.get('marketData', '/market/data-contract');
   }
 
+  /** Backend-owned MarketSessionState — FE must not clock-derive OPEN/CLOSED. */
+  @Get('market/session-state')
+  getMarketSessionState(): Promise<unknown> {
+    return this.proxy.get('marketData', '/market/session-state');
+  }
+
   @Get('market/ml-ti-bridge')
   @UseGuards(JwtAuthGuard)
   getMlTiBridge(): Promise<unknown> {
@@ -410,6 +416,14 @@ export class ApiController {
     return this.proxy.get('marketData', `/intelligence/historical/${encodeURIComponent(symbol)}`, {
       params: { dayReturnThreshold },
     });
+  }
+
+  @Get('intelligence/historical-analogues/:symbol')
+  historicalAnalogues(@Param('symbol') symbol: string): Promise<unknown> {
+    return this.proxy.get(
+      'marketData',
+      `/intelligence/historical-analogues/${encodeURIComponent(symbol)}`,
+    );
   }
 
   @Get('intelligence/cross-asset/:symbol')
@@ -631,7 +645,9 @@ export class ApiController {
   // ----------------------------------------------------------------- trading
 
   @Post('trade/execute')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, ViewsGuard)
+  @Roles(UserRole.USER, UserRole.ADMIN, UserRole.SUPERADMIN)
+  @Views(AppView.PORTFOLIO, AppView.AGENT)
   executeTrade(
     @Body() dto: ExecuteTradeRequestDto,
     @Req() request: AuthenticatedRequest,
@@ -824,6 +840,20 @@ export class ApiController {
     return this.proxy.get('traderAgent', '/agent/soak/report');
   }
 
+  @Get('agent/historical-prediction-proof')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  historicalPredictionProof(): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/historical-prediction-proof');
+  }
+
+  @Post('agent/historical-prediction-proof')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  runHistoricalPredictionProof(@Body() body: unknown): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/historical-prediction-proof', body ?? {});
+  }
+
   @Post('agent/kill-switch')
   @UseGuards(JwtAuthGuard)
   agentKillSwitch(@Body() body: unknown): Promise<unknown> {
@@ -962,6 +992,36 @@ export class ApiController {
     });
   }
 
+  @Get('agent/intelligence-batches/:id/research-report/compare')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentCompareIntelligenceBatchResearchReport(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+    @Query('priorId') priorId?: string,
+  ): Promise<unknown> {
+    return this.proxy.get(
+      'traderAgent',
+      `/agent/intelligence-batches/${encodeURIComponent(id)}/research-report/compare`,
+      { headers: identityHeaders(request.user), params: { priorId } },
+    );
+  }
+
+  @Post('agent/intelligence-batches/:id/research-report/rebuild')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentRebuildIntelligenceBatchResearchReport(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post(
+      'traderAgent',
+      `/agent/intelligence-batches/${encodeURIComponent(id)}/research-report/rebuild`,
+      {},
+      { headers: identityHeaders(request.user) },
+    );
+  }
+
   @Get('agent/intelligence-batches/:id/research-report')
   @UseGuards(ViewsGuard)
   @Views(AppView.AGENT)
@@ -986,6 +1046,185 @@ export class ApiController {
     return this.proxy.get(
       'traderAgent',
       `/agent/intelligence-batches/${encodeURIComponent(id)}/results/by-sector`,
+      { headers: identityHeaders(request.user) },
+    );
+  }
+
+  @Get('agent/multi-asset/registry')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentMultiAssetRegistry(@Req() request: AuthenticatedRequest): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/multi-asset/registry', {
+      headers: identityHeaders(request.user),
+    });
+  }
+
+  @Get('agent/multi-asset/universes')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentCanonicalUniverses(
+    @Req() request: AuthenticatedRequest,
+    @Query('universe') universe?: string,
+  ): Promise<unknown> {
+    const qs = universe?.trim() ? `?universe=${encodeURIComponent(universe.trim())}` : '';
+    return this.proxy.get('traderAgent', `/agent/multi-asset/universes${qs}`, {
+      headers: identityHeaders(request.user),
+    });
+  }
+
+  @Get('agent/multi-asset/instruments/search')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentCanonicalInstrumentSearch(
+    @Req() request: AuthenticatedRequest,
+    @Query('q') query?: string,
+    @Query('assetClass') assetClass?: string,
+    @Query('venue') venue?: string,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
+  ): Promise<unknown> {
+    const qs = new URLSearchParams({ q: query ?? '', limit: String(limit) });
+    if (assetClass) qs.set('assetClass', assetClass);
+    if (venue) qs.set('venue', venue);
+    return this.proxy.get('traderAgent', `/agent/multi-asset/instruments/search?${qs.toString()}`, {
+      headers: identityHeaders(request.user),
+    });
+  }
+
+  @Get('agent/multi-asset/readiness')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentMultiAssetReadiness(
+    @Req() request: AuthenticatedRequest,
+    @Query('universe') universe?: string,
+  ): Promise<unknown> {
+    return this.proxy.get(
+      'traderAgent',
+      `/agent/multi-asset/readiness?universe=${encodeURIComponent(universe ?? '')}`,
+      { headers: identityHeaders(request.user) },
+    );
+  }
+
+  @Post('agent/multi-asset/universes/:universe/refresh')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
+  agentRefreshCanonicalUniverse(
+    @Req() request: AuthenticatedRequest,
+    @Param('universe') universe: string,
+  ): Promise<unknown> {
+    return this.proxy.post(
+      'traderAgent',
+      `/agent/multi-asset/universes/${encodeURIComponent(universe)}/refresh`,
+      undefined,
+      { headers: identityHeaders(request.user) },
+    );
+  }
+
+  @Get('agent/multi-asset/universes/:universe/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPERADMIN)
+  agentCanonicalUniverseStatus(
+    @Req() request: AuthenticatedRequest,
+    @Param('universe') universe: string,
+  ): Promise<unknown> {
+    return this.proxy.get(
+      'traderAgent',
+      `/agent/multi-asset/universes/${encodeURIComponent(universe)}/status`,
+      { headers: identityHeaders(request.user) },
+    );
+  }
+
+  @Get('agent/multi-asset/resolve')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentMultiAssetResolve(
+    @Req() request: AuthenticatedRequest,
+    @Query('symbol') symbol?: string,
+    @Query('universe') universe?: string,
+    @Query('hint') hint?: string,
+  ): Promise<unknown> {
+    const qs = new URLSearchParams();
+    if (symbol) qs.set('symbol', symbol);
+    if (universe) qs.set('universe', universe);
+    if (hint) qs.set('hint', hint);
+    const q = qs.toString() ? `?${qs.toString()}` : '';
+    return this.proxy.get('traderAgent', `/agent/multi-asset/resolve${q}`, {
+      headers: identityHeaders(request.user),
+    });
+  }
+
+  @Post('agent/paper-experiments')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentCreatePaperExperiment(
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/paper-experiments', body, {
+      headers: identityHeaders(request.user),
+    });
+  }
+
+  @Get('agent/paper-experiments')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentListPaperExperiments(@Req() request: AuthenticatedRequest): Promise<unknown> {
+    return this.proxy.get('traderAgent', '/agent/paper-experiments', {
+      headers: identityHeaders(request.user),
+    });
+  }
+
+  @Post('agent/paper-experiments/candidates')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentPaperExperimentCandidates(
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/paper-experiments/candidates', body, {
+      headers: identityHeaders(request.user),
+    });
+  }
+
+  @Get('agent/paper-experiments/:id')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentGetPaperExperiment(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.get('traderAgent', `/agent/paper-experiments/${encodeURIComponent(id)}`, {
+      headers: identityHeaders(request.user),
+    });
+  }
+
+  @Post('agent/paper-experiments/:id/outcome')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentPaperExperimentOutcome(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post(
+      'traderAgent',
+      `/agent/paper-experiments/${encodeURIComponent(id)}/outcome`,
+      body,
+      { headers: identityHeaders(request.user) },
+    );
+  }
+
+  @Post('agent/paper-experiments/:id/learning')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentPaperExperimentLearning(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.proxy.post(
+      'traderAgent',
+      `/agent/paper-experiments/${encodeURIComponent(id)}/learning`,
+      body,
       { headers: identityHeaders(request.user) },
     );
   }
@@ -1208,7 +1447,9 @@ export class ApiController {
   }
 
   @Post('agent/recommendations/:id/approve')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, ViewsGuard)
+  @Roles(UserRole.USER, UserRole.ADMIN, UserRole.SUPERADMIN)
+  @Views(AppView.AGENT, AppView.PORTFOLIO)
   approveAgentRecommendation(
     @Param('id') id: string,
     @Body() body: unknown,

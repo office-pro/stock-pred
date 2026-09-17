@@ -10,8 +10,30 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
+import {
+  commodityUniverseGate,
+  configuredCryptoUniverseProvider,
+  fetchCryptoFuturesUniverse,
+  fetchCryptoUniverse,
+  loadActiveUniverseSnapshot,
+  publishCanonicalUniverseSnapshot,
+  publishNseAllFromEquityMaster,
+  resolveGatedCanonicalUniverse,
+  probeAndPublishCommodityUniverse,
+  searchCanonicalInstruments,
+  ingestForexAllUniverse,
+} from '@stockpred/database';
 import type {
   AgentAnalysis,
   AgentCapabilityRequest,
@@ -23,6 +45,9 @@ import type {
   AgentRecommendation,
   AgentRiskBudgetConfig,
   AgentWalkForwardReport,
+  AnalysisPeriod,
+  AnalysisResolution,
+  CreateIntelligenceBatchRequest,
   DecisionLedgerEntry,
   FocusUniverseBatch,
   PortfolioSnapshot,
@@ -30,6 +55,92 @@ import type {
 import { AgentService } from './agent.service';
 import { ContinuousIntelligenceStore } from './continuous-intelligence-store';
 import { IntelligenceBatchService } from './intelligence-batch.service';
+import {
+  emptyHistoricalPredictionProofNote,
+  loadHistoricalPredictionProof,
+  runAndPersistHistoricalPredictionProof,
+} from './historical-prediction-proof-store';
+import {
+  createPaperExperiment,
+  listPaperExperiments,
+  getPaperExperiment,
+  recordPaperOutcome,
+  appendLearningNote,
+  registerCandidateModel,
+  learningTouchesRiskOrGate,
+  listProviderCapabilities,
+  listInstrumentAdapters,
+  resolveInstrumentWithAdapter,
+  adapterHintFromUniverse,
+} from '@stockpred/shared-utils';
+import type { InstrumentRef, LearningPhase, PaperExperimentStatus } from '@stockpred/shared-types';
+
+/** BATCH UNIVERSE RULE — exposed on catalog API for FE/docs. */
+const BATCH_UNIVERSE_RULE_NOTE =
+  'A predefined universe selection must automatically resolve its complete canonical membership from the backend. Manual symbols are permitted only for CUSTOM and SINGLE_STOCK (and legacy *_CUSTOM). Missing canonical source → Not available / UNSUPPORTED_UNIVERSE — never fall back to CUSTOM, MDS cache, or hardcoded lists.';
+
+class CreatePaperExperimentDto {
+  @IsString()
+  symbol!: string;
+
+  @IsOptional()
+  @IsString()
+  adapterHint?: string;
+
+  @IsOptional()
+  @IsString()
+  batchId?: string;
+
+  @IsOptional()
+  @IsString()
+  predictionHorizon?: string;
+
+  @IsOptional()
+  @IsString()
+  thesis?: string;
+
+  @IsOptional()
+  @IsString()
+  recommendation?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  probability?: number;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
+class PaperOutcomeDto {
+  @IsOptional()
+  @Type(() => Number)
+  actualReturn?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  mfe?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  mae?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  targetReached?: boolean;
+
+  @IsOptional()
+  @IsString()
+  sampleNote?: string;
+}
+
+class LearningNoteDto {
+  @IsIn(['MEASURE', 'CALIBRATE', 'VALIDATE'])
+  phase!: LearningPhase;
+
+  @IsString()
+  note!: string;
+}
 
 class SetModeDto {
   @IsIn(['RESEARCH', 'PAPER', 'LIVE'])
@@ -103,17 +214,96 @@ class RejectDto {
   reason?: string;
 }
 
+class InstrumentRefDto {
+  @IsString()
+  symbol!: string;
+
+  @IsString()
+  assetClass!: InstrumentRef['assetClass'];
+
+  @IsString()
+  venue!: string;
+
+  @IsString()
+  quoteCurrency!: string;
+
+  @IsOptional()
+  @IsString()
+  canonicalSymbol?: string;
+
+  @IsOptional()
+  @IsString()
+  underlying?: string;
+
+  @IsOptional()
+  @IsString()
+  expiry?: string;
+
+  @IsOptional()
+  @IsString()
+  contractMonth?: string;
+}
+
+class AnalysisWindowDto {
+  @IsOptional()
+  @IsString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsString()
+  endDate?: string;
+}
+
 class CreateIntelligenceBatchDto {
-  @IsIn(['NIFTY50', 'NIFTY100', 'NIFTY150', 'NIFTY500', 'ALL', 'CUSTOM', 'SECTOR', 'SINGLE_STOCK'])
+  @IsIn([
+    'NIFTY50',
+    'NIFTY100',
+    'NIFTY150',
+    'NIFTY500',
+    'ALL',
+    'NSE_ALL',
+    'US_SP500',
+    'US_ALL',
+    'CRYPTO_ALL',
+    'CRYPTO_SPOT_ALL',
+    'CRYPTO_FUTURES_ALL',
+    'COMMODITY_ALL',
+    'FUTURES_ALL',
+    'MCX_FUTURES_ALL',
+    'CME_FUTURES_ALL',
+    'FOREX_ALL',
+    'CUSTOM',
+    'SECTOR',
+    'SINGLE_STOCK',
+    'US_CUSTOM',
+    'CRYPTO_CUSTOM',
+    'COMMODITIES_CUSTOM',
+    'FUTURES_CUSTOM',
+  ])
   universe!:
     | 'NIFTY50'
     | 'NIFTY100'
     | 'NIFTY150'
     | 'NIFTY500'
     | 'ALL'
+    | 'NSE_ALL'
+    | 'US_SP500'
+    | 'US_ALL'
+    | 'CRYPTO_ALL'
+    | 'CRYPTO_SPOT_ALL'
+    | 'CRYPTO_FUTURES_ALL'
+    | 'COMMODITY_ALL'
+    | 'FUTURES_ALL'
+    | 'MCX_FUTURES_ALL'
+    | 'CME_FUTURES_ALL'
+    | 'FOREX_ALL'
     | 'CUSTOM'
     | 'SECTOR'
-    | 'SINGLE_STOCK';
+    | 'SINGLE_STOCK'
+    | 'US_CUSTOM'
+    | 'CRYPTO_CUSTOM'
+    | 'COMMODITIES_CUSTOM'
+    | 'FUTURES_CUSTOM';
 
   @IsOptional()
   @IsIn(['FULL_ANALYSIS', 'LIVE_CONTINUOUS'])
@@ -134,6 +324,11 @@ class CreateIntelligenceBatchDto {
     'EVENT_ANALYSIS',
     'GLOBAL_EVENT_SCAN',
     'CUSTOM',
+    'US_SCAN',
+    'CRYPTO_SCAN',
+    'COMMODITIES_SCAN',
+    'FUTURES_SCAN',
+    'FOREX_SCAN',
   ])
   scanKind?:
     | 'FULL_MARKET'
@@ -144,12 +339,28 @@ class CreateIntelligenceBatchDto {
     | 'INVERSE_SCAN'
     | 'EVENT_ANALYSIS'
     | 'GLOBAL_EVENT_SCAN'
-    | 'CUSTOM';
+    | 'CUSTOM'
+    | 'US_SCAN'
+    | 'CRYPTO_SCAN'
+    | 'COMMODITIES_SCAN'
+    | 'FUTURES_SCAN'
+    | 'FOREX_SCAN';
 
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   symbols?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InstrumentRefDto)
+  instruments?: InstrumentRefDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => InstrumentRefDto)
+  instrument?: InstrumentRefDto;
 
   @IsOptional()
   @IsString()
@@ -168,6 +379,27 @@ class CreateIntelligenceBatchDto {
   @IsOptional()
   @IsString()
   globalEventType?: string;
+
+  @IsOptional()
+  @IsString()
+  analysisTimeframe?: string;
+
+  @IsOptional()
+  @IsIn(['1W', '1M', '3M', '6M', '1Y', 'CUSTOM'])
+  analysisPeriod?: AnalysisPeriod;
+
+  @IsOptional()
+  @IsIn(['5m', '15m', '1H', '4H', '1D'])
+  analysisResolution?: AnalysisResolution;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AnalysisWindowDto)
+  analysisWindow?: AnalysisWindowDto;
+
+  @IsOptional()
+  @IsString()
+  predictionHorizon?: string;
 }
 
 class RecordOutcomeDto {
@@ -400,7 +632,7 @@ export class AgentController {
   /** B1 Intelligence Batch — HISTORICAL / FULL_ANALYSIS only (no auth chain). */
   @Post('intelligence-batches')
   createIntelligenceBatch(@Body() body: CreateIntelligenceBatchDto) {
-    return this.intelligenceBatches.create(body);
+    return this.intelligenceBatches.create(body as CreateIntelligenceBatchRequest);
   }
 
   @Get('intelligence-batches')
@@ -413,6 +645,19 @@ export class AgentController {
     return this.intelligenceBatches.getLatestResearchReport(universe);
   }
 
+  @Get('intelligence-batches/:id/research-report/compare')
+  compareIntelligenceBatchResearchReport(
+    @Param('id') id: string,
+    @Query('priorId') priorId?: string,
+  ) {
+    return this.intelligenceBatches.compareResearchReport(id, priorId);
+  }
+
+  @Post('intelligence-batches/:id/research-report/rebuild')
+  rebuildIntelligenceBatchResearchReport(@Param('id') id: string) {
+    return this.intelligenceBatches.rebuildResearchReport(id);
+  }
+
   @Get('intelligence-batches/:id/research-report')
   getIntelligenceBatchResearchReport(@Param('id') id: string) {
     return this.intelligenceBatches.getResearchReport(id);
@@ -421,6 +666,343 @@ export class AgentController {
   @Get('intelligence-batches/:id/results/by-sector')
   getIntelligenceBatchResultsBySector(@Param('id') id: string) {
     return this.intelligenceBatches.getResultsBySector(id);
+  }
+
+  /** Multi-asset instrument + provider registry (discovered from repo providers). */
+  @Get('multi-asset/registry')
+  multiAssetRegistry() {
+    return {
+      providers: listProviderCapabilities(),
+      adapters: listInstrumentAdapters().map((a) => ({
+        id: a.id,
+        productLabel: a.productLabel(),
+        benchmarkId: a.benchmarkId(),
+        capabilities: a.capabilities(),
+        featureHints: a.featureHints(),
+        temporal: a.temporalContext(),
+      })),
+      learningTouchesRiskOrGate: learningTouchesRiskOrGate(),
+      nonProductionProviders: ['simulated'],
+      providerAuthorizesExecution: false,
+    };
+  }
+
+  /**
+   * Canonical universe catalog + coverage preview for batch UI.
+   * Predefined universes resolve membership on the backend — never FE symbol lists.
+   */
+  @Get('multi-asset/universes')
+  async listCanonicalUniverses(@Query('universe') universe?: string) {
+    const catalog = await this.intelligenceBatches.universeCatalogWithAvailability();
+    if (universe?.trim()) {
+      const id = universe.trim().toUpperCase();
+      const preview = catalog.find((entry) => entry.universeId === id);
+      if (!preview) throw new BadRequestException(`Unknown universe: ${universe}`);
+      return { universes: [preview], note: BATCH_UNIVERSE_RULE_NOTE };
+    }
+    return { universes: catalog, note: BATCH_UNIVERSE_RULE_NOTE };
+  }
+
+  @Get('multi-asset/instruments/search')
+  searchCanonicalInstruments(
+    @Query('q') query?: string,
+    @Query('assetClass') assetClass?: InstrumentRef['assetClass'],
+    @Query('venue') venue?: string,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
+  ) {
+    return {
+      instruments: searchCanonicalInstruments({
+        query: String(query ?? ''),
+        assetClass,
+        venue,
+        limit,
+      }),
+    };
+  }
+
+  @Get('multi-asset/readiness')
+  getMultiAssetReadiness(@Query('universe') universe?: string) {
+    if (!universe?.trim()) throw new BadRequestException('universe required');
+    return this.intelligenceBatches.universeReadiness(universe);
+  }
+
+  @Post('multi-asset/universes/:universe/refresh')
+  async refreshCanonicalUniverse(@Param('universe') universe: string) {
+    const id = universe.trim().toUpperCase();
+    if (id === 'NSE_ALL') {
+      const previous = loadActiveUniverseSnapshot('NSE_ALL');
+      const result = publishNseAllFromEquityMaster();
+      return {
+        universeId: 'NSE_ALL',
+        published: result.published,
+        snapshot: result.snapshot,
+        validation: result.validation,
+        reason: result.reason,
+        lastKnownGoodVersion: result.snapshot?.version ?? previous?.version ?? null,
+        retainedLastKnownGood: !result.published && Boolean(result.snapshot ?? previous),
+        refreshedAt: Date.now(),
+        stale:
+          !result.snapshot?.fetchedAt ||
+          Date.now() - result.snapshot.fetchedAt > 24 * 60 * 60 * 1000,
+      };
+    }
+    if (id === 'CRYPTO_ALL' || id === 'CRYPTO_SPOT_ALL') {
+      const previous = loadActiveUniverseSnapshot('CRYPTO_SPOT_ALL');
+      const provider = configuredCryptoUniverseProvider();
+      const fetched = await fetchCryptoUniverse(provider);
+      const result = publishCanonicalUniverseSnapshot({
+        universeId: 'CRYPTO_SPOT_ALL',
+        source: fetched.source,
+        sourceUrl: fetched.sourceUrl,
+        provider: fetched.provider,
+        instruments: fetched.instruments,
+        sourceCount: fetched.rawRecordCount,
+        rawRecordCount: fetched.rawRecordCount,
+        rejectedCount: fetched.rejectedCount,
+        duplicateCount: fetched.duplicateCount,
+        excludedCount: fetched.excludedCount,
+        warnings: fetched.warnings,
+        providerReportedTotal: fetched.providerReportedTotal ?? fetched.receivedTotal,
+        receivedTotal: fetched.receivedTotal,
+        pageCount: fetched.pageCount,
+      });
+      return {
+        universeId: 'CRYPTO_SPOT_ALL',
+        published: result.published,
+        snapshot: result.snapshot,
+        validation: result.validation,
+        reason: result.reason,
+        universeProvider: provider,
+        lastKnownGoodVersion: result.snapshot?.version ?? previous?.version ?? null,
+        retainedLastKnownGood: !result.published && Boolean(result.snapshot ?? previous),
+        refreshedAt: Date.now(),
+      };
+    }
+    if (id === 'CRYPTO_FUTURES_ALL') {
+      const previous = loadActiveUniverseSnapshot('CRYPTO_FUTURES_ALL');
+      const fetched = await fetchCryptoFuturesUniverse();
+      const result = publishCanonicalUniverseSnapshot({
+        universeId: 'CRYPTO_FUTURES_ALL',
+        source: fetched.source,
+        sourceUrl: fetched.sourceUrl,
+        provider: fetched.provider,
+        instruments: fetched.instruments,
+        sourceCount: fetched.rawRecordCount,
+        rawRecordCount: fetched.rawRecordCount,
+        rejectedCount: fetched.rejectedCount,
+        duplicateCount: fetched.duplicateCount,
+        excludedCount: fetched.excludedCount,
+        warnings: fetched.warnings,
+        providerReportedTotal: fetched.providerReportedTotal ?? fetched.receivedTotal,
+        receivedTotal: fetched.receivedTotal,
+        pageCount: fetched.pageCount,
+      });
+      return {
+        universeId: 'CRYPTO_FUTURES_ALL',
+        published: result.published,
+        snapshot: result.snapshot,
+        validation: result.validation,
+        reason: result.reason,
+        universeProvider: 'binance-futures',
+        lastKnownGoodVersion: result.snapshot?.version ?? previous?.version ?? null,
+        retainedLastKnownGood: !result.published && Boolean(result.snapshot ?? previous),
+        refreshedAt: Date.now(),
+      };
+    }
+    if (id === 'COMMODITY_ALL') {
+      const apiKey = String(process.env.ALPHA_VANTAGE_API_KEY ?? '').trim();
+      if (!apiKey) {
+        const gate = commodityUniverseGate('COMMODITY_ALL');
+        throw new BadRequestException(`${gate.reasonCode}:${gate.detail}`);
+      }
+      const previous = loadActiveUniverseSnapshot('COMMODITY_ALL');
+      try {
+        const result = await probeAndPublishCommodityUniverse(apiKey);
+        return {
+          universeId: 'COMMODITY_ALL',
+          published: result.published,
+          snapshot: result.snapshot,
+          validation: result.validation,
+          reason: result.reason,
+          universeProvider: 'alpha-vantage',
+          lastKnownGoodVersion: result.snapshot?.version ?? previous?.version ?? null,
+          retainedLastKnownGood: !result.published && Boolean(result.snapshot ?? previous),
+          refreshedAt: Date.now(),
+        };
+      } catch (err) {
+        throw new BadRequestException(
+          `UNSUPPORTED_UNIVERSE:${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    if (id === 'FOREX_ALL') {
+      const apiKey = String(process.env.TWELVE_DATA_API_KEY ?? '').trim();
+      if (!apiKey) {
+        throw new BadRequestException(
+          'TWELVE_DATA_API_KEY_MISSING: set TWELVE_DATA_API_KEY to ingest FOREX_ALL',
+        );
+      }
+      const previous = loadActiveUniverseSnapshot('FOREX_ALL');
+      const detail = await ingestForexAllUniverse();
+      const snapshot = loadActiveUniverseSnapshot('FOREX_ALL');
+      return {
+        universeId: 'FOREX_ALL',
+        published: Boolean(snapshot),
+        snapshot,
+        reason: detail,
+        universeProvider: 'twelve-data',
+        lastKnownGoodVersion: snapshot?.version ?? previous?.version ?? null,
+        retainedLastKnownGood: !snapshot && Boolean(previous),
+        refreshedAt: Date.now(),
+      };
+    }
+    if (id === 'FUTURES_ALL' || id === 'MCX_FUTURES_ALL' || id === 'CME_FUTURES_ALL') {
+      const gate = commodityUniverseGate(
+        id as 'FUTURES_ALL' | 'MCX_FUTURES_ALL' | 'CME_FUTURES_ALL',
+      );
+      throw new BadRequestException(`${gate.reasonCode}:${gate.detail}`);
+    }
+    throw new BadRequestException(`UNSUPPORTED_UNIVERSE:${id} has no configured refresh provider`);
+  }
+
+  @Get('multi-asset/universes/:universe/status')
+  canonicalUniverseStatus(@Param('universe') universe: string) {
+    const id = universe.trim().toUpperCase();
+    const allowed = new Set([
+      'NSE_ALL',
+      'US_SP500',
+      'US_ALL',
+      'CRYPTO_ALL',
+      'CRYPTO_SPOT_ALL',
+      'CRYPTO_FUTURES_ALL',
+      'COMMODITY_ALL',
+      'FUTURES_ALL',
+      'MCX_FUTURES_ALL',
+      'CME_FUTURES_ALL',
+      'FOREX_ALL',
+    ]);
+    if (!allowed.has(id)) throw new BadRequestException(`Unknown canonical universe: ${id}`);
+    const resolved = resolveGatedCanonicalUniverse(
+      id as Parameters<typeof resolveGatedCanonicalUniverse>[0],
+    );
+    const snapshot = resolved.snapshot;
+    return {
+      universeId: id,
+      supported: resolved.supported,
+      reasonCode: resolved.reasonCode,
+      reason: resolved.detail,
+      activeVersion: snapshot?.version ?? null,
+      lifecycle: snapshot?.lifecycle ?? null,
+      validationStatus: snapshot?.validationStatus ?? null,
+      fetchedAt: snapshot?.fetchedAt ?? null,
+      stale: !snapshot?.fetchedAt || Date.now() - snapshot.fetchedAt > 24 * 60 * 60 * 1000,
+      lastKnownGoodVersion:
+        snapshot?.lifecycle === 'PUBLISH' && snapshot.validationStatus === 'COMPLETE'
+          ? snapshot.version
+          : null,
+    };
+  }
+
+  @Get('multi-asset/resolve')
+  resolveMultiAssetInstrument(
+    @Query('symbol') symbol?: string,
+    @Query('universe') universe?: string,
+    @Query('hint') hint?: string,
+  ) {
+    const sym = String(symbol ?? '')
+      .trim()
+      .toUpperCase();
+    if (!sym) throw new BadRequestException('symbol required');
+    const adapterHint = hint || adapterHintFromUniverse(universe ?? 'NIFTY50');
+    const { instrument, adapter } = resolveInstrumentWithAdapter(sym, adapterHint);
+    return {
+      instrument,
+      adapterId: adapter.id,
+      capabilities: adapter.capabilities(),
+      temporal: adapter.temporalContext(),
+      seriesProvenance: adapter.normalizeSeries([]).seriesProvenance,
+    };
+  }
+
+  /** Paper Experiment → Outcome → Learning (never Risk/Gate). */
+  @Post('paper-experiments')
+  createPaperExperimentEndpoint(@Body() body: CreatePaperExperimentDto) {
+    const hint = body.adapterHint ?? 'NSE_EQUITY';
+    const { instrument, adapter } = resolveInstrumentWithAdapter(body.symbol, hint);
+    const temporal = adapter.temporalContext();
+    const batch = body.batchId ? this.intelligenceBatches.get(body.batchId) : null;
+    if (batch && !batch.symbols.includes(instrument.symbol)) {
+      throw new BadRequestException(
+        `Instrument ${instrument.symbol} is not in immutable batch ${batch.batchId} membership`,
+      );
+    }
+    return createPaperExperiment({
+      instrument,
+      adapterId: adapter.id,
+      batchId: body.batchId,
+      universeVersion: batch?.universeVersion ?? null,
+      operatingMode: batch?.mode ?? null,
+      predictionSnapshot: batch
+        ? {
+            analysisTimeframe: batch.analysisTimeframe ?? null,
+            predictionHorizon: batch.predictionHorizon ?? null,
+            modelVersion: batch.modelVersion,
+            featureVersion: batch.featureVersion,
+          }
+        : null,
+      recommendationSnapshot: body.recommendation ? { recommendation: body.recommendation } : null,
+      analysisTimeframe: '1d',
+      predictionHorizon: body.predictionHorizon ?? '3M',
+      sessionContext: temporal.sessionContextId,
+      probability: body.probability ?? null,
+      confidence: null,
+      confidenceStatus: 'UNAVAILABLE',
+      confidenceBasis: null,
+      thesis: body.thesis ?? null,
+      recommendation: body.recommendation ?? null,
+      seriesProvenance: adapter.normalizeSeries([]).seriesProvenance,
+      note: body.note,
+      status: 'QUEUED' as PaperExperimentStatus,
+    });
+  }
+
+  @Get('paper-experiments')
+  listPaperExperimentsEndpoint() {
+    return listPaperExperiments();
+  }
+
+  @Post('paper-experiments/candidates')
+  registerPaperCandidateEndpoint(@Body() body: { fromExperimentIds: string[]; note: string }) {
+    return registerCandidateModel({
+      fromExperimentIds: body.fromExperimentIds ?? [],
+      note: body.note ?? 'Candidate pending walk-forward validation',
+    });
+  }
+
+  @Get('paper-experiments/:id')
+  getPaperExperimentEndpoint(@Param('id') id: string) {
+    const row = getPaperExperiment(id);
+    if (!row) throw new BadRequestException('Paper experiment not found');
+    return row;
+  }
+
+  @Post('paper-experiments/:id/outcome')
+  recordPaperOutcomeEndpoint(@Param('id') id: string, @Body() body: PaperOutcomeDto) {
+    if (!getPaperExperiment(id)) throw new BadRequestException('Paper experiment not found');
+    return recordPaperOutcome({
+      experimentId: id,
+      actualReturn: body.actualReturn ?? null,
+      mfe: body.mfe ?? null,
+      mae: body.mae ?? null,
+      targetReached: body.targetReached ?? null,
+      sampleNote: body.sampleNote,
+    });
+  }
+
+  @Post('paper-experiments/:id/learning')
+  appendPaperLearningEndpoint(@Param('id') id: string, @Body() body: LearningNoteDto) {
+    if (!getPaperExperiment(id)) throw new BadRequestException('Paper experiment not found');
+    return appendLearningNote({ experimentId: id, phase: body.phase, note: body.note });
   }
 
   @Get('intelligence-batches/:id')
@@ -654,8 +1236,15 @@ export class AgentController {
     @Body() body: ApproveDto,
     @Headers('x-user-id') userId?: string,
     @Headers('x-brand-id') brandId?: string,
+    @Headers('x-user-role') userRole?: string,
+    @Headers('x-user-views') userViews?: string,
+    @Headers('x-user-status') userStatus?: string,
   ): Promise<{ recommendation: AgentRecommendation; trade: unknown }> {
-    return this.agent.approveRecommendation(id, userId, body?.quantity, brandId);
+    return this.agent.approveRecommendation(id, userId, body?.quantity, brandId, {
+      userRole,
+      views: userViews?.split(',').filter(Boolean),
+      status: userStatus,
+    });
   }
 
   @Post('recommendations/:id/wait')
@@ -805,5 +1394,46 @@ export class AgentController {
   @Get('soak/report')
   getSoakReport(): import('@stockpred/shared-types').PaperSoakReport | null {
     return this.agent.getSoakController().buildReport();
+  }
+
+  /**
+   * Latest matched historical-prediction-proof artifact (measurement only).
+   * Never implies authorization or production readiness.
+   */
+  @Get('historical-prediction-proof')
+  getHistoricalPredictionProof():
+    | import('@stockpred/shared-utils').HistoricalPredictionProofReport
+    | ReturnType<typeof emptyHistoricalPredictionProofNote> {
+    const report = loadHistoricalPredictionProof();
+    return report ?? emptyHistoricalPredictionProofNote();
+  }
+
+  /**
+   * Run matched baseline vs analogue walk-forward on provided closes and persist.
+   * Body: { symbol, closes: number[], universe? }. Advisory only.
+   */
+  @Post('historical-prediction-proof')
+  runHistoricalPredictionProof(
+    @Body()
+    body: {
+      symbol?: string;
+      closes?: number[];
+      universe?: string;
+    },
+  ): import('@stockpred/shared-utils').HistoricalPredictionProofReport {
+    const symbol = String(body?.symbol ?? '').toUpperCase();
+    const closes = Array.isArray(body?.closes)
+      ? body.closes.filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
+      : [];
+    if (!symbol || closes.length < 80) {
+      throw new BadRequestException(
+        'symbol and closes (≥80 finite numbers) required for matched proof run',
+      );
+    }
+    return runAndPersistHistoricalPredictionProof({
+      symbol,
+      closes,
+      universe: body.universe,
+    });
   }
 }
