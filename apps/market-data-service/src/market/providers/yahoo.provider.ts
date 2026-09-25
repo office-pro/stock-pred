@@ -27,6 +27,8 @@ interface YahooChartResponse {
   };
 }
 
+/** Hot-path last-trade timeout (Stage 1). Chart history keeps a longer ingest timeout. */
+export const YAHOO_LAST_TRADE_TIMEOUT_MS = 1_500;
 /** Yahoo rate-limits bursts hard; requests are serialized with this gap. */
 const REQUEST_GAP_MS = 350;
 /** A browser-like UA avoids Yahoo's bot filtering. */
@@ -154,7 +156,7 @@ export class YahooProvider implements MarketDataProvider {
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}`,
       {
         params: { range: '1d', interval: '1m' },
-        timeout: 12_000,
+        timeout: YAHOO_LAST_TRADE_TIMEOUT_MS,
         headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
       },
     );

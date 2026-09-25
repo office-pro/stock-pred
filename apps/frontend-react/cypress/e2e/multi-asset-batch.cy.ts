@@ -107,6 +107,18 @@ describe('Multi-Asset Batch workstation', () => {
   beforeEach(() => {
     cy.intercept('GET', '**/api/agent/multi-asset/universes*', {
       universes: [
+        {
+          ...nseAll,
+          universeId: 'NIFTY500',
+          name: 'NIFTY 500',
+          instrumentCount: 500,
+        },
+        {
+          ...nseAll,
+          universeId: 'NIFTY50',
+          name: 'NIFTY 50',
+          instrumentCount: 50,
+        },
         nseAll,
         {
           ...nseAll,
@@ -120,6 +132,20 @@ describe('Multi-Asset Batch workstation', () => {
           reason: 'Canonical US universe source is not currently configured.',
         },
         cryptoSpot,
+        {
+          ...nseAll,
+          universeId: 'FOREX_ALL',
+          name: 'Forex All',
+          group: 'FOREX',
+          assetClass: 'FX',
+        },
+        {
+          ...nseAll,
+          universeId: 'COMMODITY_ALL',
+          name: 'Commodities',
+          group: 'COMMODITIES',
+          assetClass: 'COMMODITY',
+        },
         {
           ...nseAll,
           universeId: 'CUSTOM',
@@ -152,7 +178,18 @@ describe('Multi-Asset Batch workstation', () => {
       sessions: [{ venue: 'NSE', status: 'CLOSED', liveLabel: 'CLOSED', dataStatus: 'HISTORICAL' }],
       note: 'test',
     });
-    cy.intercept('GET', '**/api/agent/intelligence-batches*', []);
+    cy.intercept('GET', '**/api/agent/intelligence-batches?limit=*', [
+      {
+        batchId: 'IBATCH-HIST',
+        universe: 'NIFTY500',
+        status: 'COMPLETED',
+        analysisPeriod: '3M',
+        analysisResolution: '1D',
+        predictionHorizon: '1M',
+        createdAt: Date.now() - 86_400_000,
+        updatedAt: Date.now() - 86_400_000,
+      },
+    ]);
     cy.intercept('GET', '**/api/agent/mode*', { mode: 'PAPER' });
     cy.intercept('GET', '**/api/agent/intelligence-batches/IBATCH-TEST/results*', {
       batchId: 'IBATCH-TEST',
@@ -211,63 +248,56 @@ describe('Multi-Asset Batch workstation', () => {
   });
 
   it('walks the wizard with Analysis Period and Analysis Resolution', () => {
-    cy.visit('/batch/multi-asset', { onBeforeLoad: auth });
+    cy.visit('/batch', { onBeforeLoad: auth });
+    cy.get('[data-testid="overview-new-batch"]').click();
     cy.contains('Select Universe').should('exist');
     cy.contains('label', 'Analysis timeframe').should('not.exist');
-    cy.contains('button', 'Next').click();
+    cy.contains('button', 'Next: Configure').click();
     cy.contains('Configure Analysis').should('exist');
-    cy.contains('label', 'Analysis Period').should('exist');
-    cy.contains('label', 'Analysis Resolution').should('exist');
+    cy.contains('Historical Period').should('exist');
+    cy.contains('Analysis Resolution').should('exist');
     cy.contains('3 Months').should('exist');
-    cy.contains('label', 'Analysis Period')
-      .closest('.MuiFormControl-root')
-      .find('[role="combobox"]')
-      .click();
-    cy.contains('[role="option"]', '1 Week').should('exist');
-    cy.contains('[role="option"]', '1 Day').should('not.exist');
-    cy.contains('[role="option"]', 'Custom').click();
+    cy.contains('.MuiChip-root', 'Custom').click();
     cy.contains('label', 'Start date').should('exist');
     cy.contains('label', 'End date').should('exist');
-    cy.contains('button', 'Next').click();
+    cy.contains('button', 'Next: Review & Run').click();
     cy.contains('Review & Run').should('exist');
     cy.contains('Run Batch Analysis').should('exist');
     cy.contains('Save Draft').should('exist');
   });
 
-  it('does not show manual instrument input for NSE_ALL', () => {
-    cy.visit('/batch/multi-asset', { onBeforeLoad: auth });
-    cy.contains('NSE ALL').should('exist');
+  it('does not show manual instrument input for NSE F&O', () => {
+    cy.visit('/batch', { onBeforeLoad: auth });
+    cy.get('[data-testid="overview-new-batch"]').click();
+    cy.contains('NSE F&O').click();
     cy.contains('label', 'Find canonical instruments').should('not.exist');
-    cy.contains('button', 'Next').click();
-    cy.contains('button', 'Next').click();
+    cy.contains('button', 'Next: Configure').click();
+    cy.contains('button', 'Next: Review & Run').click();
     cy.contains('No instruments are sent').should('exist');
     cy.contains('label', 'Find canonical instruments').should('not.exist');
   });
 
-  it('keeps unsupported US All visibly unavailable', () => {
-    cy.visit('/batch/multi-asset', { onBeforeLoad: auth });
-    cy.get('[role="tab"]').contains(/^US$/).click();
-    cy.contains('US All').should('exist');
+  it('keeps unsupported US Equities visibly unavailable', () => {
+    cy.visit('/batch', { onBeforeLoad: auth });
+    cy.get('[data-testid="overview-new-batch"]').click();
+    cy.contains('US Equities').should('exist');
     cy.contains('Not available').should('exist');
     cy.contains('Canonical US universe source is not currently configured.').should('exist');
   });
 
   it('shows canonical search only in Custom configure', () => {
-    cy.visit('/batch/multi-asset', { onBeforeLoad: auth });
+    cy.visit('/batch', { onBeforeLoad: auth });
+    cy.get('[data-testid="overview-new-batch"]').click();
     cy.get('[role="tab"]')
       .contains(/^Custom$/)
       .click();
-    cy.contains('button', 'Next').click();
+    cy.contains('User-selected canonical InstrumentRefs').click();
+    cy.contains('button', 'Next: Configure').click();
     cy.contains('label', 'Find canonical instruments').should('exist');
   });
 
   it('renders frozen crypto identity, excludes quarantined rows, and keeps N/A distinct from UNAVAILABLE', () => {
-    cy.visit('/batch/multi-asset', {
-      onBeforeLoad(window) {
-        auth(window);
-        window.sessionStorage.setItem('multiAsset.selectedBatchId', 'IBATCH-TEST');
-      },
-    });
+    cy.visit('/batch?batchId=IBATCH-TEST', { onBeforeLoad: auth });
     cy.contains('Batch Analysis Completed').should('exist');
     cy.contains('UNAVAILABLE').should('exist');
     cy.contains('N/A').should('exist');
@@ -283,17 +313,63 @@ describe('Multi-Asset Batch workstation', () => {
     cy.contains('should not render').should('not.exist');
   });
 
+  it('opens overview by default and history from View History', () => {
+    cy.visit('/batch', { onBeforeLoad: auth });
+    cy.get('[data-testid="screen-overview"]').should('be.visible');
+    cy.contains('button', 'View History').click();
+    cy.get('[data-testid="screen-history"]').should('be.visible');
+    cy.contains('IBATCH-HIST').should('exist');
+    cy.contains('button', 'New Batch').click();
+    cy.get('[data-testid="screen-select-universe"]').should('be.visible');
+  });
+
   it('keeps the workflow usable at desktop, tablet, and mobile widths', () => {
-    cy.visit('/batch/multi-asset', { onBeforeLoad: auth });
+    cy.visit('/batch', { onBeforeLoad: auth });
     cy.viewport(1440, 1000);
+    cy.get('[data-testid="overview-new-batch"]').click();
     cy.contains('Select Universe').should('be.visible');
-    cy.contains('button', 'Next').click();
+    cy.contains('button', 'Next: Configure').click();
 
     cy.viewport(900, 1100);
     cy.contains('Configure Analysis').should('be.visible');
-    cy.contains('button', 'Next').click();
+    cy.contains('button', 'Next: Review & Run').click();
 
     cy.viewport(390, 844);
     cy.contains('Run Batch Analysis').scrollIntoView().should('be.visible');
+  });
+
+  it('shows empty history only when the list succeeds with no rows', () => {
+    cy.intercept('GET', '**/api/agent/intelligence-batches?limit=*', []);
+    cy.visit('/batch?view=history', { onBeforeLoad: auth });
+    cy.get('[data-testid="screen-history-empty"]').should('contain', 'No Batch History Found');
+    cy.get('[data-testid="create-first-batch"]').should('exist');
+  });
+
+  it('does not treat a history API failure as empty', () => {
+    cy.intercept('GET', '**/api/agent/intelligence-batches?limit=*', {
+      statusCode: 500,
+      body: { message: 'fail' },
+    });
+    cy.visit('/batch?view=history', { onBeforeLoad: auth });
+    cy.contains('Unable to load batch history').should('exist');
+    cy.get('[data-testid="screen-history-empty"]').should('not.exist');
+  });
+
+  it('keeps three terminal header actions and shows APPROVE not BUY', () => {
+    cy.visit('/batch?batchId=IBATCH-TEST', { onBeforeLoad: auth });
+    cy.contains('button', 'View History').should('exist');
+    cy.contains('button', 'Retry').should('exist');
+    cy.contains('button', 'Run New Batch').should('exist');
+    cy.contains('button', /^New Batch$/).should('not.exist');
+    cy.get('[role="tab"]').contains('Results').click();
+    cy.contains('APPROVE').should('exist');
+    cy.get('[data-testid="batch-results-table"]').should('not.contain', 'BUY');
+  });
+
+  it('does not put coverage or results tables on Overview', () => {
+    cy.visit('/batch', { onBeforeLoad: auth });
+    cy.get('[data-testid="screen-overview"]').should('be.visible');
+    cy.get('[data-testid="coverage-table"]').should('not.exist');
+    cy.get('[data-testid="batch-results-table"]').should('not.exist');
   });
 });

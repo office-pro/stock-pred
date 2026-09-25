@@ -25,6 +25,8 @@ export const SNAPSHOT_COVERAGE_CAPABILITIES: CoverageCap[] = [
   { capability: 'news', group: 'data' },
   { capability: 'sentiment', group: 'data' },
   { capability: 'macro', group: 'data' },
+  { capability: 'onchain', group: 'data' },
+  { capability: 'social', group: 'data' },
   { capability: 'technical', group: 'intelligence' },
   { capability: 'sector', group: 'intelligence' },
   { capability: 'benchmark', group: 'intelligence' },
@@ -49,9 +51,7 @@ function notApplicableReason(capability: string, row: BatchInstrumentData): stri
     .trim()
     .toUpperCase();
   if (capability === 'fundamentals') {
-    if (assetClass === 'CRYPTO_SPOT' || assetClass === 'CRYPTO_FUTURE' || assetClass === 'FX') {
-      return assetClass === 'CRYPTO_SPOT' ? 'SPOT_ASSET' : 'NOT_EQUITY';
-    }
+    if (assetClass === 'FX') return 'NOT_EQUITY';
   }
   if (capability === 'sector') {
     if (
@@ -79,17 +79,19 @@ function notApplicableReason(capability: string, row: BatchInstrumentData): stri
   }
   if (capability === 'derivatives') {
     if (
-      assetClass === 'CRYPTO_SPOT' ||
       assetClass === 'FX' ||
       assetClass === 'EQUITY' ||
       assetClass === 'ETF' ||
       assetClass === 'INDEX'
     ) {
-      return assetClass === 'CRYPTO_SPOT' ? 'SPOT_ASSET' : 'NOT_LISTED_DERIVATIVE';
+      return 'NOT_LISTED_DERIVATIVE';
     }
   }
   if (capability === 'positioning') {
     if (assetClass !== 'CRYPTO_FUTURE') return 'NOT_FUTURES_POSITIONING';
+  }
+  if (capability === 'onchain') {
+    if (assetClass !== 'CRYPTO_SPOT' && assetClass !== 'CRYPTO_FUTURE') return 'NOT_CRYPTO';
   }
   return null;
 }
@@ -143,6 +145,16 @@ function rowStatus(
   if (capability === 'positioning') {
     if (row.positioning?.status === 'AVAILABLE') return 'AVAILABLE';
     if (row.positioning?.status === 'PARTIAL') return 'PARTIAL';
+    return 'UNAVAILABLE';
+  }
+  if (capability === 'onchain') {
+    if (row.onchain?.status === 'AVAILABLE') return 'AVAILABLE';
+    if (row.onchain?.status === 'PARTIAL') return 'PARTIAL';
+    return 'UNAVAILABLE';
+  }
+  if (capability === 'social') {
+    if (row.social?.status === 'AVAILABLE') return 'AVAILABLE';
+    if (row.social?.status === 'PARTIAL') return 'PARTIAL';
     return 'UNAVAILABLE';
   }
   if (capability === 'fno') return 'UNAVAILABLE';

@@ -223,6 +223,8 @@ describe('P5 Minimal Measurement Hardening', () => {
             news: 'UNKNOWN',
             sentiment: 'UNKNOWN',
             macro: 'UNKNOWN',
+            onchain: 'UNKNOWN',
+            social: 'UNKNOWN',
             portfolioFit: 'MED',
           },
           strengths: [],

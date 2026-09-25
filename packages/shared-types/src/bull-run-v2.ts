@@ -329,9 +329,9 @@ export interface BatchResearchReport {
     note?: string;
   };
   bullRunCountsByHorizon: BatchResearchReportBullRunCounts[];
-  /** RankingContext order (canonical rank). isBestPick marks BEST_OPPORTUNITIES. */
+  /** Eligible Best Opportunities only (snapshot evidence + APPROVE). RankingContext order. */
   bestOpportunities: BatchResearchReportBestOpportunity[];
-  /** BEST_OPPORTUNITIES subset in RankingContext order (same ranks as bestOpportunities). */
+  /** Same eligible set as bestOpportunities, uncapped beyond the 50-row slice. */
   bestPicks?: BatchResearchReportBestOpportunity[];
   /**
    * Full RankingContext projection for Opportunities table (all processed ranks).

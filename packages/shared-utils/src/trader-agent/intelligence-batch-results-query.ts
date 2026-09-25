@@ -16,6 +16,7 @@ import type {
   IntelligencePipelineStageProgress,
   BatchIdentityStatus,
 } from '@stockpred/shared-types';
+import { isBestOpportunityRow } from './batch-research-report';
 
 export function resolveBatchCanonicalIdentity(input: {
   taskSymbol: string;
@@ -87,11 +88,8 @@ function matchesPreset(
 ): boolean {
   const ctx = row.intelligenceContext;
   switch (preset) {
-    case 'BEST_OPPORTUNITIES': {
-      if (ctx?.tradePlanRecommendation !== 'APPROVE') return false;
-      const life = ctx.intelligenceLifecycleState;
-      return life === 'OPPORTUNITY' || life === 'SHORTLIST' || ctx.opportunityQuality != null;
-    }
+    case 'BEST_OPPORTUNITIES':
+      return isBestOpportunityRow(row);
     case 'HIGH_CONFIDENCE':
       return ctx?.opportunityQuality === 'HIGH';
     case 'MULTI_HORIZON_ALIGNED':

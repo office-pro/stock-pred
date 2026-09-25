@@ -30,6 +30,11 @@ export function dataRequirementPlan(assetClass: AssetClass): DataRequirement[] {
       return [
         { capability: 'marketData', required: true },
         { capability: 'historicalCandles', required: true },
+        { capability: 'fundamentals', required: false },
+        { capability: 'news', required: false },
+        { capability: 'sentiment', required: false },
+        { capability: 'onchain', required: false },
+        { capability: 'derivatives', required: false },
       ];
     case 'CRYPTO_FUTURE':
       return [
@@ -37,6 +42,10 @@ export function dataRequirementPlan(assetClass: AssetClass): DataRequirement[] {
         { capability: 'historicalCandles', required: true },
         { capability: 'derivatives', required: true },
         { capability: 'positioning', required: false },
+        { capability: 'fundamentals', required: false },
+        { capability: 'news', required: false },
+        { capability: 'sentiment', required: false },
+        { capability: 'onchain', required: false },
       ];
     case 'COMMODITY':
       return [
@@ -106,14 +115,9 @@ export function selectBatchProvider(
     return { provider: 'binance-futures', reason: 'BINANCE_PUBLIC_REST' };
   }
   if (classes.has('CRYPTO_SPOT')) {
-    const venues = new Set(instruments.map((row) => String(row.venue ?? '').toUpperCase()));
-    if (venues.has('COINGECKO') && !venues.has('BINANCE')) {
-      return { provider: 'coingecko', reason: 'COINGECKO_IDENTITY_BATCHED' };
-    }
-    if (td) return { provider: 'twelve-data', reason: 'TWELVE_DATA_TIME_SERIES' };
     return { provider: 'binance-spot', reason: 'BINANCE_PREFERRED_CRYPTO_SPOT' };
   }
-  if (classes.has('COMMODITY')) {
+  if (classes.has('COMMODITY') || id === 'COMMODITY_ALL' || id === 'COMMODITIES_CUSTOM') {
     return { provider: 'keyless-commodity+eia-bulk', reason: 'TWELVE_DATA_REQUIRES_GROW' };
   }
   if (classes.has('FX') || id === 'FOREX_ALL' || id.startsWith('FOREX_')) {

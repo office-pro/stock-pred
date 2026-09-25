@@ -13,6 +13,8 @@ import type {
   FundamentalPayload,
   IntelligenceMacroBlock,
   IntelligenceNewsBlock,
+  IntelligenceOnchainBlock,
+  IntelligenceSocialBlock,
   IntelligenceSnapshot,
   OpportunityRankingAssessment,
   OpportunityRankingResult,
@@ -28,7 +30,7 @@ import type {
 } from '@stockpred/shared-types';
 
 export const OPPORTUNITY_RANKING_ENGINE_VERSION = 'opportunity-ranking.v1';
-export const OPPORTUNITY_RANKING_CALCULATION_VERSION = 'lexicographic-context-precedence.v2';
+export const OPPORTUNITY_RANKING_CALCULATION_VERSION = 'lexicographic-context-precedence.v4';
 
 /** Soft freshness windows (ms) by horizon — older asOf → stale. */
 const FRESHNESS_MS: Record<TiTradeHorizon, number> = {
@@ -159,7 +161,14 @@ function portfolioFitBand(fit: OpportunityRankingCandidate['portfolioFit']): TiR
   return 'UNKNOWN';
 }
 
-const C_EVIDENCE_TAIL: TiRankingDimension[] = ['FUNDAMENTAL', 'NEWS', 'SENTIMENT', 'MACRO'];
+const C_EVIDENCE_TAIL: TiRankingDimension[] = [
+  'FUNDAMENTAL',
+  'NEWS',
+  'SENTIMENT',
+  'MACRO',
+  'ONCHAIN',
+  'SOCIAL',
+];
 
 function withCEvidenceBeforePortfolioFit(core: TiRankingDimension[]): TiRankingDimension[] {
   const withoutFit = core.filter((d) => d !== 'PORTFOLIO_FIT');
@@ -227,6 +236,20 @@ function bandFromMacro(macro: IntelligenceMacroBlock | undefined): TiRankingBand
   return 'HIGH';
 }
 
+function bandFromOnchain(block: IntelligenceOnchainBlock | undefined): TiRankingBand {
+  if (!block || block.status === 'UNAVAILABLE') return 'UNKNOWN';
+  if (block.tvlUsd != null && Number.isFinite(block.tvlUsd) && block.tvlUsd > 0) return 'MED';
+  if (block.status === 'PARTIAL' || block.status === 'AVAILABLE') return 'MED';
+  return 'UNKNOWN';
+}
+
+function bandFromSocial(block: IntelligenceSocialBlock | undefined): TiRankingBand {
+  if (!block || block.status === 'UNAVAILABLE') return 'UNKNOWN';
+  // Presence only — mentionCount never becomes HIGH / automatic BUY.
+  if (block.status === 'PARTIAL' || block.status === 'AVAILABLE') return 'MED';
+  return 'UNKNOWN';
+}
+
 export function dimensionPrecedenceForContext(horizon: TiTradeHorizon): TiRankingDimension[] {
   // PORTFOLIO_FIT is always last — tie-break only.
   // C evidence sits immediately before it so T1.8 head (CLEAR_PREFIX) is unchanged.
@@ -289,6 +312,8 @@ function stripFromCandidate(
     news: bandFromNews(snap.news),
     sentiment: bandFromCSentiment(snap.sentiment),
     macro: bandFromMacro(snap.macro),
+    onchain: bandFromOnchain(snap.onchain),
+    social: bandFromSocial(snap.social),
     portfolioFit: portfolioFitBand(c.portfolioFit),
     expectedValueR: ev ?? null,
   };
@@ -322,6 +347,10 @@ function bandOf(strip: RankingDimensionStrip, dim: TiRankingDimension): TiRankin
       return strip.sentiment;
     case 'MACRO':
       return strip.macro;
+    case 'ONCHAIN':
+      return strip.onchain;
+    case 'SOCIAL':
+      return strip.social;
     case 'PORTFOLIO_FIT':
       return strip.portfolioFit;
     default:
@@ -344,7 +373,10 @@ function compareStrips(
   return symbolA.localeCompare(symbolB);
 }
 
-function unknownDimensions(strip: RankingDimensionStrip): TiRankingDimension[] {
+function unknownDimensions(
+  strip: RankingDimensionStrip,
+  snap: IntelligenceSnapshot,
+): TiRankingDimension[] {
   const dims: TiRankingDimension[] = [
     'EV',
     'RS',
@@ -360,6 +392,9 @@ function unknownDimensions(strip: RankingDimensionStrip): TiRankingDimension[] {
     'SENTIMENT',
     'MACRO',
   ];
+  // Equities omit snap.onchain (N/A) — do not mark DATA_INCOMPLETE via ONCHAIN.
+  if (snap.onchain) dims.push('ONCHAIN');
+  if (snap.social) dims.push('SOCIAL');
   return dims.filter((d) => bandOf(strip, d) === 'UNKNOWN');
 }
 
@@ -442,6 +477,22 @@ function strengthsWeaknesses(
     );
   if (strip.macro === 'HIGH')
     push(strengths, 'MACRO_CONTEXT', 'Batch-level macro context present', 'MACRO', 'STRENGTH');
+  if (strip.onchain === 'MED')
+    push(
+      strengths,
+      'ONCHAIN_TVL_PRESENT',
+      'On-chain TVL present (observe-only, not a BUY/SELL)',
+      'ONCHAIN',
+      'STRENGTH',
+    );
+  if (strip.social === 'MED')
+    push(
+      strengths,
+      'SOCIAL_PRESENT',
+      'Reddit/social evidence present (observe-only, not a volume BUY/SELL)',
+      'SOCIAL',
+      'STRENGTH',
+    );
   if (stale)
     push(
       weaknesses,
@@ -580,7 +631,7 @@ export function assessOpportunityRanking(
   const rows: Row[] = normalized.map((c) => {
     const strip = stripFromCandidate(c, context);
     const stale = isStale(c.snapshot, context);
-    const unknown = unknownDimensions(strip);
+    const unknown = unknownDimensions(strip, c.snapshot);
     return { candidate: c, strip, stale, unknown };
   });
 

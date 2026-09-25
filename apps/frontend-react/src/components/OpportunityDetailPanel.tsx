@@ -26,6 +26,11 @@ import { Link as RouterLink } from 'react-router-dom';
 import { useGetBullRunIntelligenceQuery, useGetHistoricalAnaloguesQuery } from '../store/api';
 import { useLiveQuote } from '../hooks/useLiveQuote';
 import {
+  preferBatchSnapshotValue,
+  shouldFetchLiveBatchIntelligence,
+} from '../lib/batch-detail-provenance';
+import { displayRecommendation } from '../lib/multi-asset-batch';
+import {
   COMMAND_CENTER_HORIZONS,
   OPPORTUNITY_DETAIL_TARGETS,
   confidenceChipColor,
@@ -196,11 +201,13 @@ export default function OpportunityDetailPanel({
     return palette[h % palette.length]!;
   })();
   const universeBadge = universeLabel ? String(universeLabel).replace(/_/g, ' ') : null;
+  const batchOwned = !shouldFetchLiveBatchIntelligence(batchId);
+  const skipLiveIntel = !symbol || batchOwned;
   const { data: live, isFetching: liveFetching } = useGetBullRunIntelligenceQuery(symbol, {
-    skip: !symbol,
+    skip: skipLiveIntel,
   });
   const { data: histLive, isFetching: histFetching } = useGetHistoricalAnaloguesQuery(symbol, {
-    skip: !symbol,
+    skip: skipLiveIntel,
   });
 
   const compact = readBullRunV2Cells(ctx);
@@ -233,38 +240,56 @@ export default function OpportunityDetailPanel({
       ? matchCompactCell(compact, setupTarget, setupHorizon)
       : undefined;
 
-  const setupProb =
-    liveMatch?.probability ??
+  const snapshotProb =
     compactMatch?.p ??
     (setupHorizon !== '—' && setupTarget != null
       ? lookupMatrixProbability(matrix, setupHorizon, setupTarget)
       : null) ??
     (defaultCell?.status === 'UNAVAILABLE' ? null : (defaultCell?.p ?? null));
-  const setupConf = liveMatch?.confidence ?? compactMatch?.conf ?? defaultCell?.conf;
+  const setupProb = preferBatchSnapshotValue(batchOwned, snapshotProb, liveMatch?.probability);
+  const setupConf = preferBatchSnapshotValue(
+    batchOwned,
+    compactMatch?.conf ?? defaultCell?.conf,
+    liveMatch?.confidence,
+  );
 
-  const sampleSize =
+  const snapshotSample = row.historicalSampleSize ?? null;
+  const liveSample =
     liveMatch?.sampleSize ??
     liveCells.find((c) => typeof c.sampleSize === 'number')?.sampleSize ??
-    row.historicalSampleSize ??
     null;
-  const calibration =
+  const sampleSize = preferBatchSnapshotValue(batchOwned, snapshotSample, liveSample) ?? null;
+  const calibration = preferBatchSnapshotValue(
+    batchOwned,
+    null,
     liveMatch?.calibration ??
-    liveCells.find((c) => c.calibration != null && String(c.calibration).length > 0)?.calibration ??
-    null;
-  const dataAsOf =
+      liveCells.find((c) => c.calibration != null && String(c.calibration).length > 0)?.calibration,
+  );
+  const dataAsOf = preferBatchSnapshotValue(
+    batchOwned,
+    undefined,
     live?.v2?.provenance?.dataAsOf ??
-    live?.v2?.dataAsOf ??
-    live?.historicalIntelligence?.state?.asOfDate;
-  const modelVersion = live?.v2?.provenance?.modelVersion;
-  const featureVersion = live?.v2?.provenance?.featureVersion;
+      live?.v2?.dataAsOf ??
+      live?.historicalIntelligence?.state?.asOfDate,
+  );
+  const modelVersion = preferBatchSnapshotValue(
+    batchOwned,
+    undefined,
+    live?.v2?.provenance?.modelVersion,
+  );
+  const featureVersion = preferBatchSnapshotValue(
+    batchOwned,
+    undefined,
+    live?.v2?.provenance?.featureVersion,
+  );
 
-  const hist = histLive ?? live?.historicalIntelligence ?? null;
+  const hist = batchOwned ? null : (histLive ?? live?.historicalIntelligence ?? null);
   const dist3m = hist?.forwardDistribution3M;
   const outcomes = hist?.outcomes;
   const analogues = hist?.analogues;
 
   const liveDist =
-    setupHorizon !== '—'
+    !batchOwned && setupHorizon !== '—'
       ? live?.v2?.distributions?.find(
           (d) =>
             d.horizon === setupHorizon && d.status === 'AVAILABLE' && d.maxForwardReturns?.length,
@@ -1040,15 +1065,7 @@ export default function OpportunityDetailPanel({
                     ? 'error'
                     : 'default'
             }
-            label={`Status: ${
-              String(recommendation ?? '').toUpperCase() === 'APPROVE'
-                ? 'BUY'
-                : String(recommendation ?? '').toUpperCase() === 'REJECT'
-                  ? 'AVOID'
-                  : String(recommendation ?? '').toUpperCase() === 'WAIT'
-                    ? 'WAIT'
-                    : (recommendation ?? 'Not available')
-            }`}
+            label={`Status: ${displayRecommendation(recommendation)}`}
           />
         </Stack>
         <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>

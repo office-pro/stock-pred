@@ -124,8 +124,22 @@ describe('F1 RankingContext C evidence', () => {
     expect(swing.slice(0, 4)).toEqual(['RS', 'SECTOR', 'REGIME', 'EV']);
     expect(day.at(-1)).toBe('PORTFOLIO_FIT');
     expect(swing.at(-1)).toBe('PORTFOLIO_FIT');
-    expect(day.slice(-5, -1)).toEqual(['FUNDAMENTAL', 'NEWS', 'SENTIMENT', 'MACRO']);
-    expect(swing.slice(-5, -1)).toEqual(['FUNDAMENTAL', 'NEWS', 'SENTIMENT', 'MACRO']);
+    expect(day.slice(-7, -1)).toEqual([
+      'FUNDAMENTAL',
+      'NEWS',
+      'SENTIMENT',
+      'MACRO',
+      'ONCHAIN',
+      'SOCIAL',
+    ]);
+    expect(swing.slice(-7, -1)).toEqual([
+      'FUNDAMENTAL',
+      'NEWS',
+      'SENTIMENT',
+      'MACRO',
+      'ONCHAIN',
+      'SOCIAL',
+    ]);
   });
 
   it('does not treat AgentAnalysis scores as Phase C evidence', () => {

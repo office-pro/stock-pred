@@ -1601,6 +1601,13 @@ export const api = createApi({
         universe: string;
         mode?: string;
         status: string;
+        analysisPeriod?: string;
+        analysisResolution?: string;
+        predictionHorizon?: string;
+        createdAt?: number;
+        startedAt?: number;
+        completedAt?: number;
+        eligibleCount?: number;
         progress?: {
           processed: number;
           pending: number;
@@ -1695,6 +1702,10 @@ export const api = createApi({
         identityCounts?: { eligible: number; valid: number; quarantined: number };
         snapshotProvider?: string;
         snapshotDataAsOf?: number;
+        createdAt?: number;
+        error?: string;
+        mode?: string;
+        sector?: string;
       },
       string
     >({
@@ -2837,6 +2848,7 @@ export const {
   useRunOfflineFocusBatchMutation,
   useListIntelligenceBatchesQuery,
   useGetIntelligenceBatchQuery,
+  useLazyGetIntelligenceBatchQuery,
   useGetIntelligenceBatchResultsQuery,
   useCreateIntelligenceBatchMutation,
   useGetCanonicalUniversesQuery,

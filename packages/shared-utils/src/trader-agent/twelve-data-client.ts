@@ -13,6 +13,7 @@ export const TWELVE_DATA_INDICATOR_ENDPOINT_FORBIDDEN = 'TWELVE_DATA_INDICATOR_E
 
 const FORBIDDEN_INDICATOR_PATH =
   /\/(rsi|ema|macd|atr|adx|bbands|vwap|sma|plus_di|minus_di|stoch|cci|obv)\b/i;
+const FORBIDDEN_COMMODITY_PATH = /\/(commodities|commodity)\b/i;
 
 export class TwelveDataCreditBudget {
   remaining: number;
@@ -83,6 +84,10 @@ export function twelveDataApiKey(env: NodeJS.ProcessEnv = process.env): string {
   return String(env.TWELVE_DATA_API_KEY ?? '').trim();
 }
 
+export function assertTwelveDataSafePath(path: string): void {
+  assertSafePath(path);
+}
+
 export function hasTwelveDataApiKey(env: NodeJS.ProcessEnv = process.env): boolean {
   return twelveDataApiKey(env).length > 0;
 }
@@ -96,6 +101,11 @@ function assertSafePath(path: string): void {
   if (FORBIDDEN_INDICATOR_PATH.test(path)) {
     const err = new Error(TWELVE_DATA_INDICATOR_ENDPOINT_FORBIDDEN);
     err.name = TWELVE_DATA_INDICATOR_ENDPOINT_FORBIDDEN;
+    throw err;
+  }
+  if (FORBIDDEN_COMMODITY_PATH.test(path)) {
+    const err = new Error(TWELVE_DATA_REQUIRES_GROW);
+    err.name = TWELVE_DATA_REQUIRES_GROW;
     throw err;
   }
 }

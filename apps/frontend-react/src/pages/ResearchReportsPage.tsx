@@ -45,6 +45,7 @@ import {
 } from '../store/api';
 import OpportunityDetailPanel from '../components/OpportunityDetailPanel';
 import { formatProbabilityPercent } from '../lib/bull-run-display';
+import { displayRecommendation } from '../lib/multi-asset-batch';
 
 const CARD_BG = '#151921';
 const PAGE_BG = '#0A0E14';
@@ -101,11 +102,7 @@ type SectionTab =
   | 'download';
 
 function recDisplay(rec: string | undefined): string {
-  const r = String(rec ?? '').toUpperCase();
-  if (r === 'APPROVE') return 'BUY';
-  if (r === 'REJECT') return 'AVOID';
-  if (r === 'WAIT') return 'WAIT';
-  return rec?.trim() ? String(rec) : 'Not available';
+  return displayRecommendation(rec);
 }
 
 function recColor(rec: string | undefined): 'success' | 'warning' | 'error' | 'default' {
@@ -997,9 +994,10 @@ export default function ResearchReportsPage(): JSX.Element {
                         sx={{ minWidth: 150 }}
                       >
                         <MenuItem value="ALL">All Recommendations</MenuItem>
-                        <MenuItem value="APPROVE">BUY</MenuItem>
+                        <MenuItem value="APPROVE">APPROVE</MenuItem>
                         <MenuItem value="WAIT">WAIT</MenuItem>
-                        <MenuItem value="REJECT">AVOID</MenuItem>
+                        <MenuItem value="WATCH">WATCH</MenuItem>
+                        <MenuItem value="REJECT">REJECT</MenuItem>
                       </Select>
                       <Select
                         size="small"
@@ -1278,9 +1276,9 @@ export default function ResearchReportsPage(): JSX.Element {
                           (dist?.unspecified ?? 0),
                     )}
                     slices={[
-                      { label: 'BUY', count: dist?.approve ?? 0, color: ACCENT.green },
+                      { label: 'APPROVE', count: dist?.approve ?? 0, color: ACCENT.green },
                       { label: 'WAIT', count: dist?.wait ?? 0, color: ACCENT.amber },
-                      { label: 'AVOID', count: dist?.reject ?? 0, color: ACCENT.rose },
+                      { label: 'REJECT', count: dist?.reject ?? 0, color: ACCENT.rose },
                       ...(dist && dist.unspecified > 0
                         ? [{ label: 'Unspecified', count: dist.unspecified, color: ACCENT.blue }]
                         : []),

@@ -177,6 +177,28 @@ function collectEvidence(
             : 'NEUTRAL',
     });
   }
+  if (snapshot.onchain) {
+    items.push({
+      code: 'ONCHAIN',
+      message:
+        snapshot.onchain.status === 'UNAVAILABLE'
+          ? `On-chain UNAVAILABLE${snapshot.onchain.reasonCode ? ` (${snapshot.onchain.reasonCode})` : ''}`
+          : `On-chain ${snapshot.onchain.provider ?? 'defillama'} TVL present (observe-only, not a BUY/SELL)`,
+      source: 'snapshot.onchain',
+      polarity: 'NEUTRAL',
+    });
+  }
+  if (snapshot.social) {
+    items.push({
+      code: 'SOCIAL',
+      message:
+        snapshot.social.status === 'UNAVAILABLE'
+          ? `Social UNAVAILABLE${snapshot.social.reasonCode ? ` (${snapshot.social.reasonCode})` : ''}`
+          : 'Reddit/social evidence present (observe-only, not a volume BUY/SELL)',
+      source: 'snapshot.social',
+      polarity: 'NEUTRAL',
+    });
+  }
   return items;
 }
 

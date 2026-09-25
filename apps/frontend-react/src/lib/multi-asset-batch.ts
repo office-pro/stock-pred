@@ -248,12 +248,17 @@ export interface FrozenResultIdentity {
   recommendation?: string;
   reason?: string;
   reasonCode?: string;
+  companyName?: string;
+  rank?: number;
+  intelligenceContext?: Record<string, unknown>;
 }
 
 export function frozenResultIdentity(row: {
   symbol: string;
   exchange?: string;
   sector?: string;
+  companyName?: string;
+  rank?: number;
   instrument?: { symbol?: string; venue?: string; assetClass?: string };
   recommendation?: string;
   reason?: string;
@@ -270,6 +275,9 @@ export function frozenResultIdentity(row: {
     recommendation: row.recommendation,
     reason: row.reason,
     reasonCode: row.reasonCode,
+    companyName: row.companyName,
+    rank: row.rank,
+    intelligenceContext: row.intelligenceContext,
   };
 }
 
@@ -319,6 +327,7 @@ export function analysisChecklist(input: {
 }
 
 const DRAFT_KEY = 'multiAsset.draft';
+export const ACTIVE_BATCH_STORAGE_KEY = 'multiAsset.selectedBatchId';
 
 export interface WorkstationDraft {
   universeId: string;
@@ -341,6 +350,67 @@ export function loadWorkstationDraft(): WorkstationDraft | null {
   } catch {
     return null;
   }
+}
+
+export function clearWorkstationDraft(): void {
+  sessionStorage.removeItem(DRAFT_KEY);
+}
+
+export function clearActiveBatchSession(): void {
+  sessionStorage.removeItem(ACTIVE_BATCH_STORAGE_KEY);
+}
+
+export function isActiveBatchStatus(status?: string): boolean {
+  return status === 'RUNNING' || status === 'QUEUED' || status === 'PAUSED';
+}
+
+export function isTerminalBatchStatus(status?: string): boolean {
+  return (
+    status === 'COMPLETED' || status === 'PARTIAL' || status === 'FAILED' || status === 'CANCELLED'
+  );
+}
+
+/** Persist only while a run can still be recovered. Terminal ids must not reopen on /batch. */
+export function persistActiveBatchId(batchId: string, status?: string): void {
+  if (!batchId || isTerminalBatchStatus(status)) {
+    sessionStorage.removeItem(ACTIVE_BATCH_STORAGE_KEY);
+    return;
+  }
+  if (isActiveBatchStatus(status) || status == null) {
+    sessionStorage.setItem(ACTIVE_BATCH_STORAGE_KEY, batchId);
+  }
+}
+
+export const DEFAULT_WORKSTATION_UNIVERSE = 'NIFTY500';
+
+export const FEATURED_PREDEFINED_CARDS: ReadonlyArray<{
+  universeId: string;
+  title: string;
+  subtitle: string;
+  placeholder?: boolean;
+}> = [
+  { universeId: 'NIFTY500', title: 'NSE Equity', subtitle: 'NIFTY 500' },
+  { universeId: 'NSE_ALL', title: 'NSE F&O', subtitle: 'Futures & Options' },
+  { universeId: 'BSE_EQUITY', title: 'BSE Equity', subtitle: 'BSE listed', placeholder: true },
+  { universeId: 'US_ALL', title: 'US Equities', subtitle: 'US Stocks (All)' },
+  { universeId: 'NIFTY50', title: 'Indices', subtitle: 'Index constituents' },
+  { universeId: 'COMMODITY_ALL', title: 'Commodities', subtitle: 'Gold, Silver, Oil etc.' },
+  { universeId: 'CRYPTO_SPOT_ALL', title: 'Crypto', subtitle: 'Top Crypto Assets' },
+  { universeId: 'FOREX_ALL', title: 'Forex', subtitle: 'Major FX Pairs' },
+];
+
+export const FEATURED_UNIVERSE_IDS = FEATURED_PREDEFINED_CARDS.filter(
+  (row) => !row.placeholder,
+).map((row) => row.universeId);
+
+export function statusChipColor(
+  status?: string,
+): 'success' | 'error' | 'warning' | 'default' | 'info' {
+  if (status === 'COMPLETED') return 'success';
+  if (status === 'FAILED') return 'error';
+  if (status === 'PARTIAL' || status === 'PAUSED') return 'warning';
+  if (status === 'RUNNING' || status === 'QUEUED') return 'info';
+  return 'default';
 }
 
 export function defaultCustomAnalysisWindow(now = new Date()): AnalysisWindow {
@@ -405,6 +475,168 @@ export function buildMultiAssetBatchRequest(input: {
 
 export function renderUnavailable(value: unknown): string {
   return value == null || value === '' ? 'Not available' : String(value);
+}
+
+export const BACKEND_RECOMMENDATIONS = ['APPROVE', 'WAIT', 'WATCH', 'NO_TRADE', 'REJECT'] as const;
+
+/** Backend enum only — never map APPROVE → BUY. */
+export function displayRecommendation(value?: string | null): string {
+  if (value == null || value === '') return 'Not available';
+  const upper = String(value).toUpperCase();
+  return (BACKEND_RECOMMENDATIONS as readonly string[]).includes(upper) ? upper : 'Not available';
+}
+
+export function resultNumericField(value: unknown): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'Not available';
+  return String(value);
+}
+
+export function batchReadinessHeadline(coveragePct: number | null | undefined): string {
+  if (coveragePct == null || !Number.isFinite(coveragePct)) return 'Not available';
+  const pct = coveragePct > 1 ? coveragePct : coveragePct * 100;
+  return `${pct.toFixed(1)}%`;
+}
+
+export function hasBatchReadinessDenominator(coveragePct: number | null | undefined): boolean {
+  return coveragePct != null && Number.isFinite(coveragePct);
+}
+
+export function formatBatchDuration(startedAt?: number, completedAt?: number): string {
+  if (startedAt == null || completedAt == null) return 'Not available';
+  return formatElapsed(startedAt, completedAt);
+}
+
+export type HistoryBatchLike = {
+  batchId: string;
+  universe: string;
+  status: string;
+  analysisPeriod?: string;
+  analysisResolution?: string;
+  predictionHorizon?: string;
+  createdAt?: number;
+  startedAt?: number;
+  completedAt?: number;
+  eligibleCount?: number;
+  updatedAt: number;
+};
+
+export function pickLatestTerminalBatch<T extends HistoryBatchLike>(rows: T[]): T | undefined {
+  return [...rows]
+    .filter((row) => isTerminalBatchStatus(row.status))
+    .sort(
+      (a, b) =>
+        (b.completedAt ?? b.createdAt ?? b.updatedAt) -
+        (a.completedAt ?? a.createdAt ?? a.updatedAt),
+    )[0];
+}
+
+export function coverageByCapability(
+  rows: SnapshotCoverageRow[] | undefined,
+  names: string[],
+): SnapshotCoverageRow | undefined {
+  const set = new Set(names.map((name) => name.toLowerCase()));
+  return (rows ?? []).find((row) => set.has(String(row.capability).toLowerCase()));
+}
+
+export type OverviewKpi = { id: string; label: string; value: string; detail: string };
+
+export function overviewKpis(input: {
+  batch?: {
+    identityCounts?: { eligible?: number; valid?: number; quarantined?: number };
+    dataReadinessReport?: { eligible?: number; coveragePct?: number | null };
+    eligibleCount?: number;
+    capabilityCoverage?: SnapshotCoverageRow[];
+  };
+  hasTerminalBatch: boolean;
+}): OverviewKpi[] {
+  if (!input.hasTerminalBatch || !input.batch) {
+    return [
+      { id: 'total', label: 'Total Symbols', value: 'Not available', detail: 'Not available' },
+      { id: 'quotes', label: 'Quotes', value: 'Not available', detail: 'Not available' },
+      { id: 'historical', label: 'Historical', value: 'Not available', detail: 'Not available' },
+      { id: 'ml', label: 'ML', value: 'Not available', detail: 'Not available' },
+      { id: 'sentiment', label: 'Sentiment', value: 'Not available', detail: 'Not available' },
+      {
+        id: 'fundamentals',
+        label: 'Fundamentals',
+        value: 'Not available',
+        detail: 'Not available',
+      },
+    ];
+  }
+  const coverage = input.batch.capabilityCoverage ?? [];
+  const total =
+    input.batch.identityCounts?.eligible ??
+    input.batch.dataReadinessReport?.eligible ??
+    input.batch.eligibleCount;
+  const cell = (id: string, label: string, row: SnapshotCoverageRow | undefined): OverviewKpi => ({
+    id,
+    label,
+    value: row ? String(row.available) : 'Not available',
+    detail: row ? formatCoveragePct(row.coveragePct, row.status) : 'Not available',
+  });
+  return [
+    {
+      id: 'total',
+      label: 'Total Symbols',
+      value: total == null ? 'Not available' : total.toLocaleString(),
+      detail:
+        input.batch.dataReadinessReport?.coveragePct != null
+          ? batchReadinessHeadline(input.batch.dataReadinessReport.coveragePct)
+          : 'Not available',
+    },
+    cell('quotes', 'Quotes', coverageByCapability(coverage, ['marketdata', 'quotes'])),
+    cell(
+      'historical',
+      'Historical',
+      coverageByCapability(coverage, ['technical', 'historicalcandles', 'historical']),
+    ),
+    cell('ml', 'ML', coverageByCapability(coverage, ['ml'])),
+    cell('sentiment', 'Sentiment', coverageByCapability(coverage, ['news', 'sentiment'])),
+    cell(
+      'fundamentals',
+      'Fundamentals',
+      coverageByCapability(coverage, ['fundamentals', 'fundamental']),
+    ),
+  ];
+}
+
+export function filterHistoryRows(
+  rows: HistoryBatchLike[],
+  filters: {
+    query: string;
+    universe: string;
+    status: string;
+    startDate: string;
+    endDate: string;
+  },
+): HistoryBatchLike[] {
+  const q = filters.query.trim().toUpperCase();
+  return rows.filter((row) => {
+    if (filters.universe && row.universe !== filters.universe) return false;
+    if (filters.status && row.status !== filters.status) return false;
+    if (q) {
+      const hay = `${row.batchId} ${row.universe}`.toUpperCase();
+      if (!hay.includes(q)) return false;
+    }
+    const ts = row.createdAt ?? row.startedAt ?? row.updatedAt;
+    if (filters.startDate) {
+      const start = Date.parse(`${filters.startDate}T00:00:00`);
+      if (!Number.isNaN(start) && ts < start) return false;
+    }
+    if (filters.endDate) {
+      const end = Date.parse(`${filters.endDate}T23:59:59`);
+      if (!Number.isNaN(end) && ts > end) return false;
+    }
+    return true;
+  });
+}
+
+export function contextNumeric(
+  ctx: Record<string, unknown> | undefined,
+  key: 'overallScore' | 'tradePlanExpectedR' | 'mlConfidence' | 'tradePlanConfidence',
+): string {
+  return resultNumericField(ctx?.[key]);
 }
 
 /** Backend lifecycle copy only — never derive READY / READY_PARTIAL / NOT_READY. */

@@ -240,6 +240,13 @@ export interface IntelligenceBatchContextLabels {
   bullRunDataStatus?: 'LIVE' | 'DELAYED' | 'STALE' | 'OFFLINE' | 'UNKNOWN';
   globalEventImpact?: string;
   fnoStatus?: string;
+  /**
+   * Slice B — backend-owned Best Opportunity eligibility from snapshot evidence.
+   * false cannot be overridden by score, rank, or trade-plan APPROVE.
+   */
+  bestOpportunityEligible?: boolean;
+  /** Why recommendation / Best Opportunity was blocked. Omit when unrestricted. */
+  recommendationEligibilityReason?: string;
 }
 
 /** Quote/identity provenance for a batch result row — never replaces task.symbol. */

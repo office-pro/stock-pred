@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { getEnv } from '@stockpred/shared-utils';
+import { MDS_QUOTE_REDIS_TTL_SECONDS } from './quote-freshness';
 
 /** Redis cache with graceful degradation: the feed survives a Redis outage. */
 @Injectable()
@@ -23,10 +24,31 @@ export class RedisService implements OnModuleDestroy {
     });
   }
 
-  async setJson(key: string, value: unknown): Promise<void> {
+  async getJson<T>(key: string): Promise<T | null> {
+    if (!this.healthy) return null;
+    try {
+      const raw = await this.client.get(key);
+      if (!raw) return null;
+      return JSON.parse(raw) as T;
+    } catch {
+      /* Redis failure must not become a data failure — caller falls through. */
+      return null;
+    }
+  }
+
+  async setJson(
+    key: string,
+    value: unknown,
+    ttlSeconds: number = MDS_QUOTE_REDIS_TTL_SECONDS,
+  ): Promise<void> {
     if (!this.healthy) return;
     try {
-      await this.client.set(key, JSON.stringify(value));
+      const payload = JSON.stringify(value);
+      if (ttlSeconds > 0) {
+        await this.client.set(key, payload, 'EX', ttlSeconds);
+      } else {
+        await this.client.set(key, payload);
+      }
     } catch {
       /* cache write is best-effort */
     }

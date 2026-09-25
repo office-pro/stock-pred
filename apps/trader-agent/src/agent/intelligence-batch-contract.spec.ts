@@ -71,11 +71,31 @@ describe('IntelligenceBatchService public create contract', () => {
 });
 
 describe('IntelligenceBatchService freeze contract', () => {
+  it('GET /intelligence-batches/:id does not parse the frozen data snapshot', () => {
+    const src = readFileSync(join(__dirname, 'intelligence-batch.service.ts'), 'utf8');
+    const getFn = src.match(/get\(batchId: string\): IntelligenceBatch \{[\s\S]*?\n {2}\}/)?.[0];
+    expect(getFn).toBeTruthy();
+    expect(getFn).not.toMatch(/readBatchDataSnapshot/);
+  });
+
   it('does not recover quotes from MDS after BatchDataSnapshot freeze', () => {
     const src = readFileSync(join(__dirname, 'intelligence-batch.service.ts'), 'utf8');
     expect(src).not.toMatch(/fetchQuoteForIntelligenceBatch/);
     expect(src).toMatch(/hydrateBatchDataSnapshot/);
     expect(src).toMatch(/quotesMapFromSnapshot/);
+    expect(src).toMatch(/fetchNseCandles/);
+    expect(src).toMatch(/fetchNseDailyCandlesForBatch/);
+    expect(src).toMatch(/fetchFundamentalsPanelForBatch/);
+    expect(src).toMatch(/fetchNewsPanelForBatch/);
+    expect(src).toMatch(/nseMdsEvidence/);
+    expect(src).toMatch(/scoreHeadline/);
+  });
+
+  it('finalize consumes frozen snapshot TI and does not MDS-refresh after freeze', () => {
+    const src = readFileSync(join(__dirname, 'intelligence-batch.service.ts'), 'utf8');
+    expect(src).toMatch(/frozenCtx/);
+    expect(src).toMatch(/skipping MDS ML refresh/);
+    expect(src).toMatch(/useFrozen \? frozenSnapshot/);
   });
 
   it('binds result identity from frozen InstrumentRef and never re-resolves tickers', () => {

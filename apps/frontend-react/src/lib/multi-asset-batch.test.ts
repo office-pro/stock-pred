@@ -2,16 +2,27 @@ import type { InstrumentRef, UniverseCatalogEntry } from '@stockpred/shared-type
 import {
   ANALYSIS_PERIOD_LABELS,
   analysisChecklist,
+  ACTIVE_BATCH_STORAGE_KEY,
+  batchReadinessHeadline,
   buildMultiAssetBatchRequest,
   coverageStatusTone,
   cryptoHasNseLeak,
   defaultCustomAnalysisWindow,
+  displayRecommendation,
+  FEATURED_PREDEFINED_CARDS,
+  FEATURED_UNIVERSE_IDS,
   formatCoveragePct,
   frozenResultIdentity,
+  hasBatchReadinessDenominator,
+  isActiveBatchStatus,
+  isTerminalBatchStatus,
   lifecycleStageCopy,
+  overviewKpis,
+  persistActiveBatchId,
   pickDefaultAnalysisPeriod,
   pickDefaultPredictionHorizon,
   renderUnavailable,
+  resultNumericField,
   validResultRows,
   wizardStageStates,
 } from './multi-asset-batch';
@@ -262,5 +273,73 @@ describe('Multi-Asset Batch request truthfulness', () => {
     expect(items.find((row) => row.label.startsWith('Market Data'))?.applicable).toBe(true);
     expect(items.find((row) => row.label.startsWith('Fundamental'))?.applicable).toBe(false);
     expect(items.find((row) => row.label.startsWith('Derivatives'))?.applicable).toBe(false);
+  });
+});
+
+describe('workstation session and featured mapping', () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+  });
+
+  it('treats only RUNNING/QUEUED/PAUSED as recoverable', () => {
+    expect(isActiveBatchStatus('RUNNING')).toBe(true);
+    expect(isActiveBatchStatus('QUEUED')).toBe(true);
+    expect(isActiveBatchStatus('PAUSED')).toBe(true);
+    expect(isActiveBatchStatus('FAILED')).toBe(false);
+    expect(isTerminalBatchStatus('FAILED')).toBe(true);
+    expect(isTerminalBatchStatus('CANCELLED')).toBe(true);
+  });
+
+  it('persists session only for active runs', () => {
+    persistActiveBatchId('IBATCH-1', 'RUNNING');
+    expect(sessionStorage.getItem(ACTIVE_BATCH_STORAGE_KEY)).toBe('IBATCH-1');
+    persistActiveBatchId('IBATCH-1', 'FAILED');
+    expect(sessionStorage.getItem(ACTIVE_BATCH_STORAGE_KEY)).toBeNull();
+  });
+
+  it('maps featured cards without inventing BSE membership', () => {
+    expect(FEATURED_PREDEFINED_CARDS.find((row) => row.universeId === 'NIFTY500')?.title).toBe(
+      'NSE Equity',
+    );
+    expect(FEATURED_PREDEFINED_CARDS.find((row) => row.universeId === 'NSE_ALL')?.title).toBe(
+      'NSE F&O',
+    );
+    expect(
+      FEATURED_PREDEFINED_CARDS.find((row) => row.universeId === 'BSE_EQUITY')?.placeholder,
+    ).toBe(true);
+    expect(FEATURED_UNIVERSE_IDS).not.toContain('BSE_EQUITY');
+  });
+});
+
+describe('data-truth presentation helpers', () => {
+  it('never maps APPROVE to BUY', () => {
+    expect(displayRecommendation('APPROVE')).toBe('APPROVE');
+    expect(displayRecommendation('WAIT')).toBe('WAIT');
+    expect(displayRecommendation('BUY')).toBe('Not available');
+    expect(displayRecommendation(undefined)).toBe('Not available');
+  });
+
+  it('does not convert missing numerics to 0 or dash', () => {
+    expect(resultNumericField(undefined)).toBe('Not available');
+    expect(resultNumericField(null)).toBe('Not available');
+    expect(resultNumericField(0)).toBe('0');
+    expect(resultNumericField(92)).toBe('92');
+  });
+
+  it('does not mix capability counts into a batch readiness headline', () => {
+    expect(batchReadinessHeadline(undefined)).toBe('Not available');
+    expect(batchReadinessHeadline(null)).toBe('Not available');
+    expect(hasBatchReadinessDenominator(undefined)).toBe(false);
+    expect(hasBatchReadinessDenominator(1)).toBe(true);
+    expect(batchReadinessHeadline(1)).toBe('100.0%');
+    expect(batchReadinessHeadline(0.9)).toBe('90.0%');
+  });
+
+  it('shows Not available KPIs when no terminal batch exists', () => {
+    const empty = overviewKpis({ hasTerminalBatch: false });
+    expect(empty).toHaveLength(6);
+    expect(
+      empty.every((row) => row.value === 'Not available' && row.detail === 'Not available'),
+    ).toBe(true);
   });
 });

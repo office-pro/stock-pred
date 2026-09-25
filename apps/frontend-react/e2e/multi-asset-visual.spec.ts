@@ -78,7 +78,11 @@ const coverage = [
   },
 ];
 
-async function mockApi(page: Page, batch?: Record<string, unknown>): Promise<void> {
+async function mockApi(
+  page: Page,
+  batch?: Record<string, unknown>,
+  list?: unknown[],
+): Promise<void> {
   await page.route('**/api/**', async (route) => {
     const url = route.request().url();
     const method = route.request().method();
@@ -92,7 +96,17 @@ async function mockApi(page: Page, batch?: Record<string, unknown>): Promise<voi
         contentType: 'application/json',
         body: JSON.stringify({
           universes: [
+            { ...nseAll, universeId: 'NIFTY500', name: 'NIFTY 500', instrumentCount: 500 },
+            { ...nseAll, universeId: 'NIFTY50', name: 'NIFTY 50', instrumentCount: 50 },
             nseAll,
+            {
+              ...nseAll,
+              universeId: 'US_ALL',
+              name: 'US All',
+              group: 'US',
+              supported: false,
+              reason: 'Canonical US universe source is not currently configured.',
+            },
             {
               ...nseAll,
               universeId: 'CRYPTO_SPOT_ALL',
@@ -100,6 +114,28 @@ async function mockApi(page: Page, batch?: Record<string, unknown>): Promise<voi
               group: 'CRYPTO',
               assetClass: 'CRYPTO_SPOT',
               venue: 'BINANCE',
+            },
+            {
+              ...nseAll,
+              universeId: 'FOREX_ALL',
+              name: 'Forex All',
+              group: 'FOREX',
+              assetClass: 'FX',
+            },
+            {
+              ...nseAll,
+              universeId: 'COMMODITY_ALL',
+              name: 'Commodities',
+              group: 'COMMODITIES',
+              assetClass: 'COMMODITY',
+            },
+            {
+              ...nseAll,
+              universeId: 'CUSTOM',
+              name: 'Custom',
+              group: 'CUSTOM',
+              kind: 'CUSTOM',
+              requiresManualInstruments: true,
             },
           ],
         }),
@@ -172,7 +208,34 @@ async function mockApi(page: Page, batch?: Record<string, unknown>): Promise<voi
       return;
     }
     if (url.includes('/api/agent/intelligence-batches')) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          list ?? [
+            {
+              batchId: 'IBATCH-HIST',
+              universe: 'NIFTY500',
+              status: 'COMPLETED',
+              analysisPeriod: '3M',
+              analysisResolution: '1D',
+              predictionHorizon: '1M',
+              createdAt: Date.now() - 86_400_000,
+              updatedAt: Date.now() - 86_400_000,
+            },
+            {
+              batchId: 'IBATCH-TEST',
+              universe: 'CRYPTO_SPOT_ALL',
+              status: 'FAILED',
+              analysisPeriod: '1Y',
+              analysisResolution: '1D',
+              predictionHorizon: '1D',
+              createdAt: Date.now() - 3_600_000,
+              updatedAt: Date.now() - 3_600_000,
+            },
+          ],
+        ),
+      });
       return;
     }
     if (url.includes('/api/agent/mode')) {
@@ -205,22 +268,25 @@ async function mockApi(page: Page, batch?: Record<string, unknown>): Promise<voi
   });
 }
 
-async function openWorkstation(page: Page, batchId?: string): Promise<void> {
-  await page.addInitScript(
-    ([id]) => {
-      window.localStorage.setItem(
-        'stockpred.auth',
-        JSON.stringify({
-          user: { id: 'test', name: 'Test', role: 'ADMIN', status: 'ACTIVE' },
-          accessToken: 'test-token',
-          refreshToken: 'test-token',
-        }),
-      );
-      if (id) window.sessionStorage.setItem('multiAsset.selectedBatchId', id);
-    },
-    [batchId ?? ''],
-  );
-  await page.goto('/batch/multi-asset');
+async function openWorkstation(
+  page: Page,
+  query: { batchId?: string; view?: string } = {},
+): Promise<void> {
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      'stockpred.auth',
+      JSON.stringify({
+        user: { id: 'test', name: 'Test', role: 'ADMIN', status: 'ACTIVE' },
+        accessToken: 'test-token',
+        refreshToken: 'test-token',
+      }),
+    );
+  });
+  const params = new URLSearchParams();
+  if (query.batchId) params.set('batchId', query.batchId);
+  if (query.view) params.set('view', query.view);
+  const qs = params.toString();
+  await page.goto(qs ? `/batch?${qs}` : '/batch');
 }
 
 test('visual contract PNG is present before screenshot baselines', () => {
@@ -230,20 +296,27 @@ test('visual contract PNG is present before screenshot baselines', () => {
 test('six-screen visual contract at 1440', async ({ page }) => {
   await mockApi(page);
   await openWorkstation(page);
+  await expect(page.getByTestId('screen-overview')).toBeVisible();
+  await expect(page.getByTestId('overview-new-batch')).toBeVisible();
+  await expect(page.getByTestId('screen-overview')).toHaveScreenshot('00-overview.png');
+
+  await page.getByTestId('overview-new-batch').click();
   await expect(page.getByTestId('screen-select-universe')).toBeVisible();
+  await expect(page.getByText('NSE Equity')).toBeVisible();
+  await expect(page.getByText('BSE Equity')).toBeVisible();
   await expect(page.getByTestId('screen-select-universe')).toHaveScreenshot(
     '01-select-universe.png',
   );
 
-  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Next: Configure' }).click();
   await expect(page.getByTestId('screen-configure-analysis')).toBeVisible();
-  await expect(page.getByLabel('Analysis Period')).toBeVisible();
-  await expect(page.getByLabel('Analysis Resolution')).toBeVisible();
+  await expect(page.getByText('Historical Period')).toBeVisible();
+  await expect(page.getByText('Analysis Resolution')).toBeVisible();
   await expect(page.getByTestId('screen-configure-analysis')).toHaveScreenshot(
     '02-configure-analysis.png',
   );
 
-  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Next: Review & Run' }).click();
   await expect(page.getByTestId('screen-review-run')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Run Batch Analysis' })).toBeVisible();
   await expect(page.getByTestId('screen-review-run')).toHaveScreenshot('03-review-run.png');
@@ -260,7 +333,7 @@ test('progress, coverage, and results screenshots consume backend values', async
     dataReadinessReport: { eligible: 500, processed: 225, failed: 0, coveragePct: 0.45 },
     capabilityCoverage: coverage,
   });
-  await openWorkstation(page, 'IBATCH-TEST');
+  await openWorkstation(page, { batchId: 'IBATCH-TEST' });
   await expect(page.getByTestId('screen-batch-progress')).toBeVisible();
   await expect(page.getByTestId('progress-stage-technical')).toHaveAttribute(
     'data-state',
@@ -271,7 +344,7 @@ test('progress, coverage, and results screenshots consume backend values', async
 
 test('coverage and results match frozen identity contract', async ({ page }) => {
   await mockApi(page);
-  await openWorkstation(page, 'IBATCH-TEST');
+  await openWorkstation(page, { batchId: 'IBATCH-TEST' });
   await expect(page.getByTestId('screen-results')).toBeVisible();
   await expect(page.getByTestId('coverage-status-fundamentals')).toHaveText('UNAVAILABLE');
   await expect(page.getByTestId('coverage-status-derivatives')).toHaveText('N/A');
@@ -283,4 +356,27 @@ test('coverage and results match frozen identity contract', async ({ page }) => 
   await expect(page.getByTestId('top-opportunities')).toContainText('ETHUSDT');
   await expect(page.locator('body')).not.toContainText('NSE:BTCUSDT');
   await expect(page.getByTestId('screen-results')).toHaveScreenshot('06-results.png');
+});
+
+test('history lists backend batches and overview ignores terminal session', async ({ page }) => {
+  await mockApi(page);
+  await openWorkstation(page, { view: 'history' });
+  await expect(page.getByTestId('screen-history')).toBeVisible();
+  await expect(page.getByText('IBATCH-HIST')).toBeVisible();
+  await expect(page.getByTestId('screen-history')).toHaveScreenshot('07-history.png');
+
+  await page.addInitScript(() => {
+    window.sessionStorage.setItem('multiAsset.selectedBatchId', 'IBATCH-TEST');
+  });
+  await page.goto('/batch');
+  await expect(page.getByTestId('screen-overview')).toBeVisible();
+  await expect(page.getByTestId('screen-results')).toHaveCount(0);
+});
+
+test('empty history matches the dedicated empty state', async ({ page }) => {
+  await mockApi(page, undefined, []);
+  await openWorkstation(page, { view: 'history' });
+  await expect(page.getByTestId('screen-history-empty')).toBeVisible();
+  await expect(page.getByText('No Batch History Found')).toBeVisible();
+  await expect(page.getByTestId('screen-history')).toHaveScreenshot('08-history-empty.png');
 });

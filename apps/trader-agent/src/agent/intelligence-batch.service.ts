@@ -74,9 +74,15 @@ import {
   attachBatchInstrumentToIntelligenceSnapshot,
   bindFrozenResultIdentity,
   deriveBatchResultRecommendation,
+  evaluateBatchRecommendationEligibility,
+  applyRecommendationEligibility,
   isValidSnapshotRow,
   quarantinedResultRow,
   cloneInstrumentRef,
+  BatchFetchCoordinator,
+  sufficientDailyCandleLimit,
+  historicalRequirementKey,
+  type NseMdsEvidenceInput,
 } from '@stockpred/shared-utils';
 import { AgentService } from './agent.service';
 import {
@@ -104,6 +110,9 @@ export class IntelligenceBatchService implements OnModuleInit {
   private readonly activeLoops = new Set<string>();
   /** batchId → symbol → analysis (in-memory for final RankingContext pass). */
   private readonly analysisCache = new Map<string, Map<string, AgentAnalysis>>();
+  private readonly hydrateProgressAt = new Map<string, number>();
+  /** In-process freeze; GET / poll must not parse the on-disk snapshot. */
+  private readonly dataSnapshots = new Map<string, BatchDataSnapshot>();
 
   constructor(private readonly agent: AgentService) {}
 
@@ -124,14 +133,22 @@ export class IntelligenceBatchService implements OnModuleInit {
     const catalog = listUniverseCatalog();
     let quotes = new Map<string, StockQuote>();
     try {
-      quotes = await this.agent.fetchCachedQuotesMap(5000);
+      // Catalog must stay under gateway proxy timeout (~60s). MDS quote paging is best-effort
+      // freshness only — never block universe discovery on a slow/saturated MDS.
+      quotes = await Promise.race([
+        this.agent.fetchCachedQuotesMap(500, 2_500),
+        new Promise<Map<string, StockQuote>>((resolve) => {
+          setTimeout(() => resolve(new Map()), 4_000);
+        }),
+      ]);
     } catch {
       // Runtime availability is explicitly missing; canonical membership remains available.
     }
     return catalog.map((entry) => {
+      const capability = resolveAssetAdapter('', entry.adapterHint).capabilities();
+      if (!entry.supported) return { ...entry, capability };
       const symbols = this.catalogSymbols(entry.universeId);
-      const capability = resolveAssetAdapter(symbols[0] ?? '', entry.adapterHint).capabilities();
-      if (!entry.supported || symbols.length === 0) return { ...entry, capability };
+      if (symbols.length === 0) return { ...entry, capability };
       const quoteRows = symbols.map((symbol) => quotes.get(symbol));
       const statuses = quoteRows.map((quote) => quote?.freshnessStatus ?? 'UNKNOWN');
       const live = statuses.filter((status) => status === 'LIVE').length;
@@ -301,14 +318,7 @@ export class IntelligenceBatchService implements OnModuleInit {
   get(batchId: string): IntelligenceBatch {
     const batch = readIntelligenceBatch(batchId);
     if (!batch) throw new NotFoundException(`Batch ${batchId} not found`);
-    const snapshot = readBatchDataSnapshot(batchId);
-    return {
-      ...batch,
-      capabilityCoverage: snapshot?.capabilityCoverage ?? batch.capabilityCoverage,
-      identityCounts: snapshot?.identityCounts ?? batch.identityCounts,
-      snapshotProvider: snapshot?.provider ?? batch.snapshotProvider,
-      snapshotDataAsOf: snapshot?.dataAsOf ?? batch.snapshotDataAsOf,
-    };
+    return batch;
   }
 
   getResults(
@@ -888,7 +898,7 @@ export class IntelligenceBatchService implements OnModuleInit {
       };
       writeIntelligenceBatch(batch);
 
-      const snapshot = await this.prepareBatchDataSnapshot(batch);
+      const snapshot = await this.loadOrPrepareBatchDataSnapshot(batch);
       batch = this.get(batchId);
       if (snapshot.coverage.readiness === 'NOT_READY') {
         const failedAt = Date.now();
@@ -1034,6 +1044,35 @@ export class IntelligenceBatchService implements OnModuleInit {
       }
     }
 
+    const coordinator = new BatchFetchCoordinator();
+    let history: ReturnType<typeof sufficientDailyCandleLimit>;
+    try {
+      history = sufficientDailyCandleLimit(
+        normalizeAnalysisPeriod(batch.analysisPeriod),
+        batch.analysisWindow,
+      );
+    } catch {
+      history = sufficientDailyCandleLimit(defaultAnalysisPeriod());
+    }
+    let niftyBars: Awaited<ReturnType<AgentService['fetchNiftyDailyForBatch']>> = [];
+    const benchmarkStarted = Date.now();
+    if (nseHint === 'NSE_EQUITY' || nseHint === 'BSE_EQUITY') {
+      niftyBars = await coordinator.resolve(
+        historicalRequirementKey({
+          symbol: 'NIFTY_50',
+          provider: 'mds',
+          venue: 'NSE',
+          timeframe: '1D',
+          lookback: history.lookback,
+          start: history.startDate,
+          end: history.endDate,
+        }),
+        () => this.agent.fetchNiftyDailyForBatch(history.limit),
+        'external',
+      );
+    }
+    const benchmarkFetchMs = Date.now() - benchmarkStarted;
+
     const instruments =
       batch.instrumentSet && batch.instrumentSet.length > 0
         ? batch.instrumentSet
@@ -1047,27 +1086,177 @@ export class IntelligenceBatchService implements OnModuleInit {
             return resolveAssetAdapter(symbol, hint).resolveInstrument(symbol);
           });
 
-    const { snapshot, report } = await hydrateBatchDataSnapshot({
+    const hydrateStartedAt = Date.now();
+    let candleHit = 0;
+    let candleMiss = 0;
+    let candleError = 0;
+
+    let nseMdsEvidence: NseMdsEvidenceInput | undefined;
+    if (nseHint === 'NSE_EQUITY' || nseHint === 'BSE_EQUITY') {
+      const [fundamentalsPanel, newsPanel] = await Promise.all([
+        this.agent.fetchFundamentalsPanelForBatch(),
+        this.agent.fetchNewsPanelForBatch(),
+      ]);
+      nseMdsEvidence = {
+        fundamentalsRows: fundamentalsPanel.rows,
+        newsRows: newsPanel.rows,
+        fundamentalsUnavailableReason: fundamentalsPanel.reason,
+        newsUnavailableReason: newsPanel.reason,
+      };
+      console.log(
+        `[intelligence-batch] ${batch.batchId} nseMdsPanels fundamentalsHit=${fundamentalsPanel.rows.length}` +
+          ` newsHit=${newsPanel.rows.length}` +
+          `${fundamentalsPanel.reason ? ` fundamentalsUnavailableReason=${fundamentalsPanel.reason}` : ''}` +
+          `${newsPanel.reason ? ` newsUnavailableReason=${newsPanel.reason}` : ''}`,
+      );
+    }
+
+    const { snapshot } = await hydrateBatchDataSnapshot({
       batchId: batch.batchId,
       universeId: batch.universe,
       universeVersion: batch.universeVersion,
       instruments,
       eligible: batch.eligibleCount ?? instruments.length,
       deps: {
+        coordinator,
+        shared: {
+          benchmarks:
+            niftyBars.length > 0
+              ? {
+                  NIFTY_50: {
+                    symbol: 'NIFTY_50',
+                    timeframe: '1D',
+                    candles: niftyBars,
+                    dataAsOf: Date.now(),
+                    source: 'mds',
+                    provider: 'mds',
+                  },
+                }
+              : undefined,
+        },
         fetchNseQuote: async (symbol) => mdsQuotes.get(symbol) ?? null,
+        fetchNseCandles: async (symbol) => {
+          try {
+            const fetchCandles = this.agent.fetchNseDailyCandlesForBatch?.bind(this.agent);
+            const bars = fetchCandles
+              ? await coordinator.resolve(
+                  historicalRequirementKey({
+                    symbol,
+                    provider: 'mds',
+                    venue: nseHint === 'BSE_EQUITY' ? 'BSE' : 'NSE',
+                    timeframe: '1D',
+                    lookback: history.lookback,
+                    start: history.startDate,
+                    end: history.endDate,
+                  }),
+                  () => fetchCandles(symbol, history.limit),
+                  'external',
+                )
+              : [];
+            const n = bars?.length ?? 0;
+            if (n > 0) candleHit += 1;
+            else candleMiss += 1;
+            return bars ?? [];
+          } catch {
+            candleError += 1;
+            return [];
+          }
+        },
+        onHydrateProgress: (done, total) => this.reportHydrateProgress(batch.batchId, done, total),
+        scoreHeadline: (title) => this.agent.scoreHeadline?.(title) ?? null,
+        nseMdsEvidence,
       },
     });
+    if (snapshot.performance) {
+      snapshot.performance.benchmarkFetchMs = benchmarkFetchMs;
+    }
+    this.hydrateProgressAt.delete(batch.batchId);
+    console.log(
+      `[intelligence-batch] ${batch.batchId} hydrate universe=${batch.universe} instruments=${instruments.length} elapsedMs=${Date.now() - hydrateStartedAt} candleHit=${candleHit} candleMiss=${candleMiss} candleError=${candleError}`,
+    );
+    this.persistFrozenSnapshot(batch.batchId, snapshot);
+    return snapshot;
+  }
+
+  private async loadOrPrepareBatchDataSnapshot(
+    batch: IntelligenceBatch,
+  ): Promise<BatchDataSnapshot> {
+    const mem = this.dataSnapshots.get(batch.batchId);
+    if (
+      mem?.frozen &&
+      mem.universeId === batch.universe &&
+      mem.coverage?.readiness !== 'NOT_READY'
+    ) {
+      this.stampSnapshotMetadata(batch.batchId, mem);
+      return mem;
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const existing = readBatchDataSnapshot(batch.batchId);
+    if (
+      existing?.frozen &&
+      existing.universeId === batch.universe &&
+      existing.coverage?.readiness !== 'NOT_READY'
+    ) {
+      this.dataSnapshots.set(batch.batchId, existing);
+      this.stampSnapshotMetadata(batch.batchId, existing);
+      console.log(
+        `[intelligence-batch] ${batch.batchId} reusing frozen snapshot instruments=${existing.instruments.length}`,
+      );
+      return existing;
+    }
+    return this.prepareBatchDataSnapshot(batch);
+  }
+
+  private persistFrozenSnapshot(batchId: string, snapshot: BatchDataSnapshot): void {
+    this.dataSnapshots.set(batchId, snapshot);
     writeBatchDataSnapshot(snapshot);
+    this.stampSnapshotMetadata(batchId, snapshot);
+  }
+
+  private stampSnapshotMetadata(batchId: string, snapshot: BatchDataSnapshot): void {
+    const current = readIntelligenceBatch(batchId);
+    if (!current) return;
     writeIntelligenceBatch({
-      ...this.get(batch.batchId),
+      ...current,
       lifecycleStage: 'DATA_VALIDATED',
       dataSnapshotVersion: snapshot.dataSnapshotVersion,
-      dataReadiness: report.readiness,
-      dataReadinessReport: report,
+      dataReadiness: snapshot.coverage.readiness,
+      dataReadinessReport: snapshot.coverage,
       providerSelection: snapshot.provider,
+      capabilityCoverage: snapshot.capabilityCoverage,
+      identityCounts: snapshot.identityCounts,
+      snapshotProvider: snapshot.provider,
+      snapshotDataAsOf: snapshot.dataAsOf,
       updatedAt: Date.now(),
     });
-    return snapshot;
+  }
+
+  /** Persist hydrate row counts so the workstation Processed field moves during DATA_HYDRATING. */
+  private reportHydrateProgress(batchId: string, done: number, total: number): void {
+    const now = Date.now();
+    const last = this.hydrateProgressAt.get(batchId) ?? 0;
+    if (done < total && now - last < 2_000 && done % 50 !== 0) return;
+    this.hydrateProgressAt.set(batchId, now);
+    const current = readIntelligenceBatch(batchId);
+    if (!current) return;
+    const percent = total > 0 ? Math.min(99, Math.round((100 * done) / total)) : 0;
+    writeIntelligenceBatch({
+      ...current,
+      progress: {
+        processed: done,
+        pending: Math.max(0, total - done),
+        failed: current.progress?.failed ?? 0,
+        totalEligible: current.progress?.totalEligible ?? total,
+        total: current.progress?.total ?? total,
+        percent,
+        stages: current.progress?.stages ?? [],
+        diagnostics: current.progress?.diagnostics,
+      },
+      updatedAt: now,
+    });
+    if (done === 1 || done === total || done % 50 === 0) {
+      console.log(`[intelligence-batch] ${batchId} hydrate progress ${done}/${total}`);
+    }
   }
 
   private async processOneSymbol(
@@ -1206,8 +1395,11 @@ export class IntelligenceBatchService implements OnModuleInit {
     const failedCount = batch.tasks.filter((t) => t.status === 'FAILED').length;
     const generatedAt = Date.now();
     const cache = this.analysisCache.get(batch.batchId) ?? new Map<string, AgentAnalysis>();
-    const frozenSnapshot = readBatchDataSnapshot(batch.batchId);
+    const frozenSnapshot =
+      this.dataSnapshots.get(batch.batchId) ?? readBatchDataSnapshot(batch.batchId);
     const frozenBySymbol = frozenSnapshot ? instrumentDataBySymbol(frozenSnapshot) : new Map();
+    const useFrozen = Boolean(frozenSnapshot?.frozen);
+    this.agent.resetBatchMdsCircuit();
 
     writeIntelligenceBatch({
       ...this.get(batch.batchId),
@@ -1215,22 +1407,30 @@ export class IntelligenceBatchService implements OnModuleInit {
       updatedAt: generatedAt,
     });
 
-    // Ensure MDS prediction cache is refreshed before per-symbol ML fetch (usable-only).
-    try {
-      const refresh = await this.agent.refreshMlPredictionsForIntelligenceBatch();
+    // After freeze: no external/MDS provider HTTP. ML refresh is skipped.
+    if (!useFrozen) {
+      try {
+        const refresh = await this.agent.refreshMlPredictionsForIntelligenceBatch();
+        console.log(
+          `[intelligence-batch] ${batch.batchId} ML cache refresh loaded=${refresh.loaded} ` +
+            `bridgeUsable=${refresh.bridge?.usable ?? 0}/${refresh.bridge?.total ?? 0}`,
+        );
+      } catch (err) {
+        console.warn(
+          `[intelligence-batch] ${batch.batchId} ML cache refresh failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    } else {
       console.log(
-        `[intelligence-batch] ${batch.batchId} ML cache refresh loaded=${refresh.loaded} ` +
-          `bridgeUsable=${refresh.bridge?.usable ?? 0}/${refresh.bridge?.total ?? 0}`,
-      );
-    } catch (err) {
-      console.warn(
-        `[intelligence-batch] ${batch.batchId} ML cache refresh failed: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+        `[intelligence-batch] ${batch.batchId} frozen finalize: skipping MDS ML refresh postFreezeProviderRequestCount=0`,
       );
     }
 
-    const marketContextForRank = await this.agent.fetchTiMarketContextForIntelligenceBatch();
+    const marketContextForRank = await this.agent.fetchTiMarketContextForIntelligenceBatch(
+      useFrozen ? frozenSnapshot : undefined,
+    );
 
     const rankingCandidates: Array<{
       opportunityId: string;
@@ -1317,16 +1517,19 @@ export class IntelligenceBatchService implements OnModuleInit {
         quoteStatus = 'VALID';
       }
 
+      const frozenCtx = useFrozen ? { snapshot: frozenSnapshot, row: frozenRow, quote } : undefined;
       const [ti, catalyst, mlFetch, b9b17] = await Promise.all([
         this.agent.fetchTiInputsForIntelligenceBatch(
           task.symbol,
           analysis.setup?.expectedHoldingPeriod,
+          frozenCtx,
         ),
-        this.agent.fetchTiCatalystForIntelligenceBatch(task.symbol),
-        this.agent.fetchTiMlPredictionForIntelligenceBatch(task.symbol),
+        this.agent.fetchTiCatalystForIntelligenceBatch(task.symbol, frozenCtx),
+        this.agent.fetchTiMlPredictionForIntelligenceBatch(task.symbol, frozenCtx),
         this.agent.fetchB9B17AdvisoryForIntelligenceBatch(task.symbol, {
           sector: batch.sector ?? quote?.sector ?? null,
           globalEventType: batch.globalEventType ?? null,
+          frozenSnapshot: useFrozen ? frozenSnapshot : undefined,
         }),
       ]);
       const mlPrediction = mlFetch.prediction;
@@ -1637,6 +1840,27 @@ export class IntelligenceBatchService implements OnModuleInit {
           const adapter = instrument ? resolveAdapterFromInstrumentRef(instrument) : null;
           const temporal = adapter?.temporalContext(generatedAt);
           const series = adapter?.normalizeSeries([]);
+          const frozen = frozenBySymbol.get(symbol);
+          const eligibility = evaluateBatchRecommendationEligibility({
+            instrument: isValidSnapshotRow(frozen) ? frozen : undefined,
+            assetClass: instrument?.assetClass ?? frozen?.instrumentRef.assetClass,
+            dataCompleteness: r.dataCompleteness,
+          });
+          const rec = applyRecommendationEligibility({
+            recommendation: row?.recommendation,
+            reasonCode: row?.reasonCode,
+            reason: row?.reason,
+            eligibility,
+          });
+          const intelligenceContext = row?.intelligenceContext
+            ? {
+                ...row.intelligenceContext,
+                bestOpportunityEligible: rec.bestOpportunityEligible,
+                ...(rec.recommendationEligibilityReason
+                  ? { recommendationEligibilityReason: rec.recommendationEligibilityReason }
+                  : {}),
+              }
+            : row?.intelligenceContext;
           return {
             rank: r.rank,
             symbol,
@@ -1649,7 +1873,7 @@ export class IntelligenceBatchService implements OnModuleInit {
             dominance: r.dominance,
             stale: r.stale,
             dataCompleteness: r.dataCompleteness,
-            intelligenceContext: row?.intelligenceContext,
+            intelligenceContext,
             dataAsOf: row?.dataAsOf,
             rankingEngineVersion: opportunityRanking?.engineVersion,
             calculationVersion: opportunityRanking?.calculationVersion,
@@ -1663,9 +1887,9 @@ export class IntelligenceBatchService implements OnModuleInit {
             seriesProvenance: series?.seriesProvenance,
             membershipIdentity: row?.membershipIdentity,
             quarantined: false,
-            recommendation: row?.recommendation,
-            reasonCode: row?.reasonCode,
-            reason: row?.reason,
+            recommendation: rec.recommendation,
+            reasonCode: rec.reasonCode,
+            reason: rec.reason,
             multiAssetDataStatus:
               row?.intelligenceContext?.quoteStatus === 'MDS_UNAVAILABLE'
                 ? 'MISSING'
@@ -1709,7 +1933,9 @@ export class IntelligenceBatchService implements OnModuleInit {
           | Record<string, { leaders?: string[]; laggards?: string[] }>
           | undefined;
         try {
-          sectorLeadersBySector = await this.agent.fetchSectorLeadersSnapshotForIntelligenceBatch();
+          sectorLeadersBySector = useFrozen
+            ? undefined
+            : await this.agent.fetchSectorLeadersSnapshotForIntelligenceBatch();
         } catch {
           sectorLeadersBySector = undefined;
         }

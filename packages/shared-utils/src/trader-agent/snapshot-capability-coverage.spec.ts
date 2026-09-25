@@ -61,7 +61,7 @@ function snapshot(instruments: BatchInstrumentData[]): BatchDataSnapshot {
 }
 
 describe('snapshot-owned capability coverage', () => {
-  it('marks crypto-spot derivatives N/A with na and coveragePct null', () => {
+  it('marks crypto-spot derivatives UNAVAILABLE when no mapped perpetual overlay exists', () => {
     const coverage = buildSnapshotCapabilityCoverage(
       snapshot([
         {
@@ -79,15 +79,17 @@ describe('snapshot-owned capability coverage', () => {
       ]),
     );
     const derivatives = coverage.find((row) => row.capability === 'derivatives');
-    expect(derivatives?.status).toBe('N/A');
-    expect(derivatives?.na).toBeGreaterThan(0);
-    expect(derivatives?.eligible).toBe(0);
+    expect(derivatives?.status).toBe('UNAVAILABLE');
+    expect(derivatives?.na).toBe(0);
+    expect(derivatives?.eligible).toBe(1);
     expect(derivatives?.available).toBe(0);
-    expect(derivatives?.partial).toBe(0);
-    expect(derivatives?.unavailable).toBe(0);
-    expect(derivatives?.coveragePct).toBeNull();
-    expect(derivatives?.reason).toBe('SPOT_ASSET');
+    expect(derivatives?.coveragePct).toBe(0);
+    expect(derivatives?.reason).not.toBe('SPOT_ASSET');
     expect(coverage.some((row) => row.capability === 'paperTrading')).toBe(false);
+
+    const fundamentals = coverage.find((row) => row.capability === 'fundamentals');
+    expect(fundamentals?.status).not.toBe('N/A');
+    expect(fundamentals?.eligible).toBe(1);
   });
 
   it('computes applicable coveragePct from available+partial over eligible', () => {
@@ -203,7 +205,7 @@ describe('snapshot-owned capability coverage', () => {
             value: 5.33,
             asOf: 1,
             source: 'SOURCE_REPORTED',
-            provider: 'fred',
+            provider: 'fed',
           },
         ],
       },

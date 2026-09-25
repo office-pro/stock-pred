@@ -1,5 +1,7 @@
 # StockPred platform - full stack.
 #   Infra only:   docker compose up -d postgres redis kafka
+#   Kafka only (hybrid cloud DB/Redis):  npm run infra:dev-cloud
+#     → see docs/hybrid-dev-cloud.md
 #   Everything:   ./scripts/start-platform.sh   (or: docker compose --profile apps up -d --build)
 #
 # Internal DNS:  postgres:5432, redis:6379, kafka:9092
@@ -123,10 +125,16 @@ services:
       args: { APP: market-data-service }
     environment:
       <<: *node-env
+      # Phase 2: MDS-only Prisma pool headroom (shared Postgres budget — tune via env).
+      # Defaults are an experiment, not assumed safe for every deployment.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-stockpred}:${POSTGRES_PASSWORD:-stockpred}@postgres:5432/${POSTGRES_DB:-stockpred}?schema=public&connection_limit=${MDS_DB_CONNECTION_LIMIT:-20}&pool_timeout=${MDS_DB_POOL_TIMEOUT:-30}
       MARKET_DATA_SERVICE_PORT: '3002'
       MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-yahoo}
       QUOTE_REFRESH_INTERVAL_MS: ${QUOTE_REFRESH_INTERVAL_MS:-15000}
       TICK_INTERVAL_MS: ${TICK_INTERVAL_MS:-1000}
+      LIVE_QUOTE_WAIT_MS: '1500'
+      # Phase 4: optional pressure simulation for validation (0 = disabled).
+      MDS_DB_PRESSURE_SIMULATE_MS: ${MDS_DB_PRESSURE_SIMULATE_MS:-0}
     ports: ['3002:3002']
     volumes:
       - ./packages/database/data:/repo/packages/database/data

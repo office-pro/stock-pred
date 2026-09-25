@@ -1,10 +1,12 @@
 /**
  * Bounded Run Batch hydration. Fetch once, freeze BatchDataSnapshot, analyze many.
- * Workers must not call Binance / CoinGecko / EIA / Twelve Data after freeze.
+ * Workers must not call Binance / EIA / Twelve Data after freeze. CoinGecko HTTP is excluded.
  * Twelve Data is quotes + OHLCV + press_releases — never TD indicator APIs. No Alpha Vantage API key.
  * MCX/CME hydrate only from a validated JSON feed (never HTML scrape). FUTURES_ALL stays unsupported.
- * Commodities stay keyless Yahoo+EIA (TWELVE_DATA_REQUIRES_GROW).
+ * Commodities hydrate keyless Yahoo+EIA products (TWELVE_DATA_REQUIRES_GROW — no TD commodity endpoints).
  * Phase C evidence (SEC / GDELT / FinBERT / macro) attaches before freeze.
+ * F5 on-chain (DefiLlama chain TVL) attaches as snapshot evidence — never quote.price.
+ * F6 Reddit/social attaches as snapshot evidence — frozen aliases only, never volume BUY/SELL.
  */
 
 import { existsSync, readFileSync } from 'fs';
@@ -17,6 +19,7 @@ import type {
   BatchInstrumentData,
   BatchMacroSnapshot,
   BatchQuote,
+  BatchSharedData,
   FundamentalPayload,
   InstrumentRef,
   StockQuote,
@@ -33,7 +36,6 @@ import { computeBatchDataReadiness } from './batch-data-readiness';
 import {
   BATCH_FRESHNESS_POLICY_VERSION,
   BATCH_HYDRATE_CONCURRENCY,
-  COINGECKO_BATCH_SIZE,
   requiredCapabilitiesForUniverse,
   selectBatchProvider,
   universeForcesNotReady,
@@ -57,6 +59,7 @@ import {
   type EvidenceFetchJson,
   type HeadlineScorer,
 } from './batch-evidence-attach';
+import { overlayNseMdsEvidence, type NseMdsEvidenceInput } from './nse-mds-evidence';
 import {
   discoverApprovedFuturesFeed,
   futuresContractIdentity,
@@ -64,24 +67,45 @@ import {
   type ApprovedFuturesContract,
   type ApprovedFuturesFeedResult,
 } from './approved-futures-feed';
+import {
+  COMMODITY_FALLBACK_REASON,
+  COMMODITY_PROVIDER,
+  commodityProductIdentityError,
+  lookupCommodityKeylessSeries,
+} from './commodity-keyless-provider';
+import {
+  isCryptoOnchainAsset,
+  loadDefiLlamaChains,
+  onchainFromChainMap,
+  shouldAttachOnchain,
+} from './crypto-onchain-evidence';
+import {
+  isBitcoinNetworkRef,
+  loadDefiLlamaProtocols,
+  loadMempoolBtc,
+  networkProjectForRef,
+  type MempoolBtcSnapshot,
+} from './crypto-network-fundamentals';
+import {
+  loadRedditPosts,
+  shouldAttachSocial,
+  socialFromPosts,
+  unavailableSocial,
+  SOCIAL_SCRAPE_FORBIDDEN,
+} from './reddit-social-evidence';
+import {
+  BatchFetchCoordinator,
+  BATCH_HOT_PATH_TIMEOUT_MS,
+  deepFreeze,
+} from './batch-fetch-coordinator';
+
+export { COMMODITY_KEYLESS_MAP } from './commodity-keyless-provider';
 
 const BINANCE_SPOT = 'https://api.binance.com';
 const BINANCE_FUTURES = 'https://fapi.binance.com';
-const COINGECKO = 'https://api.coingecko.com/api/v3';
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
-
-export const COMMODITY_KEYLESS_MAP: Record<string, { yahoo?: string; eiaSeriesId?: string }> = {
-  WTI: { yahoo: 'CL=F', eiaSeriesId: 'PET.RWTC.D' },
-  BRENT: { yahoo: 'BZ=F', eiaSeriesId: 'PET.RBRTE.D' },
-  NG: { yahoo: 'NG=F', eiaSeriesId: 'NG.RNGWHHD.D' },
-  NATURAL_GAS: { yahoo: 'NG=F', eiaSeriesId: 'NG.RNGWHHD.D' },
-  COPPER: { yahoo: 'HG=F' },
-  WHEAT: { yahoo: 'ZW=F' },
-  CORN: { yahoo: 'ZC=F' },
-  COTTON: { yahoo: 'CT=F' },
-  SUGAR: { yahoo: 'SB=F' },
-  COFFEE: { yahoo: 'KC=F' },
-};
+/** Absolute lastFundingRate at or above this is ENGINE_DERIVED fundingExtreme. */
+const FUNDING_EXTREME_ABS = 0.0005;
 
 export interface BatchHydrateFetch {
   (url: string): Promise<unknown>;
@@ -106,6 +130,22 @@ export interface BatchHydrateDeps {
   approvedFuturesFeedBody?: string;
   fetchText?: (url: string) => Promise<string>;
   env?: NodeJS.ProcessEnv;
+  skipOnchain?: boolean;
+  onchainBody?: string;
+  onchainFetchJson?: (url: string) => Promise<unknown>;
+  skipNetwork?: boolean;
+  networkProtocolsBody?: string;
+  networkFetchJson?: (url: string) => Promise<unknown>;
+  mempoolSnapshot?: MempoolBtcSnapshot | null;
+  skipSocial?: boolean;
+  socialBody?: string;
+  socialFetchJson?: (url: string) => Promise<unknown>;
+  /** Called as hydrate/evidence rows finish. UI progress only — not readiness math. */
+  onHydrateProgress?: (done: number, total: number) => void;
+  coordinator?: BatchFetchCoordinator;
+  shared?: BatchSharedData;
+  /** Preloaded MDS panels. Omitted = no overlay. Present even when empty = overlay + reasons. */
+  nseMdsEvidence?: NseMdsEvidenceInput;
 }
 
 export interface HydrateBatchInput {
@@ -128,11 +168,27 @@ function positive(v: unknown): number | undefined {
 }
 
 async function defaultFetchJson(url: string): Promise<unknown> {
-  const res = await fetch(url, {
-    headers: { Accept: 'application/json', 'User-Agent': 'stockpred-batch-hydrate/1.0' },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  if (/coingecko\.com/i.test(url)) throw new Error('COINGECKO_EXCLUDED');
+  const once = async (): Promise<unknown> => {
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'stockpred-batch-hydrate/1.0' },
+      signal: AbortSignal.timeout(BATCH_HOT_PATH_TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  };
+  try {
+    return await once();
+  } catch {
+    return await once();
+  }
+}
+
+function wrapExternalFetch(
+  coordinator: BatchFetchCoordinator,
+  fetchJson: BatchHydrateFetch,
+): BatchHydrateFetch {
+  return (url: string) => coordinator.resolve(`http:${url}`, () => fetchJson(url), 'external');
 }
 
 function indexBySymbol<T extends { symbol?: string }>(rows: T[] | undefined): Map<string, T> {
@@ -222,7 +278,7 @@ function parseEiaBulk(raw: unknown): Array<{ t: number; v: number }> {
     if (!Array.isArray(row) || row.length < 2) continue;
     const rawT = row[0];
     const v = asNum(row[1]);
-    if (v == null) continue;
+    if (v == null || v <= 0) continue;
     const t =
       typeof rawT === 'number'
         ? rawT
@@ -241,7 +297,7 @@ function loadEiaSeries(
   seriesId: string,
   deps: BatchHydrateDeps,
 ): Array<{ t: number; v: number }> | undefined {
-  const injected = deps.eiaSeries?.[seriesId];
+  const injected = deps.eiaSeries?.[seriesId]?.filter((row) => row.v > 0);
   if (injected?.length) return injected;
   const dir = deps.eiaBulkDir;
   if (!dir) return undefined;
@@ -265,6 +321,9 @@ function quoteFromStock(q: StockQuote | null | undefined): BatchQuote | undefine
     dayHigh: asNum(q.dayHigh),
     dayLow: asNum(q.dayLow),
     previousClose: asNum(q.previousClose),
+    relativeStrengthNifty50:
+      typeof q.relativeStrengthNifty50 === 'number' ? q.relativeStrengthNifty50 : null,
+    sector: typeof q.sector === 'string' && q.sector ? q.sector : undefined,
   };
 }
 
@@ -274,10 +333,50 @@ function listingSymbol(ref: InstrumentRef): string {
     .toUpperCase();
 }
 
-function identityKey(ref: InstrumentRef): string {
-  return String(ref.providerAssetId || ref.canonicalSymbol || ref.symbol)
-    .trim()
-    .toUpperCase();
+function perpSourceInstrument(listing: string): string {
+  return `BINANCE_FUTURES:${listing}`;
+}
+
+function derivativesFromPremium(
+  listing: string,
+  prem: Record<string, unknown> | undefined,
+  extras?: { openInterest?: number },
+): BatchDerivatives | undefined {
+  if (!prem && extras?.openInterest == null) return undefined;
+  const markPrice = positive(prem?.markPrice);
+  const indexPrice = positive(prem?.indexPrice);
+  const lastFundingRate = asNum(prem?.lastFundingRate);
+  const openInterest = extras?.openInterest;
+  if (markPrice == null && indexPrice == null && lastFundingRate == null && openInterest == null) {
+    return undefined;
+  }
+  const missing: string[] = [];
+  if (markPrice == null) missing.push('markPrice');
+  if (indexPrice == null) missing.push('indexPrice');
+  if (openInterest == null) missing.push('openInterest');
+  if (lastFundingRate == null) missing.push('fundingRate');
+  const derivatives: BatchDerivatives = {
+    source: 'SOURCE_REPORTED',
+    sourceInstrument: perpSourceInstrument(listing),
+    contractType: 'PERPETUAL',
+    ...(markPrice != null ? { markPrice } : {}),
+    ...(indexPrice != null ? { indexPrice } : {}),
+    ...(openInterest != null ? { openInterest } : {}),
+    ...(lastFundingRate != null ? { lastFundingRate } : {}),
+    ...(missing.length ? { missing } : {}),
+  };
+  if (markPrice != null && indexPrice != null) {
+    derivatives.basis = markPrice - indexPrice;
+    derivatives.source = 'ENGINE_DERIVED';
+    const rel = Math.abs(derivatives.basis) / indexPrice;
+    if (rel >= 0.002) derivatives.basisExpansion = true;
+    else if (rel <= 0.0002) derivatives.basisCompression = true;
+  }
+  if (lastFundingRate != null && Math.abs(lastFundingRate) >= FUNDING_EXTREME_ABS) {
+    derivatives.fundingExtreme = true;
+    derivatives.source = 'ENGINE_DERIVED';
+  }
+  return derivatives;
 }
 
 function unavailable(
@@ -342,25 +441,18 @@ async function hydrateCryptoFutures(
       : undefined;
     const funding = lastFundingRate ?? fundingFromHist;
     const candles = parseKlines(klinesRaw);
-    const missing: string[] = [];
-    if (markPrice == null) missing.push('markPrice');
-    if (indexPrice == null) missing.push('indexPrice');
-    if (openInterest == null) missing.push('openInterest');
-    if (funding == null) missing.push('fundingRate');
-    if (!candles.length) missing.push('ohlcv');
-
-    const derivatives: BatchDerivatives = {
-      source: 'SOURCE_REPORTED',
-      ...(markPrice != null ? { markPrice } : {}),
-      ...(indexPrice != null ? { indexPrice } : {}),
-      ...(openInterest != null ? { openInterest } : {}),
+    const premWithFunding = {
+      ...(prem ?? {}),
       ...(funding != null ? { lastFundingRate: funding } : {}),
-      ...(missing.length ? { missing } : {}),
     };
-    if (markPrice != null && indexPrice != null) {
-      derivatives.basis = markPrice - indexPrice;
-      derivatives.source = 'ENGINE_DERIVED';
-    }
+    const derivatives =
+      derivativesFromPremium(id, premWithFunding, { openInterest }) ??
+      ({
+        source: 'SOURCE_REPORTED',
+        sourceInstrument: perpSourceInstrument(id),
+        contractType: 'PERPETUAL',
+        missing: ['markPrice', 'indexPrice', 'openInterest', 'fundingRate'],
+      } satisfies BatchDerivatives);
 
     const quote: BatchQuote | undefined = price
       ? {
@@ -376,15 +468,13 @@ async function hydrateCryptoFutures(
         }
       : undefined;
 
+    const missing = derivatives.missing ?? [];
     let dataStatus: BatchInstrumentData['dataStatus'] = 'AVAILABLE';
     let reasonCode: string | undefined;
     if (!quote) {
       dataStatus = 'UNAVAILABLE';
       reasonCode = 'NO_PROVIDER_DATA';
-    } else if (openInterest == null) {
-      dataStatus = 'PARTIAL';
-      reasonCode = 'MISSING_INPUT';
-    } else if (missing.length) {
+    } else if (openInterest == null || missing.length) {
       dataStatus = 'PARTIAL';
       reasonCode = 'MISSING_INPUT';
     }
@@ -419,13 +509,23 @@ async function hydrateCryptoSpotBinance(
   concurrency: number,
   now: number,
 ): Promise<BatchInstrumentData[]> {
-  const tickers = await fetchJson(`${BINANCE_SPOT}/api/v3/ticker/24hr`).catch(() => []);
+  const [tickers, premium] = await Promise.all([
+    fetchJson(`${BINANCE_SPOT}/api/v3/ticker/24hr`).catch(() => []),
+    fetchJson(`${BINANCE_FUTURES}/fapi/v1/premiumIndex`).catch(() => []),
+  ]);
   const tickerMap = indexBySymbol(
     Array.isArray(tickers) ? (tickers as Array<{ symbol?: string }>) : [],
   );
+  const premiumMap = indexBySymbol(
+    Array.isArray(premium) ? (premium as Array<{ symbol?: string }>) : [],
+  );
   return mapPool(instruments, concurrency, async (ref) => {
     if (String(ref.venue ?? '').toUpperCase() === 'COINGECKO') {
-      return unavailable(ref, 'PROVIDER_MISMATCH', 'Binance never filled from CoinGecko');
+      return unavailable(
+        ref,
+        'PROVIDER_MISMATCH',
+        'CoinGecko HTTP is excluded from CRYPTO_* hydrate',
+      );
     }
     const id = listingSymbol(ref);
     const ticker = tickerMap.get(id) as Record<string, unknown> | undefined;
@@ -436,6 +536,15 @@ async function hydrateCryptoSpotBinance(
       ).catch(() => null),
     );
     if (!price) return unavailable(ref, 'NO_PROVIDER_DATA', 'Not in Binance ticker universe');
+    const prem = premiumMap.get(id) as Record<string, unknown> | undefined;
+    let derivatives: BatchDerivatives | undefined;
+    if (prem) {
+      const oiRaw = await fetchJson(
+        `${BINANCE_FUTURES}/fapi/v1/openInterest?symbol=${encodeURIComponent(id)}`,
+      ).catch(() => null);
+      const openInterest = positive((oiRaw as { openInterest?: unknown } | null)?.openInterest);
+      derivatives = derivativesFromPremium(id, prem, { openInterest });
+    }
     return {
       instrumentRef: ref,
       quote: {
@@ -448,6 +557,7 @@ async function hydrateCryptoSpotBinance(
         previousClose: asNum(ticker?.prevClosePrice),
       },
       ...(candles.length ? { candles } : {}),
+      ...(derivatives ? { derivatives } : {}),
       dataStatus: candles.length ? 'AVAILABLE' : 'PARTIAL',
       dataAsOf: now,
       dataAgeMs: 0,
@@ -464,51 +574,6 @@ async function hydrateCryptoSpotBinance(
   });
 }
 
-async function hydrateCryptoSpotCoinGecko(
-  instruments: InstrumentRef[],
-  fetchJson: BatchHydrateFetch,
-  now: number,
-): Promise<BatchInstrumentData[]> {
-  const ids = instruments.map((ref) => String(ref.providerAssetId || ref.symbol).toLowerCase());
-  const prices = new Map<string, Record<string, number>>();
-  for (let i = 0; i < ids.length; i += COINGECKO_BATCH_SIZE) {
-    const chunk = ids.slice(i, i + COINGECKO_BATCH_SIZE);
-    const raw = (await fetchJson(
-      `${COINGECKO}/simple/price?ids=${encodeURIComponent(chunk.join(','))}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true`,
-    ).catch(() => ({}))) as Record<string, Record<string, number>>;
-    for (const [id, row] of Object.entries(raw ?? {})) prices.set(id.toLowerCase(), row);
-  }
-  return instruments.map((ref) => {
-    if (String(ref.venue ?? '').toUpperCase() === 'BINANCE') {
-      return unavailable(ref, 'PROVIDER_MISMATCH', 'CoinGecko never filled from Binance identity');
-    }
-    const id = String(ref.providerAssetId || ref.symbol).toLowerCase();
-    const row = prices.get(id);
-    const price = positive(row?.usd);
-    if (!price) return unavailable(ref, 'NO_PROVIDER_DATA', 'CoinGecko id not in batched price');
-    return {
-      instrumentRef: ref,
-      quote: {
-        price,
-        changePercent: asNum(row?.usd_24h_change),
-        volume: asNum(row?.usd_24h_vol),
-      },
-      dataStatus: 'PARTIAL',
-      dataAsOf: now,
-      dataAgeMs: 0,
-      provider: 'coingecko',
-      source: 'coingecko-batched',
-      seriesProvenance: {
-        seriesType: 'SPOT',
-        source: 'coingecko',
-        provider: 'coingecko',
-        dataAsOf: now,
-      },
-      reasonCode: 'OHLCV_NOT_IN_SIMPLE_PRICE',
-    };
-  });
-}
-
 async function hydrateCommodity(
   instruments: InstrumentRef[],
   fetchJson: BatchHydrateFetch,
@@ -517,7 +582,11 @@ async function hydrateCommodity(
   now: number,
 ): Promise<BatchInstrumentData[]> {
   return mapPool(instruments, concurrency, async (ref) => {
-    const map = COMMODITY_KEYLESS_MAP[identityKey(ref)];
+    const identityError = commodityProductIdentityError(ref);
+    if (identityError) {
+      return unavailable(ref, 'IDENTITY_MISMATCH', identityError);
+    }
+    const map = lookupCommodityKeylessSeries(ref);
     if (!map?.yahoo && !map?.eiaSeriesId) {
       return unavailable(ref, 'NO_PROVIDER_DATA', 'No keyless series for this commodity product');
     }
@@ -525,17 +594,15 @@ async function hydrateCommodity(
     let candles: BatchCandle[] = [];
     if (map.yahoo) {
       const parsed = parseYahooChart(
-        await fetchJson(
-          `${YAHOO_CHART}/${encodeURIComponent(map.yahoo)}?interval=1d&range=6mo`,
-        ).catch(() => null),
+        await fetchJson(`${YAHOO_CHART}/${map.yahoo}?interval=1d&range=6mo`).catch(() => null),
       );
       quote = parsed.quote;
       candles = parsed.candles;
     }
     const eia = map.eiaSeriesId ? loadEiaSeries(map.eiaSeriesId, deps) : undefined;
-    const lastEia = eia?.[eia.length - 1];
+    const lastEia = eia?.filter((row) => row.v > 0).at(-1);
     let fundamentals: FundamentalPayload | undefined;
-    if (lastEia) {
+    if (lastEia && map.eiaSeriesId) {
       fundamentals = sanitizeFundamentalPayload(ref.assetClass, {
         kind: 'COMMODITY_ECONOMICS',
         asOf: lastEia.t,
@@ -543,33 +610,42 @@ async function hydrateCommodity(
       });
       if (!quote) {
         quote = { price: lastEia.v };
-        candles = eia!.map((row) => ({
-          time: row.t,
-          open: row.v,
-          high: row.v,
-          low: row.v,
-          close: row.v,
-        }));
+        candles = eia!
+          .filter((row) => row.v > 0)
+          .map((row) => ({
+            time: row.t,
+            open: row.v,
+            high: row.v,
+            low: row.v,
+            close: row.v,
+          }));
       }
     }
-    if (!quote) {
+    if (!quote || !positive(quote.price)) {
       return unavailable(ref, 'NO_PROVIDER_DATA', 'Keyless commodity fetch returned no price');
     }
     return {
-      instrumentRef: ref,
+      instrumentRef: {
+        ...ref,
+        assetClass: 'COMMODITY',
+        contractType: 'PRODUCT',
+        underlying: ref.underlying ?? ref.symbol,
+      },
       quote,
       ...(candles.length ? { candles } : {}),
       ...(fundamentals ? { fundamentals } : {}),
       dataStatus: 'AVAILABLE',
       dataAsOf: now,
       dataAgeMs: 0,
-      provider: 'keyless-commodity+eia-bulk',
+      provider: COMMODITY_PROVIDER,
       source: map.eiaSeriesId && lastEia ? 'yahoo+eia-bulk' : 'yahoo-keyless',
       seriesProvenance: {
         seriesType: 'SPOT',
         source: 'keyless-commodity',
-        provider: 'keyless-commodity+eia-bulk',
+        provider: COMMODITY_PROVIDER,
         dataAsOf: now,
+        fallbackUsed: true,
+        providerSelectionReason: COMMODITY_FALLBACK_REASON,
       },
     };
   });
@@ -581,29 +657,36 @@ async function hydrateNse(
   concurrency: number,
   now: number,
 ): Promise<BatchInstrumentData[]> {
+  let done = 0;
+  const total = instruments.length;
   return mapPool(instruments, concurrency, async (ref) => {
-    const q = await deps.fetchNseQuote?.(ref.symbol);
-    const quote = quoteFromStock(q);
-    const candles = (await deps.fetchNseCandles?.(ref.symbol)) ?? [];
-    if (!quote) {
-      return unavailable(ref, 'NO_PROVIDER_DATA', 'MDS quote missing at hydrate time');
-    }
-    return {
-      instrumentRef: ref,
-      quote,
-      ...(candles.length ? { candles } : {}),
-      dataStatus: candles.length ? 'AVAILABLE' : 'PARTIAL',
-      dataAsOf: q?.updatedAt ?? now,
-      dataAgeMs: Math.max(0, now - (q?.updatedAt ?? now)),
-      provider: 'mds',
-      source: 'mds-hydrate-copy',
-      seriesProvenance: {
-        seriesType: 'EQUITY_CASH',
-        source: 'mds',
-        provider: 'mds',
+    try {
+      const q = await deps.fetchNseQuote?.(ref.symbol);
+      const quote = quoteFromStock(q);
+      const candles = (await deps.fetchNseCandles?.(ref.symbol)) ?? [];
+      if (!quote) {
+        return unavailable(ref, 'NO_PROVIDER_DATA', 'MDS quote missing at hydrate time');
+      }
+      return {
+        instrumentRef: ref,
+        quote,
+        ...(candles.length ? { candles } : {}),
+        dataStatus: candles.length ? 'AVAILABLE' : 'PARTIAL',
         dataAsOf: q?.updatedAt ?? now,
-      },
-    };
+        dataAgeMs: Math.max(0, now - (q?.updatedAt ?? now)),
+        provider: 'mds',
+        source: 'mds-hydrate-copy',
+        seriesProvenance: {
+          seriesType: 'EQUITY_CASH',
+          source: 'mds',
+          provider: 'mds',
+          dataAsOf: q?.updatedAt ?? now,
+        },
+      };
+    } finally {
+      done += 1;
+      deps.onHydrateProgress?.(done, total);
+    }
   });
 }
 
@@ -763,7 +846,10 @@ export async function hydrateBatchDataSnapshot(
 ): Promise<{ snapshot: BatchDataSnapshot; report: ReturnType<typeof computeBatchDataReadiness> }> {
   const now = input.deps?.now?.() ?? Date.now();
   const deps = input.deps ?? {};
-  const fetchJson = deps.fetchJson ?? defaultFetchJson;
+  const wallStart = Date.now();
+  const coordinator = deps.coordinator ?? new BatchFetchCoordinator();
+  const rawFetch = deps.fetchJson ?? defaultFetchJson;
+  const fetchJson = wrapExternalFetch(coordinator, rawFetch);
   const concurrency = Math.max(1, deps.concurrency ?? BATCH_HYDRATE_CONCURRENCY);
   const eligible = input.eligible ?? input.instruments.length;
   const discovered = await discoverApprovedFuturesFeed(input.universeId, {
@@ -805,7 +891,11 @@ export async function hydrateBatchDataSnapshot(
   } else if (selection.provider === 'binance-spot') {
     rows = await hydrateCryptoSpotBinance(input.instruments, fetchJson, concurrency, now);
   } else if (selection.provider === 'coingecko') {
-    rows = await hydrateCryptoSpotCoinGecko(input.instruments, fetchJson, now);
+    rows = hydrateGated(
+      input.instruments,
+      'PROVIDER_MISMATCH',
+      'CoinGecko HTTP is excluded from CRYPTO_* hydrate',
+    );
   } else if (selection.provider === 'keyless-commodity+eia-bulk') {
     rows = await hydrateCommodity(input.instruments, fetchJson, deps, concurrency, now);
   } else if (selection.provider === 'twelve-data') {
@@ -830,15 +920,23 @@ export async function hydrateBatchDataSnapshot(
   }
 
   let macro: BatchMacroSnapshot | undefined;
-  const skipFuturesEvidence =
+  const skipNonEquityEvidence =
     isApprovedFuturesUniverse(input.universeId) ||
-    String(input.universeId ?? '').toUpperCase() === 'FUTURES_ALL';
-  if (rows.length > 0 && !skipFuturesEvidence && shouldAttachPhaseCEvidence(deps)) {
+    String(input.universeId ?? '').toUpperCase() === 'FUTURES_ALL' ||
+    String(input.universeId ?? '').toUpperCase() === 'COMMODITY_ALL' ||
+    String(input.universeId ?? '').toUpperCase() === 'COMMODITIES_CUSTOM';
+  if (rows.length > 0 && !skipNonEquityEvidence && shouldAttachPhaseCEvidence(deps)) {
     const evidenceFetch =
       deps.evidenceFetchJson ?? (!deps.fetchJson ? defaultEvidenceFetchJson : undefined);
+    const wrappedEvidence = evidenceFetch
+      ? wrapExternalFetch(coordinator, evidenceFetch)
+      : undefined;
+    console.log(
+      `[batch-hydrate] ${input.batchId} attaching evidence rows=${rows.length} universe=${input.universeId}`,
+    );
     const attached = await attachBatchEvidence(rows, {
       twelveDataClient: tdClient,
-      evidenceFetchJson: evidenceFetch,
+      evidenceFetchJson: wrappedEvidence,
       scoreHeadline: deps.scoreHeadline,
       macroSnapshot: deps.macroSnapshot,
       concurrency,
@@ -846,10 +944,95 @@ export async function hydrateBatchDataSnapshot(
     });
     rows = attached.rows;
     macro = attached.macro;
+    console.log(
+      `[batch-hydrate] ${input.batchId} evidence attached universe=${input.universeId} macro=${macro ? 'yes' : 'no'}`,
+    );
+  }
+  if (deps.nseMdsEvidence) {
+    rows = overlayNseMdsEvidence(rows, deps.nseMdsEvidence);
+    const fundamentalsHit = rows.filter(
+      (row) => row.fundamentals?.kind === 'EQUITY_STATEMENTS',
+    ).length;
+    const newsHit = rows.filter((row) => (row.news?.headlineCount ?? 0) > 0).length;
+    console.log(
+      `[batch-hydrate] ${input.batchId} nseMdsOverlay fundamentalsHit=${fundamentalsHit} newsHit=${newsHit}` +
+        `${deps.nseMdsEvidence.fundamentalsUnavailableReason ? ` fundamentalsUnavailableReason=${deps.nseMdsEvidence.fundamentalsUnavailableReason}` : ''}` +
+        `${deps.nseMdsEvidence.newsUnavailableReason ? ` newsUnavailableReason=${deps.nseMdsEvidence.newsUnavailableReason}` : ''}`,
+    );
   }
   if (tdClient) tdClient.freeze();
 
   rows = attachLocalTechnicals(rows);
+
+  const cryptoRows = rows.some((row) => isCryptoOnchainAsset(row.instrumentRef));
+  let llamaChains: Map<string, { tvlUsd: number; chain: string }> | undefined;
+  if (cryptoRows && shouldAttachOnchain(deps)) {
+    const chains = await loadDefiLlamaChains({
+      onchainBody: deps.onchainBody,
+      onchainFetchJson: deps.onchainFetchJson,
+    });
+    llamaChains = chains;
+    rows = rows.map((row) =>
+      isCryptoOnchainAsset(row.instrumentRef)
+        ? { ...row, onchain: onchainFromChainMap(row.instrumentRef, chains, now) }
+        : row,
+    );
+  }
+
+  const attachNetwork =
+    cryptoRows &&
+    !deps.skipNetwork &&
+    (shouldAttachOnchain(deps) ||
+      deps.networkProtocolsBody != null ||
+      Boolean(deps.networkFetchJson) ||
+      deps.mempoolSnapshot !== undefined);
+  if (attachNetwork) {
+    const networkFetch = deps.networkFetchJson ?? (!deps.fetchJson ? defaultFetchJson : undefined);
+    const needsMempool = rows.some(
+      (row) => isCryptoOnchainAsset(row.instrumentRef) && isBitcoinNetworkRef(row.instrumentRef),
+    );
+    const mempool =
+      deps.mempoolSnapshot !== undefined
+        ? deps.mempoolSnapshot
+        : needsMempool && networkFetch
+          ? await loadMempoolBtc({ fetchJson: networkFetch, now })
+          : null;
+    const protocols =
+      deps.networkProtocolsBody != null || networkFetch
+        ? await loadDefiLlamaProtocols({
+            body: deps.networkProtocolsBody,
+            fetchJson: networkFetch,
+          })
+        : new Map();
+    const chains = llamaChains ?? new Map();
+    rows = rows.map((row) => {
+      if (!isCryptoOnchainAsset(row.instrumentRef)) return row;
+      return {
+        ...row,
+        fundamentals: sanitizeFundamentalPayload(
+          row.instrumentRef.assetClass,
+          networkProjectForRef(row.instrumentRef, { mempool, chains, protocols, now }),
+        ),
+      };
+    });
+  }
+
+  if (cryptoRows && shouldAttachSocial(deps)) {
+    const loaded = await loadRedditPosts({
+      socialBody: deps.socialBody,
+      socialFetchJson: deps.socialFetchJson,
+    });
+    rows = await mapPool(rows, concurrency, async (row) =>
+      isCryptoOnchainAsset(row.instrumentRef)
+        ? {
+            ...row,
+            social: loaded.scrapeForbidden
+              ? unavailableSocial(SOCIAL_SCRAPE_FORBIDDEN, now)
+              : await socialFromPosts(row.instrumentRef, loaded.posts, deps.scoreHeadline, now),
+          }
+        : row,
+    );
+  }
 
   const extraReasons = forced ? [forced] : [];
   if (selection.provider === 'none' && !forced) extraReasons.push(selection.reason);
@@ -860,6 +1043,17 @@ export async function hydrateBatchDataSnapshot(
     minRequiredCoveragePct: deps.minCoveragePct ?? BATCH_MIN_REQUIRED_COVERAGE_PCT,
     extraReasons,
   });
+
+  const shared: BatchSharedData = deepFreeze({
+    ...(deps.shared ?? {}),
+    ...(macro ? { macro } : {}),
+    ...(discovered?.session
+      ? {
+          marketReference: { ...(deps.shared?.marketReference ?? {}), session: discovered.session },
+        }
+      : {}),
+  });
+  coordinator.freeze();
 
   const snapshot: BatchDataSnapshot = annotateSnapshotIdentities({
     schemaVersion: BATCH_DATA_SNAPSHOT_VERSION,
@@ -877,6 +1071,12 @@ export async function hydrateBatchDataSnapshot(
     frozen: true,
     ...(macro ? { macro } : {}),
     ...(discovered?.session ? { marketSession: discovered.session } : {}),
+    shared,
+    performance: {
+      ...coordinator.metrics(),
+      totalTimeMs: Date.now() - wallStart,
+      postFreezeProviderRequestCount: 0,
+    },
   });
   snapshot.capabilityCoverage = buildSnapshotCapabilityCoverage(snapshot);
   return { snapshot, report };
@@ -917,7 +1117,7 @@ export function batchInstrumentToStockQuote(row: BatchInstrumentData): StockQuot
     name: row.instrumentRef.symbol,
     exchange: stockQuoteExchangeFromRef(row.instrumentRef),
     venue,
-    sector: '',
+    sector: row.quote.sector ?? '',
     indices: [],
     price,
     change: row.quote.change ?? 0,
@@ -956,6 +1156,7 @@ export function batchInstrumentToStockQuote(row: BatchInstrumentData): StockQuot
     confidence: 0,
     expectedMove: 0,
     modelVersion: null,
+    relativeStrengthNifty50: row.quote.relativeStrengthNifty50 ?? null,
     updatedAt,
     freshnessStatus: 'LIVE',
     liveUsable: true,

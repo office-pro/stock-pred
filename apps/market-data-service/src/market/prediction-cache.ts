@@ -7,6 +7,11 @@ import {
   type MlDriftStatus,
   type MlFreshnessStatus,
 } from '@stockpred/shared-types';
+import {
+  EngineRefreshGuard,
+  ML_ENGINE_REQUEST_TIMEOUT_MS,
+  classifyEngineFailureType,
+} from './engine-refresh-guard';
 
 export interface CachedMlPrediction {
   symbol: string;
@@ -115,6 +120,7 @@ function countLoadStats(rows: CachedMlPrediction[], now: Date = new Date()) {
 
 export class PredictionCache {
   private readonly byHorizon = new Map<string, HorizonMap>();
+  private readonly refreshGuard = new EngineRefreshGuard();
 
   get(symbol: string, horizon: string): CachedMlPrediction | undefined {
     const row = this.byHorizon.get(horizon)?.get(symbol);
@@ -228,22 +234,64 @@ export class PredictionCache {
   }
 
   async refresh(): Promise<number> {
-    console.log(`[ML-CACHE][REFRESH][START] source=engine_then_file`);
+    const gate = this.refreshGuard.tryBegin();
+    if (!gate.ok) {
+      console.log(
+        `[ML-CACHE] refresh_skipped reason=${gate.reason}` +
+          (gate.reason === 'COOLDOWN' ? ` remaining_ms=${gate.remainingMs}` : ''),
+      );
+      return this.size();
+    }
+
+    const started = Date.now();
+    console.log(
+      `[ML-CACHE] refresh_start source=engine_then_file timeout_ms=${ML_ENGINE_REQUEST_TIMEOUT_MS}`,
+    );
     try {
-      const fromApi = await this.loadFromEngine();
-      if (fromApi > 0) {
+      let engineFailed = false;
+      let fromApi = 0;
+      try {
+        fromApi = await this.loadFromEngine();
+      } catch (error) {
+        engineFailed = true;
+        const failureType = classifyEngineFailureType(error);
+        const { cooldownUntilMs } = this.refreshGuard.markFailure();
+        console.warn(
+          `[ML-CACHE] refresh_failed failure_type=${failureType} duration_ms=${Date.now() - started} ` +
+            `cooldown_until=${new Date(cooldownUntilMs).toISOString()} error=${(error as Error).message}`,
+        );
+      }
+
+      if (!engineFailed && fromApi > 0) {
         const bridge = this.summarizeTiBridge();
         console.log(`[ML-CACHE][REFRESH] engine_loaded=${fromApi} usable=${bridge.usable}`);
-        // Prefer file when engine/DB rows are present but none are usable (e.g. missing expiresAt).
-        if (bridge.usable > 0) return fromApi;
+        if (bridge.usable > 0) {
+          console.log(
+            `[ML-CACHE] refresh_success source=engine loaded=${fromApi} duration_ms=${Date.now() - started}`,
+          );
+          return fromApi;
+        }
         console.log(`[ML-CACHE][REFRESH] engine_unusable falling_back=file`);
-      } else {
+      } else if (!engineFailed) {
         console.log(`[ML-CACHE][REFRESH] engine=0 falling_back=file`);
+      } else {
+        console.log(`[ML-CACHE][REFRESH] engine_failed falling_back=file_or_cache`);
       }
-      return this.loadFromFile();
+
+      const fromFile = this.loadFromFile();
+      console.log(
+        `[ML-CACHE] refresh_success source=file loaded=${fromFile} duration_ms=${Date.now() - started}` +
+          (engineFailed ? ' after_engine_failure=true' : ''),
+      );
+      return fromFile;
     } catch (error) {
-      console.warn(`[ML-CACHE][REFRESH] failed: ${(error as Error).message}`);
-      return 0;
+      console.warn(
+        `[ML-CACHE] refresh_failed failure_type=ERROR duration_ms=${Date.now() - started} ` +
+          `error=${(error as Error).message}`,
+      );
+      return this.size();
+    } finally {
+      this.refreshGuard.end();
     }
   }
 
@@ -270,35 +318,28 @@ export class PredictionCache {
     return rows.length;
   }
 
+  /** Throws on transport/timeout so callers can enter cooldown. Empty payload is not a failure. */
   private async loadFromEngine(): Promise<number> {
     const base = getEnv('ML_ENGINE_URL', 'http://localhost:8000');
-    try {
-      const [day, week] = await Promise.all([
-        axios.get<{ predictions: CachedMlPrediction[] }>(`${base}/predictions/all`, {
-          params: { limit: 5000, page: 1, horizon: PredictionHorizon.NEXT_DAY },
-          timeout: 8000,
-        }),
-        axios.get<{ predictions: CachedMlPrediction[] }>(`${base}/predictions/all`, {
-          params: { limit: 5000, page: 1, horizon: PredictionHorizon.NEXT_WEEK },
-          timeout: 8000,
-        }),
-      ]);
-      const rows = [...(day.data.predictions ?? []), ...(week.data.predictions ?? [])];
-      const stats = countLoadStats(rows);
-      console.log(
-        `[ML-CACHE][LOAD] file=engine:/predictions/all fileExists=true records=${rows.length} ` +
-          `valid=${stats.valid} invalid=${stats.invalid} missingModelVersion=${stats.missingModelVersion} ` +
-          `missingFeatureVersion=${stats.missingFeatureVersion} expired=${stats.expired}`,
-      );
-      if (rows.length === 0) return 0;
-      return this.ingest(rows, 'engine');
-    } catch (error) {
-      console.warn(
-        `[ML-CACHE][LOAD] file=engine:/predictions/all fileExists=false records=0 ` +
-          `error=${(error as Error).message}`,
-      );
-      return 0;
-    }
+    const [day, week] = await Promise.all([
+      axios.get<{ predictions: CachedMlPrediction[] }>(`${base}/predictions/all`, {
+        params: { limit: 5000, page: 1, horizon: PredictionHorizon.NEXT_DAY },
+        timeout: ML_ENGINE_REQUEST_TIMEOUT_MS,
+      }),
+      axios.get<{ predictions: CachedMlPrediction[] }>(`${base}/predictions/all`, {
+        params: { limit: 5000, page: 1, horizon: PredictionHorizon.NEXT_WEEK },
+        timeout: ML_ENGINE_REQUEST_TIMEOUT_MS,
+      }),
+    ]);
+    const rows = [...(day.data.predictions ?? []), ...(week.data.predictions ?? [])];
+    const stats = countLoadStats(rows);
+    console.log(
+      `[ML-CACHE][LOAD] file=engine:/predictions/all fileExists=true records=${rows.length} ` +
+        `valid=${stats.valid} invalid=${stats.invalid} missingModelVersion=${stats.missingModelVersion} ` +
+        `missingFeatureVersion=${stats.missingFeatureVersion} expired=${stats.expired}`,
+    );
+    if (rows.length === 0) return 0;
+    return this.ingest(rows, 'engine');
   }
 
   private loadFromFile(): number {

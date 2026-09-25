@@ -18,19 +18,22 @@ describe('Multi-Asset Batch live provider chain', () => {
   it('renders real canonical NSE membership and backend status responsively', () => {
     cy.viewport(1440, 1000);
     cy.visit('/batch');
-    cy.contains('NSE ALL', { timeout: 30_000 })
+    cy.get('[data-testid="overview-new-batch"]', { timeout: 30_000 }).click();
+    cy.contains('NSE F&O')
       .parents('.MuiCard-root')
-      .contains(/\d[\d,]* eligible/)
+      .contains(/\d[\d,]* symbols/)
       .should('be.visible');
-    cy.contains('No instruments are sent').should('be.visible');
+    cy.contains('button', 'Next: Configure').click();
+    cy.contains('Configure Analysis').should('be.visible');
     cy.screenshot('multi-asset-live-desktop', { capture: 'viewport' });
 
     cy.viewport(900, 1100);
-    cy.contains('Configure analysis').should('be.visible');
+    cy.contains('Configure Analysis').should('be.visible');
     cy.screenshot('multi-asset-live-tablet', { capture: 'viewport' });
 
+    cy.contains('button', 'Next: Review & Run').click();
     cy.viewport(390, 844);
-    cy.contains('Run batch').scrollIntoView().should('be.visible');
+    cy.contains('Run Batch Analysis').scrollIntoView().should('be.visible');
     cy.screenshot('multi-asset-live-mobile', { capture: 'viewport' });
   });
 });

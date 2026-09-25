@@ -1,6 +1,7 @@
 /**
  * Phase C evidence attach — SEC / press_releases / GDELT / FinBERT / batch macro.
  * Must run before TwelveDataClient.freeze() and snapshot.frozen.
+ * Crypto news uses a shared GDELT query set + frozen-alias DROP (never TD press).
  */
 
 import type {
@@ -20,6 +21,7 @@ import {
   type GdeltHeadline,
 } from './gdelt-match';
 import { fetchBatchMacroSnapshot, type MacroFetch } from './batch-macro-client';
+import { geckoIdForOnchain } from './crypto-onchain-evidence';
 import {
   isUsListedEquity,
   SEC_EDGAR_USER_AGENT,
@@ -35,17 +37,38 @@ import {
 } from './twelve-data-client';
 import { missingNewsSentiment } from './sector-fundamentals-news';
 import { mapPool } from './throughput-scale';
+import { BATCH_HOT_PATH_TIMEOUT_MS } from './batch-fetch-coordinator';
+
+export const CRYPTO_SHARED_GDELT_QUERIES = ['bitcoin', 'ethereum', 'cryptocurrency'] as const;
+export const CRYPTO_EXTRA_GDELT_QUERY_CAP = 5;
+export const NO_MATCHING_RETRIEVED_NEWS = 'NO_MATCHING_RETRIEVED_NEWS';
+
+function evidenceAcceptsText(url: string): boolean {
+  const u = url.toLowerCase();
+  return (
+    u.includes('.csv') ||
+    u.includes('filetype=csv') ||
+    u.includes('.xml') ||
+    u.includes('daily-treasury-rates') ||
+    u.includes('/releases/h15') ||
+    u.includes('datadownload/output.aspx')
+  );
+}
 
 export async function defaultEvidenceFetchJson(url: string): Promise<unknown> {
-  const csv = url.includes('fredgraph.csv');
+  if (/stlouisfed\.org|fredgraph|api\.stlouisfed\.org/i.test(url)) {
+    throw new Error('FRED_EXCLUDED');
+  }
+  const text = evidenceAcceptsText(url);
   const res = await fetch(url, {
     headers: {
-      Accept: csv ? 'text/csv' : 'application/json',
+      Accept: text ? 'application/xml,text/csv,text/plain' : 'application/json',
       'User-Agent': SEC_EDGAR_USER_AGENT,
     },
+    signal: AbortSignal.timeout(BATCH_HOT_PATH_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  if (csv) return res.text();
+  if (text) return res.text();
   return res.json();
 }
 
@@ -81,20 +104,70 @@ function listingSymbol(ref: InstrumentRef): string {
     .toUpperCase();
 }
 
-async function scoreMatchedHeadlines(
+function isCryptoRef(ref: InstrumentRef): boolean {
+  return ref.assetClass === 'CRYPTO_SPOT' || ref.assetClass === 'CRYPTO_FUTURE';
+}
+
+export function frozenCryptoNewsAliases(ref: InstrumentRef): string[] {
+  const listing = listingSymbol(ref);
+  const gecko = geckoIdForOnchain(ref);
+  const base = listing.replace(/[-_/]/g, '').replace(/(USDT|USDC|BUSD|USD|PERP)$/i, '');
+  const extra: string[] = [];
+  if (gecko) extra.push(gecko);
+  if (base.length >= 2) extra.push(base);
+  if (gecko === 'bitcoin') extra.push('BTC', 'bitcoin');
+  if (gecko === 'ethereum') extra.push('ETH', 'ethereum');
+  return [
+    ...new Set(
+      [
+        ...frozenAliasesForRef({
+          symbol: ref.symbol,
+          canonicalSymbol: ref.canonicalSymbol,
+        }),
+        ...extra,
+      ].filter((value) => value.trim().length >= 2),
+    ),
+  ];
+}
+
+export function extraCryptoGdeltQueries(refs: InstrumentRef[]): string[] {
+  const seen = new Set<string>(CRYPTO_SHARED_GDELT_QUERIES);
+  const extras: string[] = [];
+  for (const ref of refs) {
+    const gecko = geckoIdForOnchain(ref);
+    if (!gecko || seen.has(gecko) || gecko.length < 3) continue;
+    if (gecko.endsWith('usdt') || gecko.endsWith('usdc')) continue;
+    seen.add(gecko);
+    extras.push(gecko);
+    if (extras.length >= CRYPTO_EXTRA_GDELT_QUERY_CAP) break;
+  }
+  return extras;
+}
+
+async function scoreUniqueTitles(
   titles: string[],
   scoreHeadline: HeadlineScorer | undefined,
-): Promise<BatchSentiment> {
-  if (!scoreHeadline || titles.length === 0) {
-    return missingNewsSentiment().sentiment;
-  }
-  const scores: number[] = [];
+): Promise<Map<string, number>> {
+  const scores = new Map<string, number>();
+  if (!scoreHeadline) return scores;
   for (const title of titles) {
     const raw = await scoreHeadline(title);
-    if (typeof raw === 'number' && Number.isFinite(raw)) scores.push(raw);
+    if (typeof raw === 'number' && Number.isFinite(raw)) scores.set(title, raw);
   }
-  if (!scores.length) return null;
-  const score = scores.reduce((sum, n) => sum + n, 0) / scores.length;
+  return scores;
+}
+
+function sentimentFromTitles(
+  titles: string[],
+  scores: Map<string, number>,
+  scoreHeadline: HeadlineScorer | undefined,
+): BatchSentiment {
+  if (!titles.length || !scoreHeadline) return missingNewsSentiment().sentiment;
+  const matched = titles
+    .map((title) => scores.get(title))
+    .filter((n): n is number => typeof n === 'number' && Number.isFinite(n));
+  if (!matched.length) return null;
+  const score = matched.reduce((sum, n) => sum + n, 0) / matched.length;
   return { source: 'MODEL_DERIVED', score };
 }
 
@@ -124,6 +197,23 @@ async function fetchGdeltMatched(
   } catch {
     return [];
   }
+}
+
+async function loadSharedCryptoGdelt(
+  fetchJson: EvidenceFetchJson,
+  refs: InstrumentRef[],
+): Promise<GdeltHeadline[]> {
+  const queries = [...CRYPTO_SHARED_GDELT_QUERIES, ...extraCryptoGdeltQueries(refs)];
+  const articles: GdeltHeadline[] = [];
+  for (const query of queries) {
+    try {
+      const raw = await fetchJson(gdeltDocUrl(query));
+      articles.push(...parseGdeltArticles(raw));
+    } catch {
+      /* skip a shared query; do not invent headlines */
+    }
+  }
+  return articles;
 }
 
 export async function attachBatchEvidence(
@@ -174,17 +264,30 @@ export async function attachBatchEvidence(
     });
   }
 
+  const cryptoRows = withSec.filter((row) => isCryptoRef(row.instrumentRef));
+  const sharedCryptoArticles =
+    fetchJson && cryptoRows.length
+      ? await loadSharedCryptoGdelt(
+          fetchJson,
+          cryptoRows.map((row) => row.instrumentRef),
+        )
+      : [];
+
   const withNews = await mapPool(withSec, concurrency, async (row) => {
     const ref = row.instrumentRef;
-    const aliases = frozenAliasesForRef({
-      symbol: ref.symbol,
-      canonicalSymbol: ref.canonicalSymbol,
-      name: entityNames.get(listingSymbol(ref)),
-    });
+    const crypto = isCryptoRef(ref);
+    const aliases = crypto
+      ? frozenCryptoNewsAliases(ref)
+      : frozenAliasesForRef({
+          symbol: ref.symbol,
+          canonicalSymbol: ref.canonicalSymbol,
+          name: entityNames.get(listingSymbol(ref)),
+        });
     const headlines: Array<{ title: string }> = [];
     let newsReason: string | undefined;
+    let retrieved = false;
 
-    if (deps.twelveDataClient) {
+    if (!crypto && deps.twelveDataClient) {
       try {
         const tdSymbol = mapToTwelveDataSymbol(ref);
         const raw = await deps.twelveDataClient.pressReleases(tdSymbol);
@@ -202,7 +305,12 @@ export async function attachBatchEvidence(
       }
     }
 
-    if (fetchJson) {
+    if (crypto && fetchJson) {
+      retrieved = true;
+      const matched = filterGdeltByAliases(sharedCryptoArticles, aliases);
+      for (const item of matched) headlines.push({ title: item.title });
+    } else if (!crypto && isUsListedEquity(ref) && fetchJson) {
+      retrieved = true;
       const matched = await fetchGdeltMatched(fetchJson, aliases, listingSymbol(ref));
       for (const item of matched) headlines.push({ title: item.title });
       if (!headlines.length && !newsReason) {
@@ -213,15 +321,38 @@ export async function attachBatchEvidence(
     }
 
     const unique = [...new Map(headlines.map((h) => [h.title, h])).values()];
-    if (!unique.length && !newsReason) newsReason = 'NO_NEWS';
-    const sentiment = await scoreMatchedHeadlines(
-      unique.map((h) => h.title),
-      deps.scoreHeadline,
-    );
+    if (!unique.length && !newsReason) {
+      newsReason = crypto && retrieved ? NO_MATCHING_RETRIEVED_NEWS : 'NO_NEWS';
+    }
     return {
       ...row,
       news: newsBlock(unique, now, unique.length ? undefined : newsReason),
-      sentiment,
+      _headlineTitles: unique.map((h) => h.title),
+    };
+  });
+
+  const uniqueTitles = [
+    ...new Set(
+      withNews.flatMap((row) =>
+        Array.isArray((row as { _headlineTitles?: string[] })._headlineTitles)
+          ? (row as { _headlineTitles: string[] })._headlineTitles
+          : [],
+      ),
+    ),
+  ];
+  const titleScores = await scoreUniqueTitles(uniqueTitles, deps.scoreHeadline);
+
+  const scored = withNews.map((row) => {
+    const titles = Array.isArray((row as { _headlineTitles?: string[] })._headlineTitles)
+      ? (row as { _headlineTitles: string[] })._headlineTitles
+      : [];
+    const { _headlineTitles: _omit, ...rest } = row as BatchInstrumentData & {
+      _headlineTitles?: string[];
+    };
+    void _omit;
+    return {
+      ...rest,
+      sentiment: sentimentFromTitles(titles, titleScores, deps.scoreHeadline),
     };
   });
 
@@ -234,5 +365,5 @@ export async function attachBatchEvidence(
     }
   }
 
-  return { rows: withNews, macro };
+  return { rows: scored, macro };
 }

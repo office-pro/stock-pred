@@ -103,7 +103,9 @@ export class AltDataStore {
     });
     return rows.map((row) => ({
       symbol: row.symbol,
+      as_of_date: row.asOfDate.toISOString(),
       available_at: row.availableAt.toISOString(),
+      source: row.source,
       news_count_1d: row.newsCount1d,
       news_count_7d: row.newsCount7d,
       news_count_30d: row.newsCount30d,

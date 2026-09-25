@@ -100,12 +100,25 @@ import {
 } from './providers/commodity-market-data';
 import { RedisService } from './redis.service';
 import { RealTimeOrchestrator, getOrchestrator, AnalysisTask } from './real-time-orchestrator';
+import { InFlightRequestRegistry } from './in-flight-registry';
+import {
+  isFreshMemoryQuote,
+  MDS_HOT_PATH_TIMEOUT_MS,
+  MDS_QUOTE_REDIS_TTL_SECONDS,
+  redisCandleKey,
+  redisQuoteKey,
+} from './quote-freshness';
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HISTORY_DAYS = 2700; // ~10 trading years of calendar days
 /** Minimum cached candles considered a usable offline history. */
 const MIN_CACHED_CANDLES = 40;
+/**
+ * Enough real 1D bars to serve batch/detail without waiting on the 10y Yahoo queue.
+ * Matches batch historicalCandles AVAILABLE (≥20). Never fabricates bars.
+ */
+const SERVE_DAILY_MIN_BARS = 20;
 
 const INDEX_CONFIG: { name: MarketIndex; displayName: string; basePrice: number }[] = [
   { name: MarketIndex.NIFTY_50, displayName: 'Nifty 50', basePrice: 24500 },
@@ -138,13 +151,14 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private refreshTimer: NodeJS.Timeout | null = null;
   private liveWatchTimer: NodeJS.Timeout | null = null;
   private predictionTimer: NodeJS.Timeout | null = null;
+  private mlRefreshStartupTimer: NodeJS.Timeout | null = null;
   private refreshing = false;
   private readonly tickIntervalMs = getEnvNumber('TICK_INTERVAL_MS', 1000);
   private readonly refreshIntervalMs = getEnvNumber('QUOTE_REFRESH_INTERVAL_MS', 60_000);
   private readonly liveQuoteMinMs = getEnvNumber('LIVE_QUOTE_MIN_MS', 5_000);
-  private readonly liveQuoteWaitMs = getEnvNumber('LIVE_QUOTE_WAIT_MS', 5_000);
+  private readonly liveQuoteWaitMs = getEnvNumber('LIVE_QUOTE_WAIT_MS', MDS_HOT_PATH_TIMEOUT_MS);
   private readonly watched = new Map<string, number>();
-  private readonly liveRefreshInflight = new Map<string, Promise<void>>();
+  private readonly inFlight = new InFlightRequestRegistry();
   private orchestrator: RealTimeOrchestrator | null = null;
   private readonly predictions = new PredictionCache();
   private readonly manipulationScores = new ManipulationCache();
@@ -180,6 +194,18 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit(): Promise<void> {
+    try {
+      const raw = process.env.DATABASE_URL ?? '';
+      const qs = raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '';
+      const params = new URLSearchParams(qs);
+      console.log(
+        `[market-data] prisma_pool connection_limit=${params.get('connection_limit') ?? 'default'} ` +
+          `pool_timeout=${params.get('pool_timeout') ?? 'default'} schema=${params.get('schema') ?? ''}`,
+      );
+    } catch {
+      console.log('[market-data] prisma_pool connection_limit=unparsed pool_timeout=unparsed');
+    }
+
     const universe = await this.loadUniverse();
 
     // Initialize orchestrator first (for health checks)
@@ -216,15 +242,9 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     this.initCommodityBook();
 
     // Official EOD first (prices on the dashboard), then cache/yahoo history.
+    // ML/manipulation refresh is scheduled after startup — not on the hydrate/bootstrap hot path.
     void this.hydrateThenBootstrap(universe);
-    void this.predictions.refresh().then((count) => {
-      this.advisoryMemo.clear();
-      console.log(`[market-data] ML predictions loaded: ${count}`);
-    });
-    void this.manipulationScores.refresh().then((count) => {
-      this.manipulationMemo.clear();
-      if (count > 0) console.log(`[market-data] manipulation model scores loaded: ${count}`);
-    });
+    this.scheduleDeferredMlRefresh();
     this.predictionTimer = setInterval(() => {
       void this.predictions.refresh().then((count) => {
         if (count > 0) this.advisoryMemo.clear();
@@ -262,6 +282,25 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     });
     if (stock.isin) this.byIsin.set(stock.isin, stock.symbol);
     if (stock.bseCode) this.byBseCode.set(stock.bseCode, stock.symbol);
+  }
+
+  private scheduleDeferredMlRefresh(): void {
+    const delayMs = Math.max(0, getEnvNumber('MDS_ML_REFRESH_INITIAL_DELAY_MS', 45_000));
+    console.log(
+      `[market-data] ml_refresh_scheduled delay_ms=${delayMs} ` +
+        `(after EOD hydrate + bootstrap kickoff; not on hot startup path)`,
+    );
+    this.mlRefreshStartupTimer = setTimeout(() => {
+      this.mlRefreshStartupTimer = null;
+      void this.predictions.refresh().then((count) => {
+        this.advisoryMemo.clear();
+        console.log(`[market-data] ML predictions loaded: ${count}`);
+      });
+      void this.manipulationScores.refresh().then((count) => {
+        this.manipulationMemo.clear();
+        if (count > 0) console.log(`[market-data] manipulation model scores loaded: ${count}`);
+      });
+    }, delayMs);
   }
 
   private async hydrateThenBootstrap(universe: UniverseStock[]): Promise<void> {
@@ -338,12 +377,18 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
 
     // Bootstrap stocks in batches to avoid overwhelming the provider
     // In yahoo mode, use smaller batches + timeout to fail fast on many invalid tickers
+    // Yahoo fetch concurrency stays BATCH_SIZE; CandleCache caps Prisma writes at 2.
     const BATCH_SIZE = this.yahooProvider ? 5 : 10;
     const BATCH_TIMEOUT_MS = this.yahooProvider ? 30_000 : 60_000;
     let loaded = 0;
     let skipped = 0;
+    console.log(
+      `[market-data] bootstrap_batches yahooConcurrent=${BATCH_SIZE} candleWriteMax=2 ` +
+        `batchTimeoutMs=${BATCH_TIMEOUT_MS}`,
+    );
 
     for (let i = 0; i < universe.length; i += BATCH_SIZE) {
+      await this.cache.awaitBootstrapCapacity();
       const batch = universe.slice(i, i + BATCH_SIZE);
       try {
         // Each batch has a timeout to prevent hanging on invalid stocks
@@ -362,13 +407,20 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
         );
       }
       if ((loaded + skipped) % 50 === 0 || loaded + skipped === universe.length) {
+        const wm = this.cache.getWriteMetrics();
+        const pressure = this.cache.getPressureSnapshot();
         console.log(
-          `[market-data] progress: ${loaded}/${universe.length} loaded, ${skipped} skipped`,
+          `[market-data] progress: ${loaded}/${universe.length} loaded, ${skipped} skipped ` +
+            `candleWriteActive=${wm.candleWriteActive} candleWriteQueueDepth=${wm.candleWriteQueueDepth} ` +
+            `candleWriteCompleted=${wm.candleWriteCompleted} candleWriteFailed=${wm.candleWriteFailed} ` +
+            `dbPressure=${pressure.level}`,
         );
       }
     }
+    const finalWm = this.cache.getWriteMetrics();
     console.log(
-      `[market-data] bootstrap complete: ${loaded}/${universe.length} loaded, ${skipped} skipped`,
+      `[market-data] bootstrap complete: ${loaded}/${universe.length} loaded, ${skipped} skipped ` +
+        `candleWriteCompleted=${finalWm.candleWriteCompleted} candleWriteFailed=${finalWm.candleWriteFailed}`,
     );
   }
 
@@ -376,6 +428,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     if (this.tickTimer) clearInterval(this.tickTimer);
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     if (this.predictionTimer) clearInterval(this.predictionTimer);
+    if (this.mlRefreshStartupTimer) clearTimeout(this.mlRefreshStartupTimer);
     if (this.scannerAlertTimer) clearInterval(this.scannerAlertTimer);
     if (this.liveWatchTimer) clearInterval(this.liveWatchTimer);
     if (this.cryptoRefreshTimer) clearInterval(this.cryptoRefreshTimer);
@@ -556,10 +609,24 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       const row = this.cryptoBook.rows.get(state.info.symbol);
       await this.refreshCoinGeckoOnDemand(row?.providerAssetId ?? state.info.symbol);
     } else if (!this.isCryptoState(state)) {
-      await Promise.race([
-        this.refreshSymbolLive(state),
-        new Promise<void>((resolve) => setTimeout(resolve, this.liveQuoteWaitMs)),
-      ]);
+      if (this.isMemoryQuoteFresh(state)) {
+        return this.toQuote(state, PredictionHorizon.NEXT_WEEK, true);
+      }
+      return this.inFlight.coalesce(`quote:${state.info.symbol}`, async () => {
+        if (this.isMemoryQuoteFresh(state)) {
+          return this.toQuote(state, PredictionHorizon.NEXT_WEEK, true);
+        }
+        const cached = await this.redis.getJson<StockQuote>(redisQuoteKey(state.info.symbol));
+        if (cached && cached.price > 0) {
+          this.applyCachedQuote(state, cached);
+          return this.toQuote(state, PredictionHorizon.NEXT_WEEK, true);
+        }
+        await Promise.race([
+          this.refreshSymbolLive(state),
+          new Promise<void>((resolve) => setTimeout(resolve, this.liveQuoteWaitMs)),
+        ]);
+        return this.toQuote(state, PredictionHorizon.NEXT_WEEK, true);
+      });
     }
     return this.toQuote(state, PredictionHorizon.NEXT_WEEK, true);
   }
@@ -569,16 +636,42 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     if (index) {
       return timeframe === Timeframe.ONE_DAY ? index.daily.slice(-limit) : [];
     }
-    await this.ensureLoaded(symbol);
-    const state = this.requireSymbol(symbol);
-    if (timeframe === Timeframe.ONE_DAY) {
-      return state.daily.slice(-limit);
+    const existing = this.stocks.get(symbol);
+    if (!existing) throw new NotFoundException(`Unknown symbol: ${symbol}`);
+    if (timeframe === Timeframe.ONE_DAY && existing.daily.length >= SERVE_DAILY_MIN_BARS) {
+      return existing.daily.slice(-limit);
     }
-    const ones = this.intradayOnes(state);
-    if (timeframe === Timeframe.ONE_MINUTE) {
-      return ones.slice(-limit);
-    }
-    return aggregateCandles(ones, timeframe).slice(-limit);
+    return this.inFlight.coalesce(`candles:${symbol}:${timeframe}:${limit}`, async () => {
+      const current = this.stocks.get(symbol);
+      if (!current) throw new NotFoundException(`Unknown symbol: ${symbol}`);
+      if (timeframe === Timeframe.ONE_DAY && current.daily.length >= SERVE_DAILY_MIN_BARS) {
+        return current.daily.slice(-limit);
+      }
+      const redisKey = redisCandleKey(symbol, timeframe, limit);
+      const fromRedis = await this.redis.getJson<Candle[]>(redisKey);
+      if (Array.isArray(fromRedis) && fromRedis.length > 0) {
+        if (timeframe === Timeframe.ONE_DAY && current.daily.length < fromRedis.length) {
+          current.daily = fromRedis;
+        }
+        return fromRedis.slice(-limit);
+      }
+      await this.ensureLoaded(symbol);
+      const state = this.requireSymbol(symbol);
+      let candles: Candle[];
+      if (timeframe === Timeframe.ONE_DAY) {
+        candles = state.daily.slice(-limit);
+      } else {
+        const ones = this.intradayOnes(state);
+        candles =
+          timeframe === Timeframe.ONE_MINUTE
+            ? ones.slice(-limit)
+            : aggregateCandles(ones, timeframe).slice(-limit);
+      }
+      if (candles.length > 0) {
+        void this.redis.setJson(redisKey, candles, MDS_QUOTE_REDIS_TTL_SECONDS);
+      }
+      return candles;
+    });
   }
 
   /** 1m + aggregated 5m / 15m / 1h packs for short-horizon agent setups. */
@@ -744,25 +837,34 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   // ------------------------------------------------------------- data chain
 
   /**
-   * Real-data chain: live provider -> database cache (bhavcopy / previous
-   * Yahoo) -> listed-with-no-candles. Simulated candles are only used in
-   * quick-start mode and are NEVER written to the cache.
+   * Real-data chain: database cache (bhavcopy / previous Yahoo) when it already
+   * has ≥20 bars, else live Yahoo, else listed-with-no-candles. Simulated
+   * candles are only used in quick-start mode and are NEVER written to the cache.
+   * Cache-first keeps Multi-Asset Batch 1D hydrate off the serialized 10y Yahoo queue.
    */
   private async loadDaily(
     symbol: string,
     basePrice: number,
+    opts?: { onDemand?: boolean },
   ): Promise<{ candles: Candle[]; source: MarketDataSource }> {
     const cached = await this.cache.load(symbol, HISTORY_DAYS);
+    if (cached.length >= SERVE_DAILY_MIN_BARS) {
+      return { candles: cached, source: 'cached' };
+    }
 
     if (this.yahooProvider) {
       try {
         const existing = this.stocks.get(symbol);
-        const candles = await this.yahooProvider.getDailyHistory(symbol, HISTORY_DAYS, basePrice, {
+        const yahoo = opts?.onDemand ? this.onDemandYahoo : this.yahooProvider;
+        const candles = await yahoo.getDailyHistory(symbol, HISTORY_DAYS, basePrice, {
           exchange: existing?.info.exchange,
           bseCode: existing?.bseCode,
           yahooSymbol: existing?.yahooSymbol,
         });
-        void this.cache.saveHistory(candles);
+        // Bootstrap = low priority (adaptive pause); on-demand API traffic = high.
+        void this.cache.saveHistory(candles, {
+          priority: opts?.onDemand ? 'high' : 'low',
+        });
         return { candles, source: 'live' };
       } catch (error) {
         console.warn(
@@ -813,9 +915,12 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     return configuredUniverse;
   }
 
-  private async bootstrapSymbol(stock: UniverseStock): Promise<void> {
+  private async bootstrapSymbol(
+    stock: UniverseStock,
+    opts?: { onDemand?: boolean },
+  ): Promise<void> {
     try {
-      const { candles, source } = await this.loadDaily(stock.symbol, stock.basePrice);
+      const { candles, source } = await this.loadDaily(stock.symbol, stock.basePrice, opts);
       const existing = this.stocks.get(stock.symbol);
       if (candles.length === 0) {
         // Keep bhavcopy / listed state instead of wiping it to empty.
@@ -963,18 +1068,13 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
    */
   private async refreshSymbolLive(state: SymbolState): Promise<void> {
     if (this.isCryptoState(state) || this.isCommodityState(state)) return;
-    const now = Date.now();
-    const inflight = this.liveRefreshInflight.get(state.info.symbol);
-    if (inflight) return inflight;
-    if (state.lastLiveRefresh != null && now - state.lastLiveRefresh < this.liveQuoteMinMs) {
-      return;
-    }
-
-    const job = this.fetchAndApplyLivePrint(state).finally(() => {
-      this.liveRefreshInflight.delete(state.info.symbol);
+    return this.inFlight.coalesce(`live:${state.info.symbol}`, async () => {
+      const now = Date.now();
+      if (state.lastLiveRefresh != null && now - state.lastLiveRefresh < this.liveQuoteMinMs) {
+        return;
+      }
+      await this.fetchAndApplyLivePrint(state);
     });
-    this.liveRefreshInflight.set(state.info.symbol, job);
-    return job;
   }
 
   private async fetchAndApplyLivePrint(state: SymbolState): Promise<void> {
@@ -1039,6 +1139,31 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     );
     void this.redis.setJson(`stockpred:quote:${state.info.symbol}`, this.toQuote(state));
     void this.cache.saveToday(today);
+  }
+
+  private isMemoryQuoteFresh(state: SymbolState): boolean {
+    const lastClose = state.daily[state.daily.length - 1]?.close ?? 0;
+    const indianCash = state.info.exchange === Exchange.NSE || state.info.exchange === Exchange.BSE;
+    return isFreshMemoryQuote({
+      hasUsablePrice: (state.lastTick?.price ?? 0) > 0 || lastClose > 0,
+      lastLiveRefreshMs: state.lastLiveRefresh,
+      lastTickTimeMs: state.lastTick?.time,
+      sessionOpen: indianCash ? isNseCashSessionOpen() : true,
+    });
+  }
+
+  /** Hydrate memory from a Redis quote hit. Does not fabricate candles. */
+  private applyCachedQuote(state: SymbolState, quote: StockQuote): void {
+    if (!(quote.price > 0)) return;
+    const time = quote.updatedAt > 0 ? quote.updatedAt : Date.now();
+    state.lastTick = {
+      symbol: state.info.symbol,
+      exchange: state.info.exchange,
+      price: quote.price,
+      volume: quote.volume ?? 0,
+      time,
+    };
+    state.lastLiveRefresh = Date.now();
   }
 
   // -------------------------------------------------- simulated tick mode
@@ -2012,7 +2137,7 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     }
     const state = this.stocks.get(symbol);
     if (!state) throw new NotFoundException(`Unknown symbol: ${symbol}`);
-    if (state.daily.length >= 500) return;
+    if (state.daily.length >= SERVE_DAILY_MIN_BARS) return;
     if (this.hydrateTried.has(symbol)) return;
     const inflight = this.hydrateJobs.get(symbol);
     if (inflight) return inflight;
@@ -2022,17 +2147,20 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async hydrateOnDemand(state: SymbolState): Promise<void> {
-    await this.bootstrapSymbol({
-      symbol: state.info.symbol,
-      name: state.info.name,
-      exchange: state.info.exchange,
-      sector: state.info.sector,
-      indices: state.info.indices,
-      basePrice: state.previousClose || 0,
-      isin: state.isin,
-      bseCode: state.bseCode,
-      yahooSymbol: state.yahooSymbol,
-    });
+    await this.bootstrapSymbol(
+      {
+        symbol: state.info.symbol,
+        name: state.info.name,
+        exchange: state.info.exchange,
+        sector: state.info.sector,
+        indices: state.info.indices,
+        basePrice: state.previousClose || 0,
+        isin: state.isin,
+        bseCode: state.bseCode,
+        yahooSymbol: state.yahooSymbol,
+      },
+      { onDemand: true },
+    );
     this.hydrateTried.add(state.info.symbol);
   }
 

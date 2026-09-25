@@ -95,12 +95,16 @@ function evidenceFetch(url: string): Promise<unknown> {
       ],
     });
   }
-  if (url.includes('FEDFUNDS')) return Promise.resolve('DATE,FEDFUNDS\n2024-02-01,5.33\n');
-  if (url.includes('CPIAUCSL')) return Promise.resolve('DATE,CPIAUCSL\n2024-02-01,310.3\n');
-  if (url.includes('CUUR0000SA0')) {
+  if (url.includes('federalreserve.gov') || url.includes('h15')) {
+    return Promise.resolve('<observation TIME_PERIOD="2024-02" OBS_VALUE="5.33"/>');
+  }
+  if (url.includes('bls.gov')) {
     return Promise.resolve({
       Results: { series: [{ data: [{ year: '2024', period: 'M02', value: '310.5' }] }] },
     });
+  }
+  if (url.includes('treasury.gov') || url.includes('daily-treasury')) {
+    return Promise.resolve('Date,10 Yr\n02/01/2024,4.22\n');
   }
   throw new Error(`unexpected evidence url ${url}`);
 }
@@ -149,7 +153,7 @@ describe('Phase C evidence hydrate', () => {
     expect(snapshot.instruments[0]?.news?.headlineCount).toBeGreaterThan(0);
     expect(snapshot.instruments[0]?.sentiment).toEqual({ source: 'MODEL_DERIVED', score: 0.12 });
     expect(snapshot.instruments[0]).not.toHaveProperty('macro');
-    expect(snapshot.macro?.series.length).toBe(3);
+    expect(snapshot.macro?.series.length).toBe(4);
     expect(snapshot.macro?.source).toBe('SOURCE_REPORTED');
     expect(urls.some((u) => u.includes('/time_series'))).toBe(true);
     expect(urls.some((u) => u.includes('/press_releases'))).toBe(true);
@@ -196,15 +200,34 @@ describe('Phase C evidence hydrate', () => {
       universeId: 'CRYPTO_SPOT_ALL',
       instruments: [cryptoSpot('BTCUSDT')],
       deps: {
+        fetchJson: async (url) => {
+          if (url.includes('/ticker/24hr')) {
+            return [
+              {
+                symbol: 'BTCUSDT',
+                lastPrice: '70000',
+                priceChange: '1',
+                priceChangePercent: '1',
+                volume: '1',
+                highPrice: '1',
+                lowPrice: '1',
+                prevClosePrice: '1',
+              },
+            ];
+          }
+          if (url.includes('/klines')) return [[1, '1', '1', '1', '1', '1']];
+          return [];
+        },
         twelveDataClient: client,
         evidenceFetchJson: async (url) => {
           if (url.includes('company_tickers') || url.includes('companyfacts')) {
             throw new Error('SEC must not run for crypto');
           }
           if (url.includes('gdelt')) return { articles: [] };
-          if (url.includes('FEDFUNDS')) return 'DATE,FEDFUNDS\n2024-02-01,5.33\n';
-          if (url.includes('CPIAUCSL')) return 'DATE,CPIAUCSL\n';
-          if (url.includes('CUUR0000SA0')) return {};
+          if (url.includes('federalreserve.gov')) {
+            return '<observation TIME_PERIOD="2024-02" OBS_VALUE="5.33"/>';
+          }
+          if (url.includes('bls.gov') || url.includes('treasury.gov')) return {};
           return {};
         },
         scoreHeadline: () => null,
@@ -237,7 +260,12 @@ describe('Phase C evidence hydrate', () => {
             throw new Error('SEC must not run for FX');
           }
           if (url.includes('gdelt')) return { articles: [] };
-          if (url.includes('fredgraph') || url.includes('bls.gov')) return '';
+          if (
+            url.includes('federalreserve.gov') ||
+            url.includes('bls.gov') ||
+            url.includes('treasury.gov')
+          )
+            return '';
           return {};
         },
       },
@@ -269,7 +297,12 @@ describe('Phase C evidence hydrate', () => {
               ],
             };
           }
-          if (url.includes('fredgraph') || url.includes('bls.gov')) return '';
+          if (
+            url.includes('federalreserve.gov') ||
+            url.includes('bls.gov') ||
+            url.includes('treasury.gov')
+          )
+            return '';
           return {};
         },
       },
@@ -301,7 +334,12 @@ describe('Phase C evidence hydrate', () => {
               ],
             };
           }
-          if (url.includes('fredgraph') || url.includes('bls.gov')) return '';
+          if (
+            url.includes('federalreserve.gov') ||
+            url.includes('bls.gov') ||
+            url.includes('treasury.gov')
+          )
+            return '';
           return {};
         },
         scoreHeadline: () => 0,
@@ -333,7 +371,12 @@ describe('Phase C evidence hydrate', () => {
           if (url.includes('gdelt')) {
             return { articles: [{ title: 'Unrelated global markets wrap', url: 'https://ex/b' }] };
           }
-          if (url.includes('fredgraph') || url.includes('bls.gov')) return '';
+          if (
+            url.includes('federalreserve.gov') ||
+            url.includes('bls.gov') ||
+            url.includes('treasury.gov')
+          )
+            return '';
           return {};
         },
         scoreHeadline: () => 0.5,
@@ -369,7 +412,12 @@ describe('Phase C evidence hydrate', () => {
         concurrency: 1,
         evidenceFetchJson: async (url) => {
           if (url.includes('gdelt')) return { articles: [] };
-          if (url.includes('fredgraph') || url.includes('bls.gov')) return '';
+          if (
+            url.includes('federalreserve.gov') ||
+            url.includes('bls.gov') ||
+            url.includes('treasury.gov')
+          )
+            return '';
           if (url.includes('company_tickers')) return {};
           return {};
         },
@@ -392,18 +440,14 @@ describe('Phase C evidence hydrate', () => {
       deps: {
         twelveDataClient: client,
         evidenceFetchJson: async (url) => {
-          if (url.includes('FEDFUNDS')) return 'DATE,FEDFUNDS\n2024-02-01,5.33\n';
+          if (url.includes('federalreserve.gov')) return 'DATE,FEDFUNDS\n2024-02-01,5.33\n';
           if (
             url.includes('gdelt') ||
             url.includes('company_tickers') ||
             url.includes('bls.gov') ||
-            url.includes('CPIAUCSL')
+            url.includes('treasury.gov')
           ) {
-            return url.includes('FEDFUNDS')
-              ? 'DATE,FEDFUNDS\n2024-02-01,5.33\n'
-              : url.includes('CPIAUCSL')
-                ? ''
-                : {};
+            return {};
           }
           return {};
         },
@@ -446,7 +490,7 @@ describe('Phase C evidence hydrate', () => {
               value: 5.33,
               asOf: 1,
               source: 'SOURCE_REPORTED',
-              provider: 'fred',
+              provider: 'fed',
             },
           ],
         },
@@ -455,6 +499,8 @@ describe('Phase C evidence hydrate', () => {
     expect(intel.news?.headlineCount).toBe(2);
     expect(intel.sentiment).toEqual({ source: 'MODEL_DERIVED', score: 0 });
     expect(intel.macro?.seriesId).toBe('FEDFUNDS');
+    expect(intel.macro?.series?.length).toBe(1);
+    expect(intel.macro?.requestedCount).toBe(3);
   });
 
   it('returns the original intelligence snapshot when the batch row is missing', () => {
@@ -491,7 +537,7 @@ describe('Phase C evidence hydrate', () => {
               value: 5.33,
               asOf: 1,
               source: 'SOURCE_REPORTED',
-              provider: 'fred',
+              provider: 'fed',
             },
           ],
         },
@@ -512,16 +558,19 @@ describe('Phase C evidence hydrate', () => {
     expect(snapshot.instruments[0]?.news?.reasonCode).toBe('GDELT_UNMATCHED');
   });
 
-  it('defaultEvidenceFetchJson reads CSV as text and JSON as objects', async () => {
+  it('defaultEvidenceFetchJson reads Fed/Treasury text and JSON objects; FRED is excluded', async () => {
     const orig = global.fetch;
     global.fetch = jest.fn(async () => ({
       ok: true,
-      text: async () => 'DATE,FEDFUNDS\n2024-01-01,5.33\n',
+      text: async () => '<observation TIME_PERIOD="2024-02" OBS_VALUE="5.33"/>',
       json: async () => ({ articles: [] }),
     })) as unknown as typeof fetch;
     try {
       await expect(
         defaultEvidenceFetchJson('https://fred.stlouisfed.org/graph/fredgraph.csv?id=FEDFUNDS'),
+      ).rejects.toThrow(/FRED_EXCLUDED/);
+      await expect(
+        defaultEvidenceFetchJson('https://www.federalreserve.gov/releases/h15/h15.xml'),
       ).resolves.toContain('5.33');
       await expect(
         defaultEvidenceFetchJson('https://api.gdeltproject.org/api/v2/doc/doc'),

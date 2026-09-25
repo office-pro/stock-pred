@@ -48,7 +48,7 @@ function dataSnapshotPath(batchId: string): string {
 
 export function writeIntelligenceBatch(batch: IntelligenceBatch): string {
   const path = batchPath(batch.batchId);
-  writeFileSync(path, `${JSON.stringify(batch, null, 2)}\n`, 'utf8');
+  writeFileSync(path, `${JSON.stringify(batch)}\n`, 'utf8');
   return path;
 }
 
@@ -187,7 +187,7 @@ export function recoverInterruptedBatches(): IntelligenceBatch[] {
 
 export function writeBatchDataSnapshot(snapshot: BatchDataSnapshot): string {
   const path = dataSnapshotPath(snapshot.batchId);
-  writeFileSync(path, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
+  writeFileSync(path, `${JSON.stringify(snapshot)}\n`, 'utf8');
   return path;
 }
 

@@ -24,6 +24,7 @@ from .persistence import (
     publish_prediction,
     shutdown,
 )
+from .nlp import score_headline
 from .predict import missing_models_message, models_available, predict_symbol
 from .promote import PromoteError, promote_horizon
 from .registry import get_active, list_models
@@ -120,6 +121,16 @@ def health() -> Dict[str, object]:
         "manipulationModelsTrained": investigate.models_available(),
         "activeModels": active_models,
     }
+
+
+class HeadlineIn(BaseModel):
+    text: str = ""
+
+
+@app.post("/nlp/headline")
+def nlp_headline(body: HeadlineIn) -> Dict[str, object]:
+    """Observe-only. Existing score_headline — not a new model."""
+    return score_headline(body.text or "")
 
 
 def _read_json(name: str) -> Dict[str, object]:

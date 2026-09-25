@@ -17,7 +17,7 @@ export function attachBatchInstrumentToIntelligenceSnapshot(
 ): IntelligenceSnapshot {
   if (!row) return snapshot;
   const fundamental = sanitizeFundamentalPayload(row.instrumentRef.assetClass, row.fundamentals);
-  const macroPoint = batch?.macro?.series?.[0];
+  const batchMacro = batch?.macro;
   return {
     ...snapshot,
     ...(fundamental ? { fundamental } : {}),
@@ -36,6 +36,20 @@ export function attachBatchInstrumentToIntelligenceSnapshot(
               ? { lastFundingRate: row.derivatives.lastFundingRate }
               : {}),
             ...(row.derivatives.basis != null ? { basis: row.derivatives.basis } : {}),
+            ...(row.derivatives.sourceInstrument
+              ? { sourceInstrument: row.derivatives.sourceInstrument }
+              : {}),
+            ...(row.derivatives.contractType ? { contractType: row.derivatives.contractType } : {}),
+            ...(row.derivatives.oiTrend ? { oiTrend: row.derivatives.oiTrend } : {}),
+            ...(row.derivatives.fundingExtreme != null
+              ? { fundingExtreme: row.derivatives.fundingExtreme }
+              : {}),
+            ...(row.derivatives.basisExpansion != null
+              ? { basisExpansion: row.derivatives.basisExpansion }
+              : {}),
+            ...(row.derivatives.basisCompression != null
+              ? { basisCompression: row.derivatives.basisCompression }
+              : {}),
             ...(row.reasonCode ? { reasonCode: row.reasonCode } : {}),
           },
         }
@@ -43,13 +57,18 @@ export function attachBatchInstrumentToIntelligenceSnapshot(
     ...(row.positioning ? { positioning: row.positioning } : {}),
     ...(row.news ? { news: row.news } : {}),
     ...(row.sentiment !== undefined ? { sentiment: row.sentiment } : {}),
-    ...(macroPoint
+    ...(row.onchain ? { onchain: row.onchain } : {}),
+    ...(row.social ? { social: row.social } : {}),
+    ...(batchMacro
       ? {
           macro: {
             source: 'SOURCE_REPORTED' as const,
-            seriesId: macroPoint.seriesId,
-            asOf: batch?.macro?.asOf ?? macroPoint.asOf,
-            reasonCode: batch?.macro?.reasonCode,
+            seriesId: batchMacro.series[0]?.seriesId,
+            asOf: batchMacro.asOf ?? batchMacro.series[0]?.asOf,
+            reasonCode: batchMacro.reasonCode,
+            requestedCount: batchMacro.requestedCount,
+            requestedSeries: batchMacro.requestedSeries,
+            series: batchMacro.series,
           },
         }
       : {}),

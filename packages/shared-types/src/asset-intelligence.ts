@@ -31,6 +31,14 @@ export type EquityStatementsPayload = {
 
 export type NetworkProjectPayload = {
   kind: 'NETWORK_PROJECT';
+  /** SOURCE_REPORTED network stats — never PE/ROE. */
+  provider?: 'mempool' | 'defillama';
+  chain?: string;
+  hashrate?: number;
+  difficulty?: number;
+  tvlUsd?: number;
+  fees24h?: number;
+  asOf?: number;
 };
 
 export type CommodityEconomicsPayload = {
@@ -63,6 +71,13 @@ export interface IntelligenceDerivativesBlock {
   lastFundingRate?: number;
   /** ENGINE_DERIVED only when mark and index both exist. */
   basis?: number;
+  /** Mapped perpetual identity — required when overlay/futures evidence is attached. */
+  sourceInstrument?: string;
+  contractType?: string;
+  oiTrend?: string;
+  fundingExtreme?: boolean;
+  basisExpansion?: boolean;
+  basisCompression?: boolean;
   source: EvidenceSourceKind;
   reasonCode?: string;
 }
@@ -81,11 +96,34 @@ export interface IntelligenceNewsBlock {
   source?: EvidenceSourceKind;
 }
 
-export interface IntelligenceMacroBlock {
-  seriesId?: string;
+/**
+ * On-chain analytics — never a substitute for Binance/CoinGecko/TD spot price.
+ * Missing stays UNAVAILABLE; numeric `0` is not the missing sentinel.
+ */
+export interface IntelligenceOnchainBlock {
+  status: 'AVAILABLE' | 'PARTIAL' | 'UNAVAILABLE';
+  source: EvidenceSourceKind;
+  provider?: 'defillama';
+  chain?: string;
+  geckoId?: string;
+  tvlUsd?: number;
   asOf?: number;
   reasonCode?: string;
-  source?: EvidenceSourceKind;
+}
+
+/**
+ * Reddit/social evidence — not truth, not a volume BUY/SELL.
+ * Missing stays UNAVAILABLE; numeric `0` is not the missing sentinel.
+ * MODEL_DERIVED score only from an injected scorer; unmatched aliases are dropped.
+ */
+export interface IntelligenceSocialBlock {
+  status: 'AVAILABLE' | 'PARTIAL' | 'UNAVAILABLE';
+  source: EvidenceSourceKind;
+  provider?: 'reddit';
+  mentionCount?: number;
+  score?: number;
+  asOf?: number;
+  reasonCode?: string;
 }
 
 /** FinBERT result. Missing sentinel is `null`, never numeric `0`. */
@@ -101,7 +139,7 @@ export interface BatchMacroSeriesPoint {
   value: number;
   asOf: number;
   source: 'SOURCE_REPORTED';
-  provider: 'fred' | 'bls';
+  provider: 'bls' | 'fed' | 'treasury';
 }
 
 /** One batch-level macro object. Never per-instrument CPI. */
@@ -112,6 +150,17 @@ export interface BatchMacroSnapshot {
   series: BatchMacroSeriesPoint[];
   asOf?: number;
   reasonCode?: string;
+}
+
+/** Observe-only copy of the batch-level macro object onto IntelligenceSnapshot. */
+export interface IntelligenceMacroBlock {
+  seriesId?: string;
+  asOf?: number;
+  reasonCode?: string;
+  source?: EvidenceSourceKind;
+  requestedCount?: number;
+  requestedSeries?: string[];
+  series?: BatchMacroSeriesPoint[];
 }
 
 export interface IntelligenceCrossAssetBlock {
@@ -166,6 +215,9 @@ export interface BatchQuote {
   previousClose?: number;
   markPrice?: number;
   indexPrice?: number;
+  /** Copied from MDS at hydrate — never recomputed after freeze. */
+  relativeStrengthNifty50?: number | null;
+  sector?: string;
 }
 
 export interface BatchCandle {
@@ -183,6 +235,13 @@ export interface BatchDerivatives {
   openInterest?: number;
   lastFundingRate?: number;
   basis?: number;
+  /** e.g. BINANCE_FUTURES:BTCUSDT — not the spot instrumentRef. */
+  sourceInstrument?: string;
+  contractType?: string;
+  oiTrend?: string;
+  fundingExtreme?: boolean;
+  basisExpansion?: boolean;
+  basisCompression?: boolean;
   source: EvidenceSourceKind;
   missing?: string[];
 }
@@ -207,6 +266,10 @@ export interface BatchInstrumentData {
    * (genuine near-zero allowed). Numeric `0` is never the missing sentinel.
    */
   sentiment?: BatchSentiment;
+  /** On-chain analytics. Distinct from quote/candles. Omit or UNAVAILABLE — never fill 0. */
+  onchain?: IntelligenceOnchainBlock;
+  /** Reddit/social evidence. Distinct from news FinBERT `sentiment`. Omit or UNAVAILABLE — never fill 0. */
+  social?: IntelligenceSocialBlock;
   dataStatus: BatchInstrumentDataStatus;
   dataAsOf?: number;
   dataAgeMs?: number;
@@ -279,4 +342,62 @@ export interface BatchDataSnapshot {
   macro?: BatchMacroSnapshot;
   /** Venue session/calendar from an approved futures feed — never FE clock-derived. */
   marketSession?: import('./instrument').MarketSessionState;
+  /**
+   * Batch-global + shared-but-asset-specific reference data.
+   * Immutable after freeze. Instruments must map provenance before consume.
+   */
+  shared?: BatchSharedData;
+  /** Observe-only hydrate/finalize timings. Not a trading input. */
+  performance?: BatchPerformanceCounters;
+}
+
+/** Shared-but-asset-specific series (NIFTY, BTC index). Not owned by every instrument. */
+export interface BatchBenchmarkSeries {
+  symbol: string;
+  timeframe: string;
+  candles: BatchCandle[];
+  dataAsOf: number;
+  source: string;
+  provider: string;
+}
+
+/**
+ * Batch-global vs shared-but-asset-specific reference.
+ * `macro` / session / shared GDELT are batch-global.
+ * Benchmarks and derivatives reference require identity mapping per instrument.
+ */
+export interface BatchSharedData {
+  benchmarks?: Record<string, BatchBenchmarkSeries>;
+  macro?: BatchMacroSnapshot;
+  marketReference?: {
+    session?: import('./instrument').MarketSessionState;
+  };
+  derivativesReference?: {
+    provider?: string;
+    source?: string;
+  };
+  newsReference?: {
+    source?: string;
+    queryCount?: number;
+    articleCount?: number;
+  };
+  networkReference?: {
+    source?: string;
+  };
+  providerSnapshots?: Record<string, { source: string; asOf: number }>;
+}
+
+export interface BatchPerformanceCounters {
+  totalTimeMs?: number;
+  requestCount?: number;
+  cacheHitCount?: number;
+  cacheMissCount?: number;
+  timeoutCount?: number;
+  retryCount?: number;
+  duplicateRequestsPrevented?: number;
+  /** Must be 0 after snapshot.frozen. External provider HTTP only. */
+  postFreezeProviderRequestCount?: number;
+  benchmarkFetchMs?: number;
+  macroFetchMs?: number;
+  newsFetchMs?: number;
 }

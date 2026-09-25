@@ -150,6 +150,16 @@ const COMMAND_CENTER_PROB_TARGET = 0.2;
 /** Same membership as preset=BEST_OPPORTUNITIES — independent of bullRunV2Cells. */
 export function isBestOpportunityRow(row: IntelligenceBatchResultRow): boolean {
   const ctx = row.intelligenceContext;
+  if (ctx?.bestOpportunityEligible === false) return false;
+  if (row.dataCompleteness === 'DATA_INCOMPLETE') return false;
+  if (
+    row.reasonCode === 'DATA_INCOMPLETE' ||
+    row.reasonCode === 'REQUIRED_EVIDENCE_UNAVAILABLE' ||
+    row.reasonCode === 'EVIDENCE_UNKNOWN'
+  ) {
+    return false;
+  }
+  if (row.recommendation != null && row.recommendation !== 'APPROVE') return false;
   if (ctx?.tradePlanRecommendation !== 'APPROVE') return false;
   const life = ctx.intelligenceLifecycleState;
   return life === 'OPPORTUNITY' || life === 'SHORTLIST' || ctx.opportunityQuality != null;
@@ -267,7 +277,7 @@ function projectOpportunityRow(
     rank: row.rank,
     companyName: row.companyName,
     sector: row.sector,
-    recommendation: ctx.tradePlanRecommendation,
+    recommendation: row.recommendation ?? ctx.tradePlanRecommendation,
     tradePlanStatus: ctx.tradePlanStatus,
     tradePlanExecutionReady: ctx.tradePlanExecutionReady,
     bullRunStage: ctx.bullRunStage,
@@ -574,8 +584,8 @@ export function buildBatchResearchReport(
 
   const sorted = [...rankings].sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
   const opportunities: BatchResearchReportBestOpportunity[] = sorted.map(projectOpportunityRow);
-  const bestOpportunities = opportunities.slice(0, 50);
   const bestPicks = opportunities.filter((o) => o.isBestPick);
+  const bestOpportunities = bestPicks.slice(0, 50);
 
   const sectorOpportunityCounts: BatchResearchReportSectorOpportunityCount[] = [
     ...sectorOppMap.entries(),
@@ -611,19 +621,18 @@ export function buildBatchResearchReport(
         probability: c.p,
         confidence: c.conf,
         integrityStatus: integrity,
-        recommendation: ctx.tradePlanRecommendation,
+        recommendation: row.recommendation ?? ctx.tradePlanRecommendation,
         tradePlanExecutionReady: ctx.tradePlanExecutionReady,
         isBestPick: isBestOpportunityRow(row),
       });
     }
   }
 
-  const hasApprove = opportunities.some((o) => o.recommendation === 'APPROVE');
   const anyBullCandidate = bullRunCountsByHorizon.some((c) => c.candidateCount > 0);
   const finalOutcome =
     input.coverage.failed > 0 && input.coverage.processed < input.coverage.total
       ? 'PARTIAL_COVERAGE'
-      : !hasApprove && !anyBullCandidate
+      : bestPicks.length === 0 && !anyBullCandidate
         ? 'NO_SUITABLE_OPPORTUNITY'
         : 'HAS_OPPORTUNITIES';
 

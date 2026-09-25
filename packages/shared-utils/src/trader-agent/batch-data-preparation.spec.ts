@@ -121,6 +121,8 @@ describe('Batch data preparation contract', () => {
     expect(snapshot.instruments[0]?.quote?.price).toBe(70000);
     expect(snapshot.instruments[0]?.derivatives?.openInterest).toBe(12345);
     expect(snapshot.instruments[0]?.derivatives?.basis).toBe(10);
+    expect(snapshot.instruments[0]?.derivatives?.sourceInstrument).toBe('BINANCE_FUTURES:BTCUSDT');
+    expect(snapshot.instruments[0]?.derivatives?.contractType).toBe('PERPETUAL');
     expect(quotesMapFromSnapshot(snapshot).get('BTCUSDT')?.price).toBe(70000);
     expect(quotesMapFromSnapshot(snapshot).get('BTCUSDT')?.exchange).not.toBe('NSE');
     expect(quotesMapFromSnapshot(snapshot).get('BTCUSDT')?.venue).toBe('BINANCE');
@@ -182,27 +184,27 @@ describe('Batch data preparation contract', () => {
     expect(report.coveragePct).toBeCloseTo((20 / 850) * 100);
   });
 
-  it('never ticker-joins Binance from CoinGecko identity', async () => {
+  it('never hydrates CoinGecko HTTP or joins Binance from a CoinGecko venue', async () => {
+    const fetchJson = jest.fn(async (url: string) => {
+      if (url.includes('coingecko')) throw new Error('COINGECKO_EXCLUDED');
+      if (url.includes('binance')) {
+        return [{ symbol: 'BTCUSDT', lastPrice: '70000' }];
+      }
+      return {};
+    });
     const { snapshot } = await hydrateBatchDataSnapshot({
       batchId: 'b-join',
       universeId: 'CRYPTO_SPOT_ALL',
       instruments: [cryptoSpot('bitcoin', 'COINGECKO')],
-      deps: {
-        fetchJson: async (url) => {
-          if (url.includes('binance')) {
-            return [{ symbol: 'BTCUSDT', lastPrice: '70000' }];
-          }
-          if (url.includes('coingecko')) return { bitcoin: { usd: 68000 } };
-          return {};
-        },
-      },
+      deps: { fetchJson },
     });
     expect(
       selectBatchProvider('CRYPTO_SPOT_ALL', [cryptoSpot('bitcoin', 'COINGECKO')]).provider,
-    ).toBe('coingecko');
-    expect(snapshot.provider).toBe('coingecko');
-    expect(snapshot.instruments[0]?.quote?.price).toBe(68000);
-    expect(snapshot.instruments[0]?.provider).not.toBe('binance-spot');
+    ).toBe('binance-spot');
+    expect(snapshot.provider).toBe('binance-spot');
+    expect(snapshot.instruments[0]?.reasonCode).toBe('PROVIDER_MISMATCH');
+    expect(snapshot.instruments[0]?.quote?.price).toBeUndefined();
+    expect(fetchJson.mock.calls.some(([url]) => String(url).includes('coingecko'))).toBe(false);
   });
 
   it('CRYPTO_SPOT_ALL quotes keep BINANCE venue and never stamp NSE', async () => {
@@ -562,34 +564,45 @@ describe('Batch snapshot isolation from auth', () => {
     ).toBe(true);
   });
 
-  it('maps crypto spot to Twelve Data BTC/USD without mutating BTCUSDT identity', async () => {
+  it('does not use Twelve Data for CRYPTO_* market hydrate', async () => {
     const ref = cryptoSpot('BTCUSDT');
     const client = new TwelveDataClient({
       apiKey: 'test-key',
       budget: new TwelveDataCreditBudget(8),
-      fetchJson: async (url) => {
-        expect(url).toContain('symbol=BTC%2FUSD');
-        return {
-          status: 'ok',
-          values: [
-            {
-              datetime: '2024-01-02',
-              open: '1',
-              high: '2',
-              low: '1',
-              close: '70000',
-              volume: '10',
-            },
-          ],
-        };
+      fetchJson: async () => {
+        throw new Error('Twelve Data must not hydrate CRYPTO_*');
       },
     });
     const { snapshot } = await hydrateBatchDataSnapshot({
       batchId: 'b-td-crypto',
       universeId: 'CRYPTO_SPOT_ALL',
       instruments: [ref],
-      deps: { twelveDataClient: client },
+      deps: {
+        twelveDataClient: client,
+        fetchJson: async (url) => {
+          expect(url).not.toMatch(/twelvedata|coingecko/);
+          if (url.includes('/ticker/24hr')) {
+            return [
+              {
+                symbol: 'BTCUSDT',
+                lastPrice: '70000',
+                priceChange: '1',
+                priceChangePercent: '1',
+                volume: '1',
+                highPrice: '1',
+                lowPrice: '1',
+                prevClosePrice: '1',
+              },
+            ];
+          }
+          if (url.includes('/klines')) {
+            return [[1_700_000_000_000, '1', '2', '0.5', '70000', '10']];
+          }
+          return [];
+        },
+      },
     });
+    expect(snapshot.provider).toBe('binance-spot');
     expect(snapshot.instruments[0]?.instrumentRef.symbol).toBe('BTCUSDT');
     expect(snapshot.instruments[0]?.instrumentRef.venue).toBe('BINANCE');
     expect(snapshot.instruments[0]?.quote?.price).toBe(70000);
