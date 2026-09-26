@@ -15,6 +15,7 @@ coverage/
 .env
 .env.local
 .env.*.local
+.env.test-cloud
 azure.env
 azure.*.env
 scripts/azure/env/development.sh

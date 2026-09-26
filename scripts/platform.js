@@ -14,6 +14,7 @@ const path = require('path');
 
 const ACTIONS = {
   start: 'start-platform.sh',
+  'start-cloud': 'start-platform-cloud.sh',
   stop: 'stop-platform.sh',
   restart: 'restart-platform.sh',
   'restart-ui-agent': 'restart-frontend-mds-agent.sh',

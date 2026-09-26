@@ -1,0 +1,80 @@
+# Overlay for hybrid free-tier: apps + local Kafka, cloud Postgres/Redis.
+# Used by: npm run start:all-cloud
+# Requires repo-root `.env.test-cloud` with DATABASE_URL + REDIS_URL (gitignored).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.test-cloud.yml ...
+#
+# Does not start local postgres/redis. Kafka remains in-cluster (kafka:9092).
+# Supabase Session pooler free tier is ~15 clients — keep Prisma pools tiny.
+
+name: stockpred
+
+services:
+  # Keep local DB/Redis out of `compose --profile apps up` (no profile = always started).
+  # Explicit `docker compose up postgres redis` still works for local start:all.
+  postgres:
+    profiles: ['local-infra']
+  redis:
+    profiles: ['local-infra']
+
+  migrate:
+    # Direct db.*.supabase.co is IPv6-only and fails from Docker Desktop (P1001).
+    # DATABASE_URL must be the Session pooler (aws-0-<region>.pooler.supabase.com:5432).
+    environment:
+      DATABASE_URL: ${DATABASE_URL}&connection_limit=1&pool_timeout=60
+    depends_on: !override {}
+
+  market-data-service:
+    environment:
+      # Default 2 (not 10/20): Session pooler pool_size ≈ 15 shared by all services.
+      DATABASE_URL: ${DATABASE_URL}&connection_limit=${MDS_DB_CONNECTION_LIMIT:-2}&pool_timeout=${MDS_DB_POOL_TIMEOUT:-30}
+      REDIS_URL: ${REDIS_URL}
+    depends_on: !override
+      kafka: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  auth-service:
+    environment:
+      DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
+      REDIS_URL: ${REDIS_URL}
+    depends_on: !override
+      migrate: { condition: service_completed_successfully }
+
+  signal-engine:
+    environment:
+      DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
+      REDIS_URL: ${REDIS_URL}
+
+  pattern-engine:
+    environment:
+      DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
+      REDIS_URL: ${REDIS_URL}
+
+  backtest-service:
+    environment:
+      DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
+      REDIS_URL: ${REDIS_URL}
+
+  auto-trader:
+    environment:
+      DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
+      REDIS_URL: ${REDIS_URL}
+
+  trader-agent:
+    environment:
+      DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
+      REDIS_URL: ${REDIS_URL}
+
+  notification-service:
+    environment:
+      DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
+      REDIS_URL: ${REDIS_URL}
+
+  api-gateway:
+    environment:
+      DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
+      REDIS_URL: ${REDIS_URL}
+
+  ml-engine:
+    environment:
+      DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
