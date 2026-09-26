@@ -244,6 +244,12 @@ export class MarketController {
     return this.market.getDataContract();
   }
 
+  /** Backend-owned MarketSessionState — FE must not clock-derive OPEN/CLOSED. */
+  @Get('market/session-state')
+  getMarketSessionState(): ReturnType<MarketService['getMarketSessionStates']> {
+    return this.market.getMarketSessionStates();
+  }
+
   /**
    * P5 Focus handoff — prioritize live quote refresh (Tier order from caller).
    * Optimization only; not trade authorization.
@@ -373,6 +379,12 @@ export class MarketController {
     const thr =
       dayReturnThreshold != null && dayReturnThreshold !== '' ? Number(dayReturnThreshold) : -0.05;
     return this.b9b17.historicalEvents(symbol, Number.isFinite(thr) ? thr : -0.05);
+  }
+
+  /** Historical analogues / forward distribution (A-wave) — not B13 shock events. */
+  @Get('intelligence/historical-analogues/:symbol')
+  historicalAnalogues(@Param('symbol') symbol: string) {
+    return this.b9b17.historicalAnalogues(symbol);
   }
 
   @Get('intelligence/cross-asset/:symbol')

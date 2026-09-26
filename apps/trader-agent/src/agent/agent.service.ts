@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import {
   AGENT_DISCLAIMER,
+  AppView,
   AgentAnalysis,
   AgentCapabilityRequest,
   AgentCapabilityStatus,
@@ -22,6 +23,9 @@ import {
   AgentSuggestion,
   AgentWalkForwardReport,
   AltDataView,
+  BatchCandle,
+  BatchDataSnapshot,
+  BatchInstrumentData,
   DecisionBudgetSnapshot,
   DecisionLedgerEntry,
   DecisionPolicyResult,
@@ -46,6 +50,8 @@ import {
   Timeframe,
   TradeDecision,
   TradeSide,
+  UserRole,
+  UserStatus,
   WaitRecommendation,
   StructuredThesis,
   ExitRecommendation,
@@ -93,10 +99,19 @@ import {
   approximateH4ClosesFromH1,
   approximateW1ClosesFromD1,
   inferTradeHorizon,
+  BATCH_HOT_PATH_TIMEOUT_MS,
+  MDS_FUNDAMENTALS_PANEL_ERROR,
+  MDS_NEWS_PANEL_ERROR,
+  type NseMdsFundamentalsPanelRow,
+  type NseMdsNewsPanelRow,
+  tiCrossSectionalFromFrozen,
+  tiMultiHorizonFromFrozen,
+  marketContextFromShared,
   evaluateExitPolicy,
   evaluatePortfolio,
   evaluateRisk,
   evaluateTrade,
+  mergeExecutionIdentityHeaders,
   buildP7BreakerMetrics,
   emptyP7RecoveryStore,
   evaluateP7BreakerSystem,
@@ -155,6 +170,40 @@ import { SoakController } from './soak-controller';
 
 const EXEC_FAIL_CIRCUIT = 3;
 const DUPLICATE_ORDER_WINDOW_MS = 60_000;
+const BATCH_MDS_TIMEOUT_MS = BATCH_HOT_PATH_TIMEOUT_MS;
+const BATCH_MDS_FAIL_SKIP_AFTER = 3;
+
+function mapMdsDailyCandles(rows: unknown[]): BatchCandle[] {
+  const candles: BatchCandle[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const bar = row as {
+      time?: unknown;
+      open?: unknown;
+      high?: unknown;
+      low?: unknown;
+      close?: unknown;
+      volume?: unknown;
+    };
+    const time = Number(bar.time);
+    const open = Number(bar.open);
+    const high = Number(bar.high);
+    const low = Number(bar.low);
+    const close = Number(bar.close);
+    const volume = Number(bar.volume);
+    if (![time, open, high, low, close].every((n) => Number.isFinite(n))) continue;
+    if (open <= 0 || high <= 0 || low <= 0 || close <= 0) continue;
+    candles.push({
+      time,
+      open,
+      high,
+      low,
+      close,
+      ...(Number.isFinite(volume) && volume >= 0 ? { volume } : {}),
+    });
+  }
+  return candles;
+}
 
 @Injectable()
 export class AgentService implements OnModuleInit {
@@ -206,6 +255,10 @@ export class AgentService implements OnModuleInit {
   private readonly ohSafety = new OhSafetyEventCollector();
   /** OH-5 observe-only data quality (never authorizes; never writes lastQuoteAgeMs). */
   private readonly ohDataQuality = new OhDataQualityCollector();
+  /** Intelligence-batch TI/RS/ML/B9: fail fast, then skip after consecutive MDS timeouts. */
+  private batchMdsFailStreak = 0;
+  private batchMdsSkip = false;
+  private niftyDailyCache: unknown[] | null = null;
   /** Symbol → last order-submit attempt (DUPLICATE_ORDER gate). */
   private readonly recentSubmits = new Map<string, number>();
   private readonly recommendations = new Map<string, AgentRecommendation>();
@@ -1096,32 +1149,147 @@ export class AgentService implements OnModuleInit {
     });
   }
 
-  /** B1 — cached MDS quotes keyed by symbol (page through /stocks). */
-  async fetchCachedQuotesMap(limit = 5000): Promise<Map<string, StockQuote>> {
+  /**
+   * B1 — cached MDS quotes keyed by symbol (page through /stocks).
+   * `timeoutMs` is per-page; keep it low for UI catalog paths so discovery stays snappy.
+   */
+  async fetchCachedQuotesMap(limit = 5000, timeoutMs = 30_000): Promise<Map<string, StockQuote>> {
     const map = new Map<string, StockQuote>();
     const pageSize = 500;
-    let page = 1;
-    let fetched = 0;
-    while (fetched < limit) {
-      const take = Math.min(pageSize, limit - fetched);
-      try {
-        const { data } = await axios.get<{ data: StockQuote[] }>(`${this.marketDataUrl}/stocks`, {
-          params: { page, limit: take, sort: 'symbol' },
-          timeout: 30_000,
-        });
-        const rows = data.data ?? [];
-        if (rows.length === 0) break;
-        for (const q of rows) {
-          if (q?.symbol) map.set(q.symbol.toUpperCase(), q);
+    const exchanges: Array<string | undefined> = [undefined, 'CRYPTO'];
+    for (const exchange of exchanges) {
+      let page = 1;
+      let fetched = 0;
+      while (fetched < limit) {
+        const take = Math.min(pageSize, limit - fetched);
+        try {
+          const { data } = await axios.get<{ data: StockQuote[] }>(`${this.marketDataUrl}/stocks`, {
+            params: { page, limit: take, sort: 'symbol', ...(exchange ? { exchange } : {}) },
+            timeout: timeoutMs,
+          });
+          const rows = data.data ?? [];
+          if (rows.length === 0) break;
+          for (const q of rows) {
+            if (q?.symbol) {
+              map.set(q.symbol, q);
+              map.set(q.symbol.toUpperCase(), q);
+            }
+          }
+          fetched += rows.length;
+          if (rows.length < take) break;
+          page += 1;
+        } catch {
+          break;
         }
-        fetched += rows.length;
-        if (rows.length < take) break;
-        page += 1;
-      } catch {
-        break;
       }
     }
     return map;
+  }
+
+  /**
+   * Multi-Asset Batch NSE/BSE hydrate — MDS daily candles only.
+   * Empty/error → [] so hydrate stays PARTIAL. Never invents bars.
+   */
+  async fetchNseDailyCandlesForBatch(symbol: string, limit = 120): Promise<BatchCandle[]> {
+    const sym = String(symbol ?? '')
+      .trim()
+      .toUpperCase();
+    if (!sym) return [];
+    const once = async (): Promise<BatchCandle[]> => {
+      const { data, status } = await axios.get<unknown>(
+        `${this.marketDataUrl}/stocks/${encodeURIComponent(sym)}/candles`,
+        {
+          params: { timeframe: Timeframe.ONE_DAY, limit },
+          timeout: BATCH_MDS_TIMEOUT_MS,
+          validateStatus: (s) => s >= 200 && s < 500,
+        },
+      );
+      if (status >= 300 || !Array.isArray(data)) return [];
+      return mapMdsDailyCandles(data);
+    };
+    try {
+      return await once();
+    } catch {
+      try {
+        return await once();
+      } catch {
+        return [];
+      }
+    }
+  }
+
+  /**
+   * One-shot MDS fundamentals panel for NSE/BSE batch overlay.
+   * Failure is non-fatal: empty rows + reason. Never ingest. Never per-symbol HTTP.
+   */
+  async fetchFundamentalsPanelForBatch(): Promise<{
+    rows: NseMdsFundamentalsPanelRow[];
+    reason?: string;
+  }> {
+    try {
+      const { data, status } = await axios.get<unknown>(
+        `${this.marketDataUrl}/fundamentals/panel`,
+        {
+          timeout: 30_000,
+          validateStatus: (s) => s >= 200 && s < 500,
+        },
+      );
+      if (status >= 300 || !Array.isArray(data)) {
+        return { rows: [], reason: MDS_FUNDAMENTALS_PANEL_ERROR };
+      }
+      return { rows: data as NseMdsFundamentalsPanelRow[] };
+    } catch {
+      return { rows: [], reason: MDS_FUNDAMENTALS_PANEL_ERROR };
+    }
+  }
+
+  /**
+   * One-shot MDS news panel for NSE/BSE batch overlay.
+   * Failure is non-fatal: empty rows + reason. Never ingest. Never per-symbol HTTP.
+   */
+  async fetchNewsPanelForBatch(): Promise<{
+    rows: NseMdsNewsPanelRow[];
+    reason?: string;
+  }> {
+    try {
+      const { data, status } = await axios.get<unknown>(
+        `${this.marketDataUrl}/alt-data/panel/news`,
+        {
+          timeout: 30_000,
+          validateStatus: (s) => s >= 200 && s < 500,
+        },
+      );
+      if (status >= 300 || !Array.isArray(data)) {
+        return { rows: [], reason: MDS_NEWS_PANEL_ERROR };
+      }
+      return { rows: data as NseMdsNewsPanelRow[] };
+    } catch {
+      return { rows: [], reason: MDS_NEWS_PANEL_ERROR };
+    }
+  }
+
+  async fetchNiftyDailyForBatch(limit = 500): Promise<BatchCandle[]> {
+    const once = async (): Promise<BatchCandle[]> => {
+      const { data, status } = await axios.get<unknown>(
+        `${this.marketDataUrl}/indices/NIFTY_50/candles`,
+        {
+          params: { limit },
+          timeout: BATCH_MDS_TIMEOUT_MS,
+          validateStatus: (s) => s >= 200 && s < 500,
+        },
+      );
+      if (status >= 300 || !Array.isArray(data)) return [];
+      return mapMdsDailyCandles(data);
+    };
+    try {
+      return await once();
+    } catch {
+      try {
+        return await once();
+      } catch {
+        return [];
+      }
+    }
   }
 
   /**
@@ -1155,7 +1323,9 @@ export class AgentService implements OnModuleInit {
   /**
    * B2 — shared MDS market context for batch finalize (symbol-agnostic, observe-only).
    */
-  async fetchTiMarketContextForIntelligenceBatch(): Promise<
+  async fetchTiMarketContextForIntelligenceBatch(
+    frozenSnapshot?: BatchDataSnapshot | null,
+  ): Promise<
     | {
         scannerRegime?: string;
         vixLevel?: number | null;
@@ -1165,6 +1335,7 @@ export class AgentService implements OnModuleInit {
       }
     | undefined
   > {
+    if (frozenSnapshot?.frozen) return marketContextFromShared(frozenSnapshot);
     return (await this.fetchTiMarketContext()) ?? undefined;
   }
 
@@ -1172,9 +1343,33 @@ export class AgentService implements OnModuleInit {
    * B2 Intelligence Batch — per-symbol TI (RS/sector/MTF). Market context via
    * fetchTiMarketContextForIntelligenceBatch (shared once per finalize).
    */
+  resetBatchMdsCircuit(): void {
+    this.batchMdsFailStreak = 0;
+    this.batchMdsSkip = false;
+  }
+
+  private noteBatchMdsFailure(kind: string): void {
+    this.batchMdsFailStreak += 1;
+    if (!this.batchMdsSkip && this.batchMdsFailStreak >= BATCH_MDS_FAIL_SKIP_AFTER) {
+      this.batchMdsSkip = true;
+      console.warn(
+        `[intelligence-batch] skipping remaining MDS TI/RS/ML/B9 after ${this.batchMdsFailStreak} consecutive timeouts (${kind})`,
+      );
+    }
+  }
+
+  private noteBatchMdsSuccess(): void {
+    if (!this.batchMdsSkip) this.batchMdsFailStreak = 0;
+  }
+
   async fetchTiInputsForIntelligenceBatch(
     symbol: string,
     expectedHoldingPeriod?: string | null,
+    frozen?: {
+      snapshot?: BatchDataSnapshot | null;
+      row?: BatchInstrumentData;
+      quote?: StockQuote | null;
+    },
   ): Promise<{
     crossSectional?: {
       rsVsNifty50?: number | null;
@@ -1197,10 +1392,28 @@ export class AgentService implements OnModuleInit {
       asOf?: number;
     };
   }> {
+    if (frozen?.snapshot?.frozen) {
+      return {
+        crossSectional: tiCrossSectionalFromFrozen({
+          symbol,
+          row: frozen.row,
+          quote: frozen.quote,
+          snapshot: frozen.snapshot,
+        }),
+        multiHorizon:
+          tiMultiHorizonFromFrozen({
+            row: frozen.row,
+            expectedHoldingPeriod,
+          }) ?? undefined,
+      };
+    }
+    if (this.batchMdsSkip) return {};
     const [crossSectional, multiHorizon] = await Promise.all([
-      this.fetchTiCrossSectional(symbol),
-      this.fetchTiMultiHorizon(symbol, expectedHoldingPeriod),
+      this.fetchTiCrossSectional(symbol, BATCH_MDS_TIMEOUT_MS),
+      this.fetchTiMultiHorizon(symbol, expectedHoldingPeriod, BATCH_MDS_TIMEOUT_MS),
     ]);
+    if (!crossSectional && !multiHorizon) this.noteBatchMdsFailure('ti-inputs');
+    else this.noteBatchMdsSuccess();
     return {
       crossSectional: crossSectional ?? undefined,
       multiHorizon: multiHorizon ?? undefined,
@@ -2029,7 +2242,7 @@ export class AgentService implements OnModuleInit {
     userId?: string,
     quantityOverride?: number,
     brandId?: string,
-    opts?: { autonomous?: boolean },
+    opts?: { autonomous?: boolean; userRole?: string; views?: string[]; status?: string },
   ): Promise<{
     recommendation: AgentRecommendation;
     trade: unknown;
@@ -2323,10 +2536,15 @@ export class AgentService implements OnModuleInit {
           soakRunId: this.soakController?.getActiveRunId(),
         },
         {
-          headers: {
-            ...(userId ? { 'x-user-id': userId } : {}),
-            ...(brandId ? { 'x-brand-id': brandId } : {}),
-          },
+          headers: mergeExecutionIdentityHeaders('trader-agent', {
+            sub: userId,
+            role: (opts?.userRole as UserRole) || UserRole.USER,
+            brandId: brandId ?? null,
+            views: (opts?.views as AppView[] | undefined)?.length
+              ? (opts?.views as AppView[])
+              : [AppView.AGENT],
+            status: (opts?.status as UserStatus) || UserStatus.ACTIVE,
+          }),
           timeout: 30_000,
         },
       );
@@ -3103,7 +3321,10 @@ export class AgentService implements OnModuleInit {
   }
 
   /** Quote RS + peer valuation for T1.4 (observe-only). Truthful niftyRs fallback via MDS quote. */
-  private async fetchTiCrossSectional(symbol: string): Promise<{
+  private async fetchTiCrossSectional(
+    symbol: string,
+    timeoutMs = 5_000,
+  ): Promise<{
     rsVsNifty50?: number | null;
     sector?: string | null;
     peVsMedianPct?: number | null;
@@ -3118,21 +3339,27 @@ export class AgentService implements OnModuleInit {
     rsSource?: 'QUOTE' | 'SCANNER' | 'MISSING';
   } | null> {
     try {
+      const niftyCached = this.niftyDailyCache;
       const [quoteRes, peerRes, niftyCandlesRes] = await Promise.all([
         axios.get(`${this.marketDataUrl}/stocks/${encodeURIComponent(symbol)}`, {
-          timeout: 5_000,
+          timeout: timeoutMs,
           validateStatus: (s) => s >= 200 && s < 500,
         }),
         axios.get(`${this.marketDataUrl}/stocks/${encodeURIComponent(symbol)}/peer-valuation`, {
-          timeout: 5_000,
+          timeout: timeoutMs,
           validateStatus: (s) => s >= 200 && s < 500,
         }),
-        axios.get(`${this.marketDataUrl}/indices/NIFTY_50/candles`, {
-          params: { limit: 5000 },
-          timeout: 5_000,
-          validateStatus: (s) => s >= 200 && s < 500,
-        }),
+        niftyCached
+          ? Promise.resolve({ data: niftyCached, status: 200 })
+          : axios.get(`${this.marketDataUrl}/indices/NIFTY_50/candles`, {
+              params: { limit: 5000 },
+              timeout: timeoutMs,
+              validateStatus: (s) => s >= 200 && s < 500,
+            }),
       ]);
+      if (!niftyCached && Array.isArray(niftyCandlesRes.data)) {
+        this.niftyDailyCache = niftyCandlesRes.data;
+      }
       const quote = quoteRes.data as Record<string, unknown> | null;
       const peer = peerRes.data as Record<string, unknown> | null;
       const scanner = (quote?.scanner as Record<string, unknown> | undefined) ?? undefined;
@@ -3200,6 +3427,7 @@ export class AgentService implements OnModuleInit {
   private async fetchTiMultiHorizon(
     symbol: string,
     expectedHoldingPeriod?: string | null,
+    timeoutMs = 8_000,
   ): Promise<{
     tradeHorizon: ReturnType<typeof inferTradeHorizon>;
     intendedSide: 'LONG';
@@ -3213,7 +3441,7 @@ export class AgentService implements OnModuleInit {
           `${this.marketDataUrl}/stocks/${encodeURIComponent(symbol)}/candles/mtf`,
           {
             params: { limit: 120 },
-            timeout: 8_000,
+            timeout: timeoutMs,
             validateStatus: (s) => s >= 200 && s < 500,
           },
         ),
@@ -3221,7 +3449,7 @@ export class AgentService implements OnModuleInit {
           `${this.marketDataUrl}/stocks/${encodeURIComponent(symbol)}/candles`,
           {
             params: { timeframe: Timeframe.ONE_DAY, limit: 120 },
-            timeout: 8_000,
+            timeout: timeoutMs,
             validateStatus: (s) => s >= 200 && s < 500,
           },
         ),
@@ -3328,7 +3556,10 @@ export class AgentService implements OnModuleInit {
   }
 
   /** Usable ML prediction from MDS (fresh + drift-compatible). Observe-only. */
-  private async fetchTiMlPrediction(symbol: string): Promise<{
+  private async fetchTiMlPrediction(
+    symbol: string,
+    timeoutMs = 5_000,
+  ): Promise<{
     prediction: HorizonPrediction | null;
     fetchError: boolean;
     rawPresent: boolean;
@@ -3338,7 +3569,7 @@ export class AgentService implements OnModuleInit {
     try {
       const { data, status } = await axios.get<Record<string, unknown> | null>(
         `${this.marketDataUrl}/market/predictions/${encodeURIComponent(symbol)}`,
-        { timeout: 5_000, validateStatus: (s) => s >= 200 && s < 500 },
+        { timeout: timeoutMs, validateStatus: (s) => s >= 200 && s < 500 },
       );
       if (!data || typeof data !== 'object') {
         if (sample) {
@@ -3565,11 +3796,16 @@ export class AgentService implements OnModuleInit {
    * B3 — existing TI catalyst for batch finalize (observe-only).
    * Preserves asOf from alt-data; does not invent a new timestamp schema.
    */
-  async fetchTiCatalystForIntelligenceBatch(symbol: string): Promise<{
+  async fetchTiCatalystForIntelligenceBatch(
+    symbol: string,
+    frozen?: { snapshot?: BatchDataSnapshot | null },
+  ): Promise<{
     candidates: ReturnType<typeof candidatesFromAltData>;
     decisionTimestamp: number;
     asOf?: number;
   } | null> {
+    if (frozen?.snapshot?.frozen) return null;
+    if (this.batchMdsSkip) return null;
     return this.fetchTiCatalyst(symbol);
   }
 
@@ -3612,13 +3848,35 @@ export class AgentService implements OnModuleInit {
    * B5 — usable ML prediction for batch finalize (observe-only via MDS).
    * Does not invent predictions; returns null prediction when missing/unusable upstream.
    */
-  async fetchTiMlPredictionForIntelligenceBatch(symbol: string): Promise<{
+  async fetchTiMlPredictionForIntelligenceBatch(
+    symbol: string,
+    frozen?: { snapshot?: BatchDataSnapshot | null },
+  ): Promise<{
     prediction: HorizonPrediction | null;
     fetchError: boolean;
     rawPresent: boolean;
     omitReason?: string;
   }> {
-    return this.fetchTiMlPrediction(symbol);
+    if (frozen?.snapshot?.frozen) {
+      return {
+        prediction: null,
+        fetchError: false,
+        rawPresent: false,
+        omitReason: 'FROZEN_SNAPSHOT',
+      };
+    }
+    if (this.batchMdsSkip) {
+      return {
+        prediction: null,
+        fetchError: true,
+        rawPresent: false,
+        omitReason: 'PROVIDER_REQUEST_FAILED',
+      };
+    }
+    const result = await this.fetchTiMlPrediction(symbol, BATCH_MDS_TIMEOUT_MS);
+    if (result.fetchError) this.noteBatchMdsFailure('ml');
+    else this.noteBatchMdsSuccess();
+    return result;
   }
 
   /** Refresh MDS prediction cache before batch finalize (usable-only contract unchanged). */
@@ -3643,7 +3901,11 @@ export class AgentService implements OnModuleInit {
   /** B9–B17 advisory fetch — never authorization. Missing → null (omit labels). */
   async fetchB9B17AdvisoryForIntelligenceBatch(
     symbol: string,
-    opts?: { sector?: string | null; globalEventType?: string | null },
+    opts?: {
+      sector?: string | null;
+      globalEventType?: string | null;
+      frozenSnapshot?: BatchDataSnapshot | null;
+    },
   ): Promise<{
     sectorState?: string | null;
     bullRunStage?: string | null;
@@ -3658,6 +3920,8 @@ export class AgentService implements OnModuleInit {
     globalEventImpact?: string | null;
     fnoStatus?: string | null;
   }> {
+    if (opts?.frozenSnapshot?.frozen) return {};
+    if (this.batchMdsSkip) return {};
     const out: {
       sectorState?: string | null;
       bullRunStage?: string | null;
@@ -3689,7 +3953,7 @@ export class AgentService implements OnModuleInit {
           executionReadyFromBullRun?: boolean;
         };
       }>(`${this.marketDataUrl}/intelligence/bull-run/${encodeURIComponent(symbol)}`, {
-        timeout: 8_000,
+        timeout: BATCH_MDS_TIMEOUT_MS,
         validateStatus: (s) => s >= 200 && s < 500,
       });
       if (bull?.status === 'AVAILABLE' && bull.stage && bull.stage !== 'UNKNOWN') {
@@ -3728,7 +3992,7 @@ export class AgentService implements OnModuleInit {
     try {
       const { data: fno } = await axios.get<{ status?: string; reason?: string }>(
         `${this.marketDataUrl}/intelligence/fno/${encodeURIComponent(symbol)}`,
-        { timeout: 5_000, validateStatus: (s) => s >= 200 && s < 500 },
+        { timeout: BATCH_MDS_TIMEOUT_MS, validateStatus: (s) => s >= 200 && s < 500 },
       );
       if (fno?.status) {
         out.fnoStatus =
@@ -3743,7 +4007,7 @@ export class AgentService implements OnModuleInit {
       try {
         const { data: sec } = await axios.get<{ status?: string; state?: string }>(
           `${this.marketDataUrl}/intelligence/sectors/${encodeURIComponent(opts.sector.trim())}`,
-          { timeout: 8_000, validateStatus: (s) => s >= 200 && s < 500 },
+          { timeout: BATCH_MDS_TIMEOUT_MS, validateStatus: (s) => s >= 200 && s < 500 },
         );
         if (sec?.status === 'AVAILABLE' && sec.state && sec.state !== 'UNKNOWN') {
           out.sectorState = sec.state;
@@ -3773,14 +4037,86 @@ export class AgentService implements OnModuleInit {
   }
 
   async fetchSectorMembersForIntelligenceBatch(sector: string): Promise<string[]> {
+    return (await this.fetchSectorSnapshotForIntelligenceBatch(sector))?.symbols ?? [];
+  }
+
+  async fetchSectorSnapshotForIntelligenceBatch(sector: string): Promise<{
+    symbols: string[];
+    source: string;
+    universeVersion: string;
+    sectorVersion: string;
+    effectiveFrom: string;
+  } | null> {
     try {
-      const { data } = await axios.get<{ symbols?: string[] }>(
-        `${this.marketDataUrl}/intelligence/sectors/${encodeURIComponent(sector)}/members`,
-        { timeout: 10_000, validateStatus: (s) => s >= 200 && s < 500 },
-      );
-      return Array.isArray(data?.symbols) ? data.symbols.map((s) => String(s).toUpperCase()) : [];
+      const { data } = await axios.get<{
+        symbols?: string[];
+        source?: string;
+        universeVersion?: string;
+        sectorVersion?: string;
+        effectiveFrom?: string;
+      }>(`${this.marketDataUrl}/intelligence/sectors/${encodeURIComponent(sector)}/members`, {
+        timeout: 10_000,
+        validateStatus: (s) => s >= 200 && s < 500,
+      });
+      if (
+        !Array.isArray(data?.symbols) ||
+        !data.source ||
+        !data.universeVersion ||
+        !data.sectorVersion ||
+        !data.effectiveFrom
+      ) {
+        return null;
+      }
+      return {
+        symbols: data.symbols.map((s) => String(s).toUpperCase()),
+        source: data.source,
+        universeVersion: data.universeVersion,
+        sectorVersion: data.sectorVersion,
+        effectiveFrom: data.effectiveFrom,
+      };
     } catch {
-      return [];
+      return null;
+    }
+  }
+
+  /**
+   * Batch-as-of sector leaders/laggards from MDS sectors/all (once per finalize/rebuild).
+   * Empty map when MDS unavailable — builder falls back to RankingContext within-sector ranks.
+   */
+  async fetchSectorLeadersSnapshotForIntelligenceBatch(): Promise<
+    Record<string, { leaders?: string[]; laggards?: string[] }>
+  > {
+    try {
+      const { data } = await axios.get<{
+        sectors?: Array<{
+          sector?: string;
+          leaders?: Array<{ symbol?: string } | string>;
+          laggards?: Array<{ symbol?: string } | string>;
+        }>;
+      }>(`${this.marketDataUrl}/intelligence/sectors/all`, {
+        timeout: 15_000,
+        validateStatus: (s) => s >= 200 && s < 500,
+      });
+      const out: Record<string, { leaders?: string[]; laggards?: string[] }> = {};
+      for (const s of data?.sectors ?? []) {
+        const key = String(s.sector ?? '')
+          .trim()
+          .toUpperCase();
+        if (!key) continue;
+        const toSyms = (arr: Array<{ symbol?: string } | string> | undefined) =>
+          (arr ?? [])
+            .map((x) => (typeof x === 'string' ? x : x?.symbol))
+            .filter((x): x is string => !!x && String(x).trim().length > 0)
+            .map((x) => String(x).toUpperCase());
+        const leaders = toSyms(s.leaders);
+        const laggards = toSyms(s.laggards);
+        if (leaders.length || laggards.length) {
+          out[key] = { leaders, laggards };
+        }
+      }
+      return out;
+    } catch {
+      return {};
     }
   }
 
@@ -3847,6 +4183,27 @@ export class AgentService implements OnModuleInit {
         return data;
       }
       return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Observe-only FinBERT/lexicon score via existing ml-engine score_headline.
+   * Error/timeout → null. Never fabricates 0 / NEUTRAL as missing.
+   */
+  async scoreHeadline(text: string): Promise<number | null> {
+    const title = String(text ?? '').trim();
+    if (!title) return null;
+    try {
+      const response = await axios.post<{ sentiment?: unknown; score?: unknown }>(
+        `${this.mlUrl}/nlp/headline`,
+        { text: title },
+        { timeout: 8_000, validateStatus: () => true },
+      );
+      if (response.status < 200 || response.status >= 300) return null;
+      const raw = response.data?.sentiment ?? response.data?.score;
+      return typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
     } catch {
       return null;
     }

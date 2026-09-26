@@ -4,6 +4,8 @@
  * Missing / insufficient data → UNAVAILABLE or UNKNOWN — never fabricated 0/NEUTRAL.
  */
 
+import type { SessionReturn1dStatus } from './market';
+
 export type IntelligenceAvailabilityStatus = 'AVAILABLE' | 'UNAVAILABLE' | 'UNKNOWN';
 
 export type IntelligenceUnavailableReason =
@@ -41,10 +43,34 @@ export type SectorState = 'LEADING' | 'IMPROVING' | 'WEAKENING' | 'LAGGING' | 'U
 export interface SectorMemberSnapshot {
   symbol: string;
   return1d?: number | null;
+  /** ~1 week (trading sessions) */
   return5d?: number | null;
+  /** ~15 trading sessions */
+  return15d?: number | null;
+  /** ~1 month (trading sessions) */
   return20d?: number | null;
+  /** ~3 months */
   return60d?: number | null;
+  /** ~6 months */
+  return126d?: number | null;
+  /** ~1 year */
+  return252d?: number | null;
   relativeStrength?: number | null;
+  /** Observed current-session 1D freshness for this member (when computed). */
+  sessionReturnStatus?: SessionReturn1dStatus | null;
+  sessionDate?: string | null;
+}
+
+/** Coverage of observed current-session 1D across sector members. */
+export interface SectorSessionCoverage {
+  live: number;
+  delayed: number;
+  priorSession: number;
+  closedMarket: number;
+  stale: number;
+  unavailable: number;
+  newestDataAt?: number | null;
+  oldestDataAt?: number | null;
 }
 
 export interface SectorIntelligenceSnapshot {
@@ -54,19 +80,39 @@ export interface SectorIntelligenceSnapshot {
   industry?: string | null;
   subIndustry?: string | null;
   return1d?: number | null;
+  /** ~1 week (trading sessions) */
   return5d?: number | null;
+  /** ~15 trading sessions */
+  return15d?: number | null;
+  /** ~1 month (trading sessions) */
   return20d?: number | null;
+  /** ~3 months */
   return60d?: number | null;
+  /** ~6 months */
+  return126d?: number | null;
+  /** ~1 year */
+  return252d?: number | null;
   breadthAdvancing?: number | null;
   breadthDeclining?: number | null;
   breadthUnchanged?: number | null;
   relativeStrength?: number | null;
   momentum?: number | null;
   volatility?: number | null;
+  /** Equal-weighted sector index points (normalized ~100 at start), for sparklines. */
+  trendSeries?: number[];
+  /** Optional fundamentals enrichment when available. */
+  medianPe?: number | null;
+  medianPb?: number | null;
   state: SectorState;
   leaders: SectorMemberSnapshot[];
   laggards: SectorMemberSnapshot[];
   coverageSymbols: number;
+  memberCount?: number;
+  /** IST YYYY-MM-DD of the tip used for aggregate 1D (modal / newest). */
+  sessionDate?: string | null;
+  /** Aggregate freshness for observed 1D (not wall-clock). */
+  dataStatus?: SessionReturn1dStatus | null;
+  sessionCoverage?: SectorSessionCoverage;
   provenance: IntelligenceProvenance;
 }
 

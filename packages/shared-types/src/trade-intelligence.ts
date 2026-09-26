@@ -424,6 +424,12 @@ export type TiRankingDimension =
   | 'TECHNICAL'
   | 'LIQUIDITY'
   | 'FRESHNESS'
+  | 'FUNDAMENTAL'
+  | 'NEWS'
+  | 'SENTIMENT'
+  | 'MACRO'
+  | 'ONCHAIN'
+  | 'SOCIAL'
   | 'PORTFOLIO_FIT';
 
 /**
@@ -469,6 +475,16 @@ export interface RankingDimensionStrip {
   technical: TiRankingBand;
   liquidity: TiRankingBand;
   freshness: TiRankingBand;
+  /** Phase C observe-only — missing stays UNKNOWN, never 0/NEUTRAL. */
+  fundamental: TiRankingBand;
+  news: TiRankingBand;
+  sentiment: TiRankingBand;
+  /** Batch-level snapshot.macro context — not per-symbol CPI. */
+  macro: TiRankingBand;
+  /** On-chain analytics — missing UNKNOWN, never 0. Not a BUY/SELL. */
+  onchain: TiRankingBand;
+  /** Reddit/social evidence — presence MED, never volume HIGH / BUY. */
+  social: TiRankingBand;
   /** Soft context only — tie-break at end of precedence. */
   portfolioFit: TiRankingBand;
   expectedValueR?: number | null;
@@ -551,4 +567,19 @@ export interface IntelligenceSnapshot {
    * Observe-only — never feed into Risk / Portfolio / Policy / Gate.
    */
   mlPrediction?: import('./ml').MLPredictionSnapshot;
+  /** Omit when missing. Never 0/NEUTRAL fill. Equity statements never attach to crypto or commodity classes. */
+  fundamental?: import('./asset-intelligence').FundamentalPayload;
+  /** CRYPTO_FUTURE contract economics live here, not in `fundamental`. */
+  derivatives?: import('./asset-intelligence').IntelligenceDerivativesBlock;
+  positioning?: import('./asset-intelligence').IntelligencePositioningBlock;
+  news?: import('./asset-intelligence').IntelligenceNewsBlock;
+  /** Observe-only FinBERT score. `null` means missing — never numeric 0 fill. */
+  sentiment?: import('./asset-intelligence').BatchSentiment;
+  macro?: import('./asset-intelligence').IntelligenceMacroBlock;
+  /** On-chain analytics. Observe-only — never Risk / Gate / execution. */
+  onchain?: import('./asset-intelligence').IntelligenceOnchainBlock;
+  /** Reddit/social evidence. Observe-only — never volume BUY/SELL / Risk / Gate. */
+  social?: import('./asset-intelligence').IntelligenceSocialBlock;
+  crossAsset?: import('./asset-intelligence').IntelligenceCrossAssetBlock;
+  dataQuality?: import('./asset-intelligence').IntelligenceDataQualityBlock;
 }

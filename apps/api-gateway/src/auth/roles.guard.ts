@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AppView, roleSatisfies, UserRole, UserStatus } from '@stockpred/shared-types';
+import { mergeExecutionIdentityHeaders } from '@stockpred/shared-utils';
 import type { AuthenticatedRequest } from './jwt.guard';
 
 export const ROLES_KEY = 'roles';
@@ -32,7 +33,10 @@ export class RolesGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const role = request.user?.role;
     if (!role) throw new UnauthorizedException('Missing authenticated user');
-    if (request.user?.status === UserStatus.SUSPENDED) {
+    if (
+      request.user?.status === UserStatus.SUSPENDED ||
+      request.user?.status === UserStatus.DELETED
+    ) {
       throw new ForbiddenException('Account is suspended');
     }
     if (roleSatisfies(role, required)) return true;
@@ -54,7 +58,7 @@ export class ViewsGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const user = request.user;
     if (!user) throw new UnauthorizedException('Missing authenticated user');
-    if (user.status === UserStatus.SUSPENDED) {
+    if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DELETED) {
       throw new ForbiddenException('Account is suspended');
     }
     if (user.role === UserRole.SUPERADMIN || user.role === UserRole.ADMIN) return true;
@@ -76,13 +80,7 @@ export class ViewsGuard implements CanActivate {
   }
 }
 
-/** Build downstream identity headers from the JWT. */
+/** Build downstream identity + s2s headers from the JWT. */
 export function identityHeaders(user?: AuthenticatedRequest['user']): Record<string, string> {
-  if (!user) return {};
-  const headers: Record<string, string> = {
-    'x-user-id': user.sub,
-    'x-user-role': user.role,
-  };
-  if (user.brandId) headers['x-brand-id'] = user.brandId;
-  return headers;
+  return mergeExecutionIdentityHeaders('api-gateway', user ?? null);
 }

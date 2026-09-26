@@ -131,3 +131,38 @@ export function probabilityFromCompactCells(
   const hit = matchCompactCell(cells, targetReturn, horizon);
   return hit?.p ?? null;
 }
+
+/** Detail matrix targets including ≥5% (mockup); never invent missing cells. */
+export const OPPORTUNITY_DETAIL_TARGETS = [0.05, 0.1, 0.2, 0.3, 0.5, 1.0] as const;
+
+export function formatSetupLabel(horizon: string, targetReturn: number): string {
+  if (!horizon || !Number.isFinite(targetReturn)) return 'Not available';
+  return `${horizon} ≥ ${Math.round(targetReturn * 100)}%`;
+}
+
+/** Build horizon-matrix shape from compact cells for display lookup only. */
+export function matrixFromCompactCells(cells: CompactBullRunCell[]): HorizonMatrixLike[] {
+  const byH = new Map<string, MatrixCellLike[]>();
+  for (const c of cells) {
+    if (!c.h || !Number.isFinite(c.t)) continue;
+    const list = byH.get(c.h) ?? [];
+    list.push({
+      targetReturn: c.t,
+      status: c.status ?? 'AVAILABLE',
+      p: Number.isFinite(c.p) ? c.p : null,
+      conf: c.conf,
+    });
+    byH.set(c.h, list);
+  }
+  return [...byH.entries()].map(([horizon, rowCells]) => ({ horizon, cells: rowCells }));
+}
+
+export function confidenceChipColor(
+  conf: string | null | undefined,
+): 'success' | 'warning' | 'error' | 'default' {
+  const c = String(conf ?? '').toUpperCase();
+  if (c === 'HIGH') return 'success';
+  if (c === 'MEDIUM') return 'warning';
+  if (c === 'LOW') return 'error';
+  return 'default';
+}

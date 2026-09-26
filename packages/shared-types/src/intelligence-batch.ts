@@ -25,9 +25,24 @@ export type IntelligenceUniverseId =
   | 'NIFTY150'
   | 'NIFTY500'
   | 'ALL'
+  | 'NSE_ALL'
+  | 'US_SP500'
+  | 'US_ALL'
+  | 'CRYPTO_ALL'
+  | 'CRYPTO_SPOT_ALL'
+  | 'CRYPTO_FUTURES_ALL'
+  | 'COMMODITY_ALL'
+  | 'FUTURES_ALL'
+  | 'MCX_FUTURES_ALL'
+  | 'CME_FUTURES_ALL'
+  | 'FOREX_ALL'
   | 'CUSTOM'
   | 'SECTOR'
-  | 'SINGLE_STOCK';
+  | 'SINGLE_STOCK'
+  | 'US_CUSTOM'
+  | 'CRYPTO_CUSTOM'
+  | 'COMMODITIES_CUSTOM'
+  | 'FUTURES_CUSTOM';
 
 /** FULL_ANALYSIS executable; LIVE_CONTINUOUS reserved. */
 export type IntelligenceBatchType = 'FULL_ANALYSIS' | 'LIVE_CONTINUOUS';
@@ -45,7 +60,12 @@ export type IntelligenceScanKind =
   | 'INVERSE_SCAN'
   | 'EVENT_ANALYSIS'
   | 'GLOBAL_EVENT_SCAN'
-  | 'CUSTOM';
+  | 'CUSTOM'
+  | 'US_SCAN'
+  | 'CRYPTO_SCAN'
+  | 'COMMODITIES_SCAN'
+  | 'FUTURES_SCAN'
+  | 'FOREX_SCAN';
 
 /** HISTORICAL executable in B1; LIVE / HYBRID reserved. */
 export type IntelligenceBatchMode = 'HISTORICAL' | 'LIVE' | 'HYBRID';
@@ -60,6 +80,19 @@ export type IntelligenceBatchStatus =
   | 'FAILED'
   | 'CANCELLED'
   | 'PARTIAL';
+
+/**
+ * Data-preparation / analysis phase. Independent of BatchStatus, DataStatus,
+ * MarketSession, CapabilityState, and ExecutionReadiness.
+ */
+export type IntelligenceBatchLifecycleStage =
+  | 'UNIVERSE_RESOLVED'
+  | 'DATA_PREPARING'
+  | 'DATA_HYDRATING'
+  | 'DATA_VALIDATED'
+  | 'RUNNING_INTELLIGENCE'
+  | 'RUNNING_PROFESSIONAL_TRADER'
+  | 'FINALIZING';
 
 export type BatchSymbolTaskStatus = 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED' | 'SKIPPED';
 
@@ -207,10 +240,21 @@ export interface IntelligenceBatchContextLabels {
   bullRunDataStatus?: 'LIVE' | 'DELAYED' | 'STALE' | 'OFFLINE' | 'UNKNOWN';
   globalEventImpact?: string;
   fnoStatus?: string;
+  /**
+   * Slice B — backend-owned Best Opportunity eligibility from snapshot evidence.
+   * false cannot be overridden by score, rank, or trade-plan APPROVE.
+   */
+  bestOpportunityEligible?: boolean;
+  /** Why recommendation / Best Opportunity was blocked. Omit when unrestricted. */
+  recommendationEligibilityReason?: string;
 }
 
 /** Quote/identity provenance for a batch result row — never replaces task.symbol. */
-export type BatchIdentityStatus = 'VALID' | 'UNKNOWN_QUOTE' | 'MISMATCH';
+export type BatchIdentityStatus = 'VALID' | 'UNKNOWN_QUOTE' | 'MISMATCH' | 'IDENTITY_MISMATCH';
+
+export type BatchResultRecommendation = 'APPROVE' | 'WAIT' | 'WATCH' | 'NO_TRADE' | 'REJECT';
+
+export type BatchQuarantineStatus = 'IDENTITY_MISMATCH';
 
 /** Named backend presets — FE must not invent filter combinations. */
 export type IntelligenceBatchResultsPreset =
@@ -312,6 +356,9 @@ export interface BatchCheckpoint {
 
 export interface IntelligenceBatchProgress {
   processed: number;
+  pending: number;
+  failed: number;
+  totalEligible: number;
   total: number;
   percent: number;
   stages: IntelligencePipelineStageProgress[];
@@ -326,7 +373,35 @@ export interface IntelligenceBatch {
   batchType: IntelligenceBatchType;
   mode: IntelligenceBatchMode;
   status: IntelligenceBatchStatus;
+  /**
+   * Preparation/analysis phase. Never overload BatchStatus, DataStatus,
+   * MarketSession, CapabilityState, or ExecutionReadiness with this.
+   */
+  lifecycleStage?: IntelligenceBatchLifecycleStage;
+  /** Frozen BatchDataSnapshot identity for this run. MDS/cache is not batch input. */
+  dataSnapshotVersion?: string;
+  dataReadiness?: import('./asset-intelligence').BatchDataReadiness;
+  dataReadinessReport?: import('./asset-intelligence').BatchDataReadinessReport;
   symbols: string[];
+  /** Immutable canonical identities for this run. */
+  instrumentSet?: import('./instrument').InstrumentRef[];
+  /**
+   * Immutable membership snapshot identity — must match canonical universe version
+   * used at create time. Current universe refreshes must not rewrite this set.
+   */
+  universeVersion?: string;
+  membershipSource?: string;
+  eligibleCount?: number;
+  sourceCount?: number;
+  adapterVersion?: string;
+  providerSelection?: string;
+  /** Analysis lookback period (1W/1M/3M/6M/1Y/CUSTOM). Not candle size. */
+  analysisTimeframe?: string;
+  analysisPeriod?: import('./instrument').AnalysisPeriod;
+  analysisResolution?: import('./instrument').AnalysisResolution;
+  analysisWindow?: import('./instrument').AnalysisWindow;
+  predictionHorizon?: string;
+  sessionContext?: string;
   partitions: BatchPartition[];
   tasks: BatchSymbolTask[];
   checkpoint: BatchCheckpoint;
@@ -347,6 +422,11 @@ export interface IntelligenceBatch {
   /** Optional inverse / global scan params (advisory). */
   inverseDownsideThreshold?: number;
   globalEventType?: string;
+  /** Snapshot-owned coverage — attached on GET from frozen BatchDataSnapshot. */
+  capabilityCoverage?: import('./instrument').SnapshotCapabilityCoverageItem[];
+  identityCounts?: import('./instrument').BatchIdentityCounts;
+  snapshotProvider?: string;
+  snapshotDataAsOf?: number;
 }
 
 /** Ranked research rows — order from existing RankingContext engine only. */
@@ -371,6 +451,20 @@ export interface IntelligenceBatchResultRow {
   calculationVersion?: string;
   tradeHorizon?: string;
   strategyTag?: string;
+  /** Multi-asset identity — never join across venues on symbol alone. */
+  instrument?: import('./instrument').InstrumentRef;
+  adapterId?: string;
+  analysisTimeframe?: import('./instrument').AnalysisTimeframe;
+  predictionHorizon?: string;
+  sessionContext?: import('./instrument').SessionContextId;
+  seriesProvenance?: import('./instrument').SeriesProvenance;
+  multiAssetDataStatus?: import('./instrument').MultiAssetDataStatus;
+  membershipIdentity?: string;
+  quarantined?: boolean;
+  quarantineStatus?: BatchQuarantineStatus;
+  recommendation?: BatchResultRecommendation;
+  reasonCode?: string;
+  reason?: string;
 }
 
 export interface IntelligenceBatchResults {
@@ -383,8 +477,11 @@ export interface IntelligenceBatchResults {
   calculationVersion: string;
   tradeHorizon: string;
   strategyTag: string;
-  /** Backend RankingContext lexicographic order — do not re-sort in FE. */
+  /** Backend RankingContext lexicographic order — validResults only. */
   rankings: IntelligenceBatchResultRow[];
+  /** IDENTITY_MISMATCH rows — data-quality counts only, never ranked. */
+  quarantined?: IntelligenceBatchResultRow[];
+  identityCounts?: import('./instrument').BatchIdentityCounts;
 }
 
 /**
@@ -418,16 +515,29 @@ export interface CreateIntelligenceBatchRequest {
   mode?: IntelligenceBatchMode;
   /** B9–B17 advisory scan kind — defaults to FULL_MARKET. Never authorization. */
   scanKind?: IntelligenceScanKind;
-  /** Required when universe=CUSTOM or SINGLE_STOCK (one symbol). */
+  /**
+   * Manual instruments — only for CUSTOM / SINGLE_STOCK / legacy *_CUSTOM.
+   * Predefined universes (NIFTY*, NSE_ALL, US_SP500, *_ALL) resolve membership on the backend.
+   */
   symbols?: string[];
+  /** Canonical custom identities. Preferred over legacy symbols. */
+  instruments?: import('./instrument').InstrumentRef[];
+  /** Exactly one canonical identity for SINGLE_STOCK. */
+  instrument?: import('./instrument').InstrumentRef;
   /** Required when universe=SECTOR. */
   sector?: string;
-  /** Cap for ALL universe (defaults applied server-side). */
+  /** Deprecated/internal only; public predefined batches reject truncation. */
   allLimit?: number;
   /** Inverse scan downside threshold as fraction (e.g. -0.05). */
   inverseDownsideThreshold?: number;
   /** Optional global event type for GLOBAL_EVENT_SCAN. */
   globalEventType?: string;
+  /** Analysis lookback period. Prefer analysisPeriod; analysisTimeframe kept for compatibility. */
+  analysisTimeframe?: string;
+  analysisPeriod?: import('./instrument').AnalysisPeriod;
+  analysisResolution?: import('./instrument').AnalysisResolution;
+  analysisWindow?: import('./instrument').AnalysisWindow;
+  predictionHorizon?: string;
 }
 
 export const INTELLIGENCE_BATCH_PARTITION_SIZE = 50;

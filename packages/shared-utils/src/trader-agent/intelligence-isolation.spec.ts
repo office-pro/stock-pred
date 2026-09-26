@@ -97,6 +97,27 @@ describe('IntelligenceSnapshot isolation (P4 crown)', () => {
     expect(evaluateRisk(riskInput)).toEqual(riskA);
   });
 
+  it('BatchDataSnapshot / IntelligenceSnapshot derivatives do not change Risk', () => {
+    const analysis = baseAnalysis();
+    const decision = evaluateTrade({ analysis });
+    const riskInput = {
+      decision,
+      capital: 1_000_000,
+      cash: 1_000_000,
+      tradingEnabled: true,
+      killSwitch: false,
+    };
+    const riskA = evaluateRisk(riskInput);
+    const snapshot = buildIntelligenceSnapshot({ analysis, decision });
+    snapshot.derivatives = {
+      markPrice: 1,
+      indexPrice: 1,
+      openInterest: 9,
+      source: 'SOURCE_REPORTED',
+    };
+    expect(evaluateRisk(riskInput)).toEqual(riskA);
+  });
+
   it('LIVE + AUTONOMOUS remains HUMAN_REQUIRED', () => {
     const analysis = baseAnalysis();
     const decision = evaluateTrade({ analysis });

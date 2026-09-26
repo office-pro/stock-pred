@@ -8,21 +8,35 @@ export declare function ema(values: number[], period: number): number[];
 /** Wilder's RSI. */
 export declare function rsi(values: number[], period?: number): number[];
 export interface MacdSeries {
-    macd: number[];
-    signal: number[];
-    histogram: number[];
+  macd: number[];
+  signal: number[];
+  histogram: number[];
 }
-export declare function macd(values: number[], fast?: number, slow?: number, signalPeriod?: number): MacdSeries;
+export declare function macd(
+  values: number[],
+  fast?: number,
+  slow?: number,
+  signalPeriod?: number,
+): MacdSeries;
 /** Wilder's Average True Range. */
 export declare function atr(candles: Candle[], period?: number): number[];
 export interface BollingerSeries {
-    upper: number[];
-    middle: number[];
-    lower: number[];
+  upper: number[];
+  middle: number[];
+  lower: number[];
 }
-export declare function bollinger(values: number[], period?: number, multiplier?: number): BollingerSeries;
+export declare function bollinger(
+  values: number[],
+  period?: number,
+  multiplier?: number,
+): BollingerSeries;
+/** Wilder ADX. */
+export declare function adx(candles: Candle[], period?: number): number[];
 /** Cumulative (session-anchored) VWAP across the supplied candles. */
 export declare function vwap(candles: Candle[]): number[];
 /** Compute the latest indicator snapshot from a candle history. */
-export declare function computeIndicatorSnapshot(symbol: string, candles: Candle[]): IndicatorSnapshot;
+export declare function computeIndicatorSnapshot(
+  symbol: string,
+  candles: Candle[],
+): IndicatorSnapshot;
 //# sourceMappingURL=indicators.d.ts.map

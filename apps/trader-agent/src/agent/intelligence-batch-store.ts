@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join, resolve } from 'path';
 import type {
   BatchResearchReport,
+  BatchDataSnapshot,
   IntelligenceBatch,
   IntelligenceBatchResults,
 } from '@stockpred/shared-types';
@@ -41,9 +42,13 @@ function researchReportPath(batchId: string): string {
   return join(intelligenceBatchesDir(), `${batchId}.research-report.json`);
 }
 
+function dataSnapshotPath(batchId: string): string {
+  return join(intelligenceBatchesDir(), `${batchId}.data-snapshot.json`);
+}
+
 export function writeIntelligenceBatch(batch: IntelligenceBatch): string {
   const path = batchPath(batch.batchId);
-  writeFileSync(path, `${JSON.stringify(batch, null, 2)}\n`, 'utf8');
+  writeFileSync(path, `${JSON.stringify(batch)}\n`, 'utf8');
   return path;
 }
 
@@ -64,7 +69,13 @@ export function readIntelligenceBatch(batchId: string): IntelligenceBatch | null
 export function listIntelligenceBatches(limit = 50): IntelligenceBatch[] {
   const dir = intelligenceBatchesDir();
   const files = readdirSync(dir)
-    .filter((f) => f.endsWith('.json') && !f.endsWith('.results.json'))
+    .filter(
+      (f) =>
+        f.endsWith('.json') &&
+        !f.endsWith('.results.json') &&
+        !f.endsWith('.research-report.json') &&
+        !f.endsWith('.data-snapshot.json'),
+    )
     .sort()
     .reverse();
   const out: IntelligenceBatch[] = [];
@@ -133,6 +144,27 @@ export function readLatestIntelligenceBatchResearchReport(
   return null;
 }
 
+/**
+ * Previous COMPLETED/PARTIAL same-universe research report (excludes current batchId).
+ * Used for KPI vsPrevious / compare — never invents deltas.
+ */
+export function findPriorSameUniverseResearchReport(
+  universe: string,
+  excludeBatchId: string,
+): BatchResearchReport | null {
+  const batches = listIntelligenceBatches(50).filter(
+    (b) =>
+      (b.status === 'COMPLETED' || b.status === 'PARTIAL') &&
+      String(b.universe) === String(universe) &&
+      b.batchId !== excludeBatchId,
+  );
+  for (const b of batches) {
+    const report = readIntelligenceBatchResearchReport(b.batchId);
+    if (report) return report;
+  }
+  return null;
+}
+
 /** On boot: RUNNING/RESUMING → PAUSED so an operator (or resume) continues from checkpoint. */
 export function recoverInterruptedBatches(): IntelligenceBatch[] {
   const recovered: IntelligenceBatch[] = [];
@@ -151,4 +183,24 @@ export function recoverInterruptedBatches(): IntelligenceBatch[] {
     }
   }
   return recovered;
+}
+
+export function writeBatchDataSnapshot(snapshot: BatchDataSnapshot): string {
+  const path = dataSnapshotPath(snapshot.batchId);
+  writeFileSync(path, `${JSON.stringify(snapshot)}\n`, 'utf8');
+  return path;
+}
+
+export function readBatchDataSnapshot(batchId: string): BatchDataSnapshot | null {
+  const path = dataSnapshotPath(batchId);
+  if (!existsSync(path)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as BatchDataSnapshot;
+    if (parsed?.schemaVersion !== 'batch-data-snapshot.v1' || !Array.isArray(parsed.instruments)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
 }

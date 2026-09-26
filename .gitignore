@@ -15,6 +15,7 @@ coverage/
 .env
 .env.local
 .env.*.local
+.env.test-cloud
 azure.env
 azure.*.env
 scripts/azure/env/development.sh
@@ -43,6 +44,8 @@ Thumbs.db
 # Test artifacts
 cypress/videos/
 cypress/screenshots/
+playwright-report/
+test-results/
 .pytest_cache/
 
 # Prisma
