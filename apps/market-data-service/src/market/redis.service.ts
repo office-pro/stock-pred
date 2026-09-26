@@ -1,6 +1,6 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
-import { getEnv } from '@stockpred/shared-utils';
+import { getRedisUrl } from '@stockpred/shared-utils';
 import { MDS_QUOTE_REDIS_TTL_SECONDS } from './quote-freshness';
 
 /** Redis cache with graceful degradation: the feed survives a Redis outage. */
@@ -10,7 +10,7 @@ export class RedisService implements OnModuleDestroy {
   private healthy = false;
 
   constructor() {
-    this.client = new Redis(getEnv('REDIS_URL', 'redis://localhost:6379'), {
+    this.client = new Redis(getRedisUrl(), {
       lazyConnect: false,
       maxRetriesPerRequest: 1,
       retryStrategy: (times) => Math.min(times * 1000, 15_000),

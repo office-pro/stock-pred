@@ -6,6 +6,8 @@ import {
   getKafkaBrokers,
   getKafkaClientId,
   getKafkaSecurityProtocol,
+  getRedisMode,
+  getRedisUrl,
   requireDatabaseUrl,
   requireRedisUrl,
 } from './env';
@@ -17,6 +19,9 @@ describe('env helpers', () => {
     delete process.env.NODE_ENV;
     delete process.env.DATABASE_URL;
     delete process.env.REDIS_URL;
+    delete process.env.REDIS_MODE;
+    delete process.env.REDIS_LOCAL_URL;
+    delete process.env.REDIS_CLOUD_URL;
     delete process.env.KAFKA_BROKERS;
     delete process.env.KAFKA_CLIENT_ID;
     delete process.env.KAFKA_SECURITY_PROTOCOL;
@@ -58,13 +63,48 @@ describe('env helpers', () => {
     expect(getAppEnv()).toBe('production');
   });
 
-  it('requires database and redis URLs', () => {
+  it('requires database URL independently of Redis', () => {
     expect(() => requireDatabaseUrl()).toThrow(/DATABASE_URL/);
-    expect(() => requireRedisUrl()).toThrow(/REDIS_URL/);
     process.env.DATABASE_URL = 'postgresql://u:p@h/db';
-    process.env.REDIS_URL = 'redis://localhost:6379';
     expect(requireDatabaseUrl()).toBe('postgresql://u:p@h/db');
-    expect(requireRedisUrl()).toBe('redis://localhost:6379');
+  });
+
+  it('default REDIS_MODE resolves local Redis', () => {
+    expect(getRedisMode()).toBe('default');
+    expect(getRedisUrl()).toBe('redis://localhost:6379');
+    process.env.REDIS_LOCAL_URL = 'redis://redis:6379';
+    expect(getRedisUrl()).toBe('redis://redis:6379');
+    expect(requireRedisUrl()).toBe('redis://redis:6379');
+  });
+
+  it('test-cloud REDIS_MODE resolves REDIS_CLOUD_URL', () => {
+    process.env.REDIS_MODE = 'test-cloud';
+    process.env.REDIS_CLOUD_URL = 'rediss://default:token@example.upstash.io:6379';
+    expect(getRedisMode()).toBe('test-cloud');
+    expect(getRedisUrl()).toBe('rediss://default:token@example.upstash.io:6379');
+  });
+
+  it('rejects invalid REDIS_MODE', () => {
+    process.env.REDIS_MODE = 'prod';
+    expect(() => getRedisMode()).toThrow(/Invalid REDIS_MODE/);
+    expect(() => getRedisUrl()).toThrow(/Invalid REDIS_MODE/);
+  });
+
+  it('test-cloud without REDIS_CLOUD_URL throws', () => {
+    process.env.REDIS_MODE = 'test-cloud';
+    expect(() => getRedisUrl()).toThrow(/REDIS_CLOUD_URL/);
+  });
+
+  it('REDIS_MODE does not alter DATABASE_URL', () => {
+    process.env.DATABASE_URL = 'postgresql://local/db';
+    process.env.REDIS_MODE = 'default';
+    expect(requireDatabaseUrl()).toBe('postgresql://local/db');
+    expect(getRedisUrl()).toBe('redis://localhost:6379');
+
+    process.env.REDIS_MODE = 'test-cloud';
+    process.env.REDIS_CLOUD_URL = 'rediss://cloud/redis';
+    expect(requireDatabaseUrl()).toBe('postgresql://local/db');
+    expect(getRedisUrl()).toBe('rediss://cloud/redis');
   });
 
   it('parses Kafka brokers and defaults', () => {

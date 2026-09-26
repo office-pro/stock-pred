@@ -54,12 +54,26 @@ if (profile === 'test-cloud') {
 
 if (args.length === 0) {
   const dbHost = ((process.env.DATABASE_URL || '').match(/@([^/]+)\//) || [])[1] || '(unset)';
+  const mode = (process.env.REDIS_MODE || 'default').toLowerCase().trim();
+  const redisUrl =
+    mode === 'test-cloud'
+      ? process.env.REDIS_CLOUD_URL || ''
+      : process.env.REDIS_LOCAL_URL || 'redis://localhost:6379';
   const redisHost =
-    ((process.env.REDIS_URL || '').match(/@([^/]+)/) || [])[1] ||
-    (process.env.REDIS_URL || '').replace(/^rediss?:\/\//, '').split('/')[0] ||
+    (redisUrl.match(/@([^/]+)/) || [])[1] ||
+    redisUrl.replace(/^rediss?:\/\//, '').split('/')[0] ||
     '(unset)';
   console.log(
-    JSON.stringify({ profile: process.env.STOCKPRED_ENV_PROFILE, dbHost, redisHost }, null, 2),
+    JSON.stringify(
+      {
+        profile: process.env.STOCKPRED_ENV_PROFILE,
+        dbHost,
+        redisMode: mode,
+        redisHost,
+      },
+      null,
+      2,
+    ),
   );
   process.exit(0);
 }

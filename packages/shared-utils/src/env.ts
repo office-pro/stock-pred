@@ -52,9 +52,41 @@ export function requireDatabaseUrl(): string {
   return getEnv('DATABASE_URL');
 }
 
-/** Required Redis URL (local Docker, managed cloud, etc. — config only). */
+export type RedisMode = 'default' | 'test-cloud';
+
+/** Redis selector only — does not affect DATABASE_URL or Kafka. */
+export function getRedisMode(): RedisMode {
+  const raw = (process.env.REDIS_MODE || 'default').toLowerCase().trim();
+  if (raw === 'default' || raw === 'test-cloud') return raw;
+  throw new Error(
+    `Invalid REDIS_MODE: ${JSON.stringify(process.env.REDIS_MODE)}. Expected "default" or "test-cloud".`,
+  );
+}
+
+/**
+ * Resolve Redis URL from REDIS_MODE.
+ * - default → REDIS_LOCAL_URL || redis://localhost:6379
+ * - test-cloud → REDIS_CLOUD_URL (required)
+ */
+export function getRedisUrl(): string {
+  const mode = getRedisMode();
+  if (mode === 'default') {
+    const local = process.env.REDIS_LOCAL_URL;
+    if (local !== undefined && local !== '') return local;
+    return 'redis://localhost:6379';
+  }
+  const cloud = process.env.REDIS_CLOUD_URL;
+  if (cloud === undefined || cloud === '') {
+    throw new Error(
+      'Missing required environment variable: REDIS_CLOUD_URL (required when REDIS_MODE=test-cloud)',
+    );
+  }
+  return cloud;
+}
+
+/** @deprecated Prefer getRedisUrl() — kept as an alias for call sites / scripts. */
 export function requireRedisUrl(): string {
-  return getEnv('REDIS_URL');
+  return getRedisUrl();
 }
 
 /** Comma-separated Kafka brokers → array. */

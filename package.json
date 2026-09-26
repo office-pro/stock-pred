@@ -48,6 +48,8 @@
     "ingest:commodities": "npm run build -w @stockpred/database && node packages/database/dist/ingest-commodity-universe.js",
     "ingest:futures": "npm run build -w @stockpred/database && node packages/database/dist/ingest-futures-universe.js",
     "ingest:universes": "npm run build -w @stockpred/database && node packages/database/dist/ingest-universes-on-start.js",
+    "ingest:universes:test-cloud": "node scripts/with-stockpred-env.js test-cloud -- npm run ingest:listings && node scripts/with-stockpred-env.js test-cloud -- npm run ingest:universes",
+    "universe:cache-status": "node scripts/universe-cache-status.js",
     "ingest:bhavcopy": "npm run build -w @stockpred/database && node packages/database/dist/ingest-bhavcopy.js",
     "ingest:fundamentals": "npm run build -w @stockpred/market-data-service && node apps/market-data-service/dist/ingest-fundamentals.js",
     "ingest:macro": "python ml/ingest_macro.py",

@@ -1,16 +1,18 @@
-# Overlay for hybrid free-tier: apps + local Kafka, cloud Postgres/Redis.
+# Overlay for hybrid free-tier: apps + local Kafka, cloud Postgres.
+# Redis is selected independently via REDIS_MODE / REDIS_CLOUD_URL / REDIS_LOCAL_URL.
 # Used by: npm run start:all-cloud
-# Requires repo-root `.env.test-cloud` with DATABASE_URL + REDIS_URL (gitignored).
+# Requires repo-root `.env.test-cloud` with DATABASE_URL (gitignored).
 #
 #   docker compose -f docker-compose.yml -f docker-compose.test-cloud.yml ...
 #
-# Does not start local postgres/redis. Kafka remains in-cluster (kafka:9092).
+# Does not start local postgres by default. Kafka remains in-cluster (kafka:9092).
+# When REDIS_MODE=default, start local redis separately (or via start script).
 # Supabase Session pooler free tier is ~15 clients — keep Prisma pools tiny.
 
 name: stockpred
 
 services:
-  # Keep local DB/Redis out of `compose --profile apps up` (no profile = always started).
+  # Keep local DB out of `compose --profile apps up` (no profile = always started).
   # Explicit `docker compose up postgres redis` still works for local start:all.
   postgres:
     profiles: ['local-infra']
@@ -28,7 +30,9 @@ services:
     environment:
       # Default 2 (not 10/20): Session pooler pool_size ≈ 15 shared by all services.
       DATABASE_URL: ${DATABASE_URL}&connection_limit=${MDS_DB_CONNECTION_LIMIT:-2}&pool_timeout=${MDS_DB_POOL_TIMEOUT:-30}
-      REDIS_URL: ${REDIS_URL}
+      REDIS_MODE: ${REDIS_MODE:-test-cloud}
+      REDIS_LOCAL_URL: ${REDIS_LOCAL_URL:-redis://redis:6379}
+      REDIS_CLOUD_URL: ${REDIS_CLOUD_URL:-}
     depends_on: !override
       kafka: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
@@ -36,44 +40,60 @@ services:
   auth-service:
     environment:
       DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
-      REDIS_URL: ${REDIS_URL}
+      REDIS_MODE: ${REDIS_MODE:-test-cloud}
+      REDIS_LOCAL_URL: ${REDIS_LOCAL_URL:-redis://redis:6379}
+      REDIS_CLOUD_URL: ${REDIS_CLOUD_URL:-}
     depends_on: !override
       migrate: { condition: service_completed_successfully }
 
   signal-engine:
     environment:
       DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
-      REDIS_URL: ${REDIS_URL}
+      REDIS_MODE: ${REDIS_MODE:-test-cloud}
+      REDIS_LOCAL_URL: ${REDIS_LOCAL_URL:-redis://redis:6379}
+      REDIS_CLOUD_URL: ${REDIS_CLOUD_URL:-}
 
   pattern-engine:
     environment:
       DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
-      REDIS_URL: ${REDIS_URL}
+      REDIS_MODE: ${REDIS_MODE:-test-cloud}
+      REDIS_LOCAL_URL: ${REDIS_LOCAL_URL:-redis://redis:6379}
+      REDIS_CLOUD_URL: ${REDIS_CLOUD_URL:-}
 
   backtest-service:
     environment:
       DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
-      REDIS_URL: ${REDIS_URL}
+      REDIS_MODE: ${REDIS_MODE:-test-cloud}
+      REDIS_LOCAL_URL: ${REDIS_LOCAL_URL:-redis://redis:6379}
+      REDIS_CLOUD_URL: ${REDIS_CLOUD_URL:-}
 
   auto-trader:
     environment:
       DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
-      REDIS_URL: ${REDIS_URL}
+      REDIS_MODE: ${REDIS_MODE:-test-cloud}
+      REDIS_LOCAL_URL: ${REDIS_LOCAL_URL:-redis://redis:6379}
+      REDIS_CLOUD_URL: ${REDIS_CLOUD_URL:-}
 
   trader-agent:
     environment:
       DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
-      REDIS_URL: ${REDIS_URL}
+      REDIS_MODE: ${REDIS_MODE:-test-cloud}
+      REDIS_LOCAL_URL: ${REDIS_LOCAL_URL:-redis://redis:6379}
+      REDIS_CLOUD_URL: ${REDIS_CLOUD_URL:-}
 
   notification-service:
     environment:
       DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
-      REDIS_URL: ${REDIS_URL}
+      REDIS_MODE: ${REDIS_MODE:-test-cloud}
+      REDIS_LOCAL_URL: ${REDIS_LOCAL_URL:-redis://redis:6379}
+      REDIS_CLOUD_URL: ${REDIS_CLOUD_URL:-}
 
   api-gateway:
     environment:
       DATABASE_URL: ${DATABASE_URL}&connection_limit=${CLOUD_DB_CONNECTION_LIMIT:-1}&pool_timeout=30
-      REDIS_URL: ${REDIS_URL}
+      REDIS_MODE: ${REDIS_MODE:-test-cloud}
+      REDIS_LOCAL_URL: ${REDIS_LOCAL_URL:-redis://redis:6379}
+      REDIS_CLOUD_URL: ${REDIS_CLOUD_URL:-}
 
   ml-engine:
     environment:

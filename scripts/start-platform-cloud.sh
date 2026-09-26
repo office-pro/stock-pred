@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# StockPred platform startup — TEST-CLOUD profile
+# StockPred platform startup - TEST-CLOUD profile
 # Local Kafka + apps; Postgres/Redis from `.env.test-cloud` (Supabase + Upstash).
 # Default local path remains: npm run start:all
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.test-cloud.yml)
-# Disable Compose interactive menu (w/d prompts) — hangs Git Bash / non-TTY startups on Windows.
+# Disable Compose interactive menu (w/d prompts) - hangs Git Bash / non-TTY startups on Windows.
 export COMPOSE_MENU=0
 
 echo "==> StockPred platform starting (test-cloud: Supabase + Upstash + local Kafka)"
@@ -77,25 +77,43 @@ fi
 
 if [ ! -f .env.test-cloud ]; then
   echo "ERROR: .env.test-cloud missing." >&2
-  echo "Create it with Supabase DATABASE_URL and Upstash REDIS_URL (see docs/hybrid-dev-cloud.md)." >&2
+  echo "Create it with Supabase DATABASE_URL (and REDIS_CLOUD_URL when REDIS_MODE=test-cloud)." >&2
   exit 1
 fi
 
-# Local defaults, then cloud overlay (cloud wins for DATABASE_URL / REDIS_URL).
+# Local defaults, then cloud overlay (cloud wins for DATABASE_URL).
+# Redis is selected only via REDIS_MODE + REDIS_LOCAL_URL / REDIS_CLOUD_URL.
 # Do NOT `source` .env files: unquoted `&` in sslmode=require truncates the value
 # and leaves the previous localhost DATABASE_URL from .env in place.
 # shellcheck disable=SC1091
 eval "$(node scripts/export-stockpred-env.js test-cloud)"
 
-if [ -z "${DATABASE_URL:-}" ] || [ -z "${REDIS_URL:-}" ]; then
-  echo "ERROR: .env.test-cloud must set both DATABASE_URL and REDIS_URL." >&2
+if [ -z "${DATABASE_URL:-}" ]; then
+  echo "ERROR: DATABASE_URL must be set (typically in .env.test-cloud for start:all-cloud)." >&2
+  exit 1
+fi
+
+REDIS_MODE="${REDIS_MODE:-test-cloud}"
+export REDIS_MODE
+
+if [ "${REDIS_MODE}" = "test-cloud" ]; then
+  if [ -z "${REDIS_CLOUD_URL:-}" ] && [ -n "${REDIS_URL:-}" ]; then
+    # Backward-compatible: older .env.test-cloud used REDIS_URL for Upstash.
+    export REDIS_CLOUD_URL="${REDIS_URL}"
+  fi
+  if [ -z "${REDIS_CLOUD_URL:-}" ]; then
+    echo "ERROR: REDIS_MODE=test-cloud requires REDIS_CLOUD_URL (Upstash rediss://...)." >&2
+    exit 1
+  fi
+elif [ "${REDIS_MODE}" != "default" ]; then
+  echo "ERROR: Invalid REDIS_MODE=${REDIS_MODE}. Expected default or test-cloud." >&2
   exit 1
 fi
 
 db_host="$(node scripts/cloud-env-host.js database)"
 redis_host="$(node scripts/cloud-env-host.js redis)"
 
-# Refuse accidental local docker hostnames inside the cloud profile (host only).
+# Refuse accidental local docker hostnames inside the cloud DB profile (host only).
 case "${db_host}" in
   postgres|localhost|127.0.0.1|host.docker.internal)
     echo "ERROR: DATABASE_URL host '${db_host}' still looks local. Use your Supabase Session pooler URI." >&2
@@ -107,48 +125,63 @@ esac
 case "${db_host}" in
   db.*.supabase.co)
     echo "ERROR: DATABASE_URL uses the IPv6-only db.*.supabase.co host (${db_host})." >&2
-    echo "In Supabase: Connect → Session pooler (port 5432)." >&2
+    echo "In Supabase: Connect â†’ Session pooler (port 5432)." >&2
     echo "User must be postgres.<project-ref>@aws-0-<region>.pooler.supabase.com:5432" >&2
     echo "Add sslmode=require. Do not use the direct db.<ref>.supabase.co:5432 URI." >&2
     exit 1
     ;;
 esac
-case "${REDIS_URL}" in
-  *redis:6379*|*localhost:6379*|redis://redis*|redis://localhost*|rediss://localhost*)
-    echo "ERROR: REDIS_URL in .env.test-cloud still looks local. Use your Upstash rediss:// URI." >&2
-    exit 1
-    ;;
-esac
+
+if [ "${REDIS_MODE}" = "test-cloud" ]; then
+  case "${REDIS_CLOUD_URL}" in
+    *redis:6379*|*localhost:6379*|redis://redis*|redis://localhost*|rediss://localhost*)
+      echo "ERROR: REDIS_CLOUD_URL still looks local. Use your Upstash rediss:// URI." >&2
+      exit 1
+      ;;
+  esac
+fi
 
 export STOCKPRED_ENV_PROFILE=test-cloud
 # Cloud profile always boots the full equity master (not quick-start ~129).
 # Override only with STOCK_UNIVERSE_MODE=quick-start in the shell if you need a fast smoke.
 if [ "${STOCK_UNIVERSE_MODE:-}" = "quick-start" ] && [ "${ALLOW_CLOUD_QUICK_START:-0}" != "1" ]; then
-  echo "==> Overriding STOCK_UNIVERSE_MODE=quick-start → full-universe for start:all-cloud"
+  echo "==> Overriding STOCK_UNIVERSE_MODE=quick-start â†’ full-universe for start:all-cloud"
   echo "    (set ALLOW_CLOUD_QUICK_START=1 to keep quick-start)"
 fi
 if [ "${ALLOW_CLOUD_QUICK_START:-0}" != "1" ]; then
   export STOCK_UNIVERSE_MODE=full-universe
 fi
-echo "==> Profile: test-cloud"
+echo "==> Profile: test-cloud (DATABASE_URL from .env.test-cloud; Redis via REDIS_MODE=${REDIS_MODE})"
 echo "==> Config: STOCK_UNIVERSE_MODE=${STOCK_UNIVERSE_MODE:-full-universe} MARKET_DATA_PROVIDER=${MARKET_DATA_PROVIDER:-yahoo}"
 echo "==> DB host: ${db_host}"
-echo "==> Redis host: ${redis_host}"
+echo "==> Redis mode/host: ${REDIS_MODE} / ${redis_host}"
 
 echo "==> Configuring npm (increasing timeout for Docker build)"
 npm config set fetch-timeout 600000 2>/dev/null || true
 npm config set fetch-retry-mintimeout 20000 2>/dev/null || true
 npm config set fetch-retry-maxtimeout 120000 2>/dev/null || true
 
-# Do not use local Postgres/Redis for this profile.
-echo "==> Stopping local postgres/redis (if running) — cloud URLs are used instead"
-"${COMPOSE[@]}" stop postgres redis >/dev/null 2>&1 || true
-docker compose stop postgres redis >/dev/null 2>&1 || true
+# Local Postgres is never used for start:all-cloud.
+echo "==> Stopping local postgres (if running) - DATABASE_URL is cloud"
+"${COMPOSE[@]}" --profile local-infra stop postgres >/dev/null 2>&1 || true
+docker compose stop postgres >/dev/null 2>&1 || true
+
+if [ "${REDIS_MODE}" = "test-cloud" ]; then
+  echo "==> Stopping local redis (if running) - REDIS_MODE=test-cloud uses REDIS_CLOUD_URL"
+  "${COMPOSE[@]}" --profile local-infra stop redis >/dev/null 2>&1 || true
+  docker compose stop redis >/dev/null 2>&1 || true
+  # Compose containers need an explicit in-network local URL only for default mode.
+  export REDIS_LOCAL_URL="${REDIS_LOCAL_URL:-redis://redis:6379}"
+else
+  echo "==> Starting local redis - REDIS_MODE=default"
+  export REDIS_LOCAL_URL="${REDIS_LOCAL_URL:-redis://redis:6379}"
+  "${COMPOSE[@]}" --profile local-infra up -d redis
+fi
 
 # Count app containers before pause (stop clears "running", but images may exist).
 EXISTING_APP_CONTAINERS="$("${COMPOSE[@]}" --profile apps ps -aq 2>/dev/null | wc -l | tr -d ' ')"
 
-# Supabase Session pooler free tier ≈ 15 clients. Running apps hold those slots
+# Supabase Session pooler free tier â‰ˆ 15 clients. Running apps hold those slots
 # and migrate/seed then fails with EMAXCONNSESSION. Pause DB clients first.
 CLOUD_DB_APPS=(
   auth-service market-data-service signal-engine pattern-engine
@@ -179,14 +212,28 @@ done
 # Clear prior failed migrate so depends_on service_completed_successfully can pass.
 "${COMPOSE[@]}" --profile apps rm -fs migrate >/dev/null 2>&1 || true
 
-# Build equity-master.json before seed so full-universe migrate can load all NSE/BSE names.
-# DB upsert may no-op if schema is not migrated yet; JSON snapshot is what seed needs.
-if [ "${SKIP_LISTINGS_INGEST:-0}" != "1" ]; then
+# Membership downloads (NSE/BSE/US/crypto) are expensive/rate-limited.
+# Skip when local equity-master + active snapshots already look complete.
+# Force: FORCE_UNIVERSE_INGEST=1  or  npm run ingest:universes:test-cloud
+NEED_UNIVERSE_DOWNLOAD=1
+if [ "${FORCE_UNIVERSE_INGEST:-0}" = "1" ]; then
+  echo "==> FORCE_UNIVERSE_INGEST=1 — will refresh listings + canonical universes"
+elif [ "${SKIP_LISTINGS_INGEST:-0}" = "1" ] && [ "${SKIP_UNIVERSE_INGEST:-0}" = "1" ]; then
+  NEED_UNIVERSE_DOWNLOAD=0
+  echo "==> Skipping listings + universe ingest (SKIP_LISTINGS_INGEST=1 SKIP_UNIVERSE_INGEST=1)"
+elif node scripts/universe-cache-status.js --check; then
+  NEED_UNIVERSE_DOWNLOAD=0
+  echo "==> Universe cache present — skipping downloads (set FORCE_UNIVERSE_INGEST=1 to refresh)"
+else
+  echo "==> Universe cache incomplete — will download membership data once"
+fi
+
+if [ "${NEED_UNIVERSE_DOWNLOAD}" = "1" ] && [ "${SKIP_LISTINGS_INGEST:-0}" != "1" ]; then
   echo "==> Refreshing equity-master.json (NSE EQ + BSE listings)"
   if ! npm run ingest:listings; then
     echo "WARNING: listings download failed; migrate seed will use whatever equity-master exists." >&2
   fi
-else
+elif [ "${NEED_UNIVERSE_DOWNLOAD}" = "1" ]; then
   echo "==> Skipping listings refresh (SKIP_LISTINGS_INGEST=1)"
 fi
 
@@ -207,19 +254,18 @@ if [ -z "${migrate_cid}" ] || [ "${migrate_code}" != "0" ]; then
 fi
 echo "    migrate: completed successfully"
 
-# Full membership ingest while apps are still paused (Session pooler ≈15 clients).
-# NSE_ALL upserts every equity; also US / forex / crypto / futures gates.
-if [ "${SKIP_UNIVERSE_INGEST:-0}" != "1" ]; then
+# Full membership ingest while apps are still paused (Session pooler capacity).
+if [ "${NEED_UNIVERSE_DOWNLOAD}" = "1" ] && [ "${SKIP_UNIVERSE_INGEST:-0}" != "1" ]; then
   echo "==> Ingesting canonical universes into cloud DB (apps paused)"
   if ! bash scripts/ingest-universes-on-start.sh; then
     echo "WARNING: universe ingest exited non-zero; continuing platform start" >&2
   fi
-else
+elif [ "${NEED_UNIVERSE_DOWNLOAD}" = "1" ]; then
   echo "==> Skipping universe ingest (SKIP_UNIVERSE_INGEST=1)"
 fi
 
 if [ "${FORCE_PLATFORM_BUILD:-0}" != "1" ] && [ "${EXISTING_APP_CONTAINERS:-0}" -ge 8 ]; then
-  echo "==> App containers already present ($EXISTING_APP_CONTAINERS) — refreshing without image rebuild"
+  echo "==> App containers already present ($EXISTING_APP_CONTAINERS) - refreshing without image rebuild"
   echo "    (set FORCE_PLATFORM_BUILD=1 to force docker compose --build)"
   wait_for_docker
   node scripts/free-platform-ports.js || true
@@ -234,20 +280,20 @@ else
     wait_for_docker
     node scripts/free-platform-ports.js || true
     if timeout $BUILD_TIMEOUT "${COMPOSE[@]}" --profile apps up -d --build; then
-      echo "    ✅ Build succeeded"
+      echo "    âœ… Build succeeded"
       break
     else
       EXIT_CODE=$?
       if [ $EXIT_CODE -eq 124 ]; then
-        echo "    ⚠️  Build timed out after ${BUILD_TIMEOUT}s (attempt $BUILD_ATTEMPT/$BUILD_RETRIES)"
+        echo "    âš ï¸  Build timed out after ${BUILD_TIMEOUT}s (attempt $BUILD_ATTEMPT/$BUILD_RETRIES)"
       else
-        echo "    ⚠️  Build failed with exit code $EXIT_CODE (attempt $BUILD_ATTEMPT/$BUILD_RETRIES)"
+        echo "    âš ï¸  Build failed with exit code $EXIT_CODE (attempt $BUILD_ATTEMPT/$BUILD_RETRIES)"
       fi
       if [ $BUILD_ATTEMPT -lt $BUILD_RETRIES ]; then
         echo "    Retrying in 10 seconds..."
         sleep 10
       else
-        echo "    ❌ Build failed after $BUILD_RETRIES attempts"
+        echo "    âŒ Build failed after $BUILD_RETRIES attempts"
         echo "    Check logs with: docker compose -f docker-compose.yml -f docker-compose.test-cloud.yml logs --tail 100"
         exit 1
       fi
@@ -256,9 +302,13 @@ else
   done
 fi
 
-# Belts and braces: local infra must stay down on this profile.
-"${COMPOSE[@]}" stop postgres redis >/dev/null 2>&1 || true
-docker compose stop postgres redis >/dev/null 2>&1 || true
+# Belts and braces: local Postgres stays down; Redis only if REDIS_MODE=test-cloud.
+"${COMPOSE[@]}" --profile local-infra stop postgres >/dev/null 2>&1 || true
+docker compose stop postgres >/dev/null 2>&1 || true
+if [ "${REDIS_MODE}" = "test-cloud" ]; then
+  "${COMPOSE[@]}" --profile local-infra stop redis >/dev/null 2>&1 || true
+  docker compose stop redis >/dev/null 2>&1 || true
+fi
 
 echo "==> Verifying service health"
 declare -A endpoints=(
