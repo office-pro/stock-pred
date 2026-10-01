@@ -1,0 +1,126 @@
+# Azure / production overlay. Used as:
+#   docker compose -f docker-compose.yml -f docker-compose.azure.yml --profile apps up -d
+#
+# Requires Docker Compose v2.24+ (!override). Postgres lives on Azure Flexible
+# Server (DATABASE_URL in .env). Local postgres is never started. Host NSG must
+# allow only 22 (your IP), 80, and 443 — overlay also unpublishes app ports.
+
+name: stockpred
+
+x-azure-db: &azure-db
+  DATABASE_URL: ${DATABASE_URL}
+
+services:
+  postgres:
+    profiles: ['never']
+    ports: !override []
+
+  redis:
+    ports: !override []
+
+  kafka:
+    ports: !override []
+
+  migrate:
+    environment:
+      <<: *azure-db
+    command: !override
+      - sh
+      - -c
+      - npx prisma migrate deploy --schema packages/database/prisma/schema.prisma
+    depends_on: !override
+      kafka:
+        condition: service_healthy
+
+  market-data-service:
+    environment:
+      <<: *azure-db
+    ports: !override []
+    depends_on: !override
+      redis: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  auth-service:
+    environment:
+      <<: *azure-db
+    ports: !override []
+    depends_on: !override
+      migrate: { condition: service_completed_successfully }
+
+  signal-engine:
+    environment:
+      <<: *azure-db
+    ports: !override []
+
+  pattern-engine:
+    environment:
+      <<: *azure-db
+    ports: !override []
+
+  backtest-service:
+    environment:
+      <<: *azure-db
+    ports: !override []
+
+  auto-trader:
+    environment:
+      <<: *azure-db
+    ports: !override []
+    depends_on: !override
+      kafka: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  notification-service:
+    environment:
+      <<: *azure-db
+    ports: !override []
+    depends_on: !override
+      kafka: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  api-gateway:
+    environment:
+      <<: *azure-db
+      CORS_ORIGIN: ${CORS_ORIGIN}
+    ports: !override []
+
+  ml-engine:
+    environment:
+      <<: *azure-db
+    ports: !override []
+    command: !override ['uvicorn', 'app.server:app', '--host', '0.0.0.0', '--port', '8000']
+    volumes: !override
+      - ml-models:/service/ml-models
+
+  frontend:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/frontend.Dockerfile
+      args:
+        VITE_API_BASE_URL: ${PUBLIC_URL:-http://localhost}
+    ports: !override []
+
+  caddy:
+    image: caddy:2-alpine
+    profiles: ['apps']
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      CADDY_SITE: ${CADDY_SITE:-http://:80}
+    volumes:
+      - ./infrastructure/docker/Caddyfile.azure:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api-gateway: { condition: service_started }
+      frontend: { condition: service_started }
+
+volumes:
+  kafka-data:
+  ml-models:
+  caddy-data:
+  caddy-config:

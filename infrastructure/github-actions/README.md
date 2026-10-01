@@ -1,7 +1,9 @@
 # GitHub Actions
 
 The live pipeline is `.github/workflows/ci.yml` (GitHub only discovers
-workflows there). This folder documents the pipeline design.
+workflows there). Azure VM deploys are `.github/workflows/deploy.yml`
+(merge `develop` → development, merge `main` → production). See
+`scripts/azure/README.md`.
 
 ## Stages (spec)
 

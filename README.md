@@ -108,7 +108,7 @@ infrastructure/
   kubernetes/            Namespace, config, data services (dev), apps, ingress, HPA
   github-actions/        Pipeline documentation (live workflow in .github/workflows)
 ml/                      Spec command wrappers (train.py / predict.py)
-scripts/                 start-platform.sh / stop-platform.sh / restart-platform.sh
+scripts/                 start-platform.sh / Azure deploy (scripts/azure)
 ```
 
 ---
@@ -261,6 +261,24 @@ trading decisions; `npm audit` + Trivy gates in CI.
 ## CI/CD
 
 Nine-stage GitHub Actions pipeline (install → lint → unit → integration →
-Cypress → build → docker build → security scan → deploy) — fails on test
-failures, on <80% coverage of the rule core, or on critical vulnerabilities.
-The deploy job is environment-protected and runs only on `main`.
+Cypress → build → docker build → security scan). Azure deploys are a separate
+workflow (`.github/workflows/deploy.yml`): merge to `develop` updates
+**development**, merge to `main` updates **production**. Setup:
+[`scripts/azure/README.md`](scripts/azure/README.md).
+
+## Azure (cheap VM + Flexible Server)
+
+Durable data (candles, fundamentals, users, trades) lives in **Azure Database
+for PostgreSQL**. Kafka, Redis, and `ml-models/` stay on two Linux VMs.
+Deploys never run `compose down -v` or `prisma migrate reset`.
+
+| Branch    | Environment   | Database         | URL                                         |
+| --------- | ------------- | ---------------- | ------------------------------------------- |
+| `develop` | `development` | `stockpred_dev`  | `https://dev.yourdomain` (or the dev VM IP) |
+| `main`    | `production`  | `stockpred_prod` | `https://yourdomain` (or the prod VM IP)    |
+
+```bash
+az login
+./scripts/azure/bootstrap.sh
+# then secrets + first deploy — see scripts/azure/README.md
+```

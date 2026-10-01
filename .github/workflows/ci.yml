@@ -257,9 +257,7 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy
+      - name: Deploy handled by deploy.yml
         run: |
-          echo "Deploy gate passed. Wire this step to your platform:"
-          echo "  - push images:   docker push <registry>/stockpred/<app>:${{ github.sha }}"
-          echo "  - apply k8s:     kubectl apply -f infrastructure/kubernetes/"
-          echo "  - run migrations: npx prisma migrate deploy"
+          echo "CI gates passed. Production deploy runs in workflow deploy.yml on push to main."
+          echo "See scripts/azure/README.md"
