@@ -13,6 +13,10 @@ function controllerWith(run: jest.Mock): AgentController {
   (controller as unknown as { miCombinedPreflight: { run: jest.Mock } }).miCombinedPreflight = {
     run,
   };
+  (controller as unknown as { arturoFlags: { niftyFundamentalsRequired: jest.Mock } }).arturoFlags =
+    {
+      niftyFundamentalsRequired: jest.fn().mockResolvedValue(false),
+    };
   return controller;
 }
 

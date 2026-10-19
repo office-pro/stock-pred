@@ -94,6 +94,7 @@ import {
   runMarketIntelligencePreflight,
   buildMiEvidenceFromMdsPanels,
   listEnabledMiProviders,
+  applyArturoNiftyFundamentalsRequirement,
   mapCreateRequestToBatchPreflightConfiguration,
   miUniverseTypeForCreate,
   buildPreflightBlockedErrorBody,
@@ -118,6 +119,7 @@ import {
   isNseRegularSession,
 } from '@stockpred/shared-utils';
 import { AgentService } from './agent.service';
+import { ArturoFlagService, type ArturoEvalContext } from './arturo-flag.service';
 import { MiCombinedPreflightService } from './mi-combined-preflight.service';
 import { MiBatchSnapshotService } from './mi-batch-snapshot.service';
 import {
@@ -164,11 +166,21 @@ export class IntelligenceBatchService implements OnModuleInit {
   /** MI-applicable batches: skip live fund/alt MDS in analyzeSymbol. */
   private readonly miSkipLiveEvidence = new Set<string>();
 
+  private readonly arturoFlags: ArturoFlagService;
+
   constructor(
     private readonly agent: AgentService,
     private readonly miCombinedPreflight: MiCombinedPreflightService,
     private readonly miBatchSnapshots: MiBatchSnapshotService,
-  ) {}
+    arturoFlags?: ArturoFlagService,
+  ) {
+    this.arturoFlags =
+      arturoFlags ??
+      ({
+        niftyFundamentalsRequired: async () => false,
+        isEnabled: async () => false,
+      } as unknown as ArturoFlagService);
+  }
 
   onModuleInit(): void {
     try {
@@ -731,7 +743,10 @@ export class IntelligenceBatchService implements OnModuleInit {
     };
   }
 
-  async create(req: CreateIntelligenceBatchRequest): Promise<IntelligenceBatch> {
+  async create(
+    req: CreateIntelligenceBatchRequest,
+    arturoCtx: ArturoEvalContext = {},
+  ): Promise<IntelligenceBatch> {
     let batchType: ReturnType<typeof assertB1ExecutableBatchRequest>['batchType'];
     let mode: ReturnType<typeof assertB1ExecutableBatchRequest>['mode'];
     try {
@@ -992,17 +1007,21 @@ export class IntelligenceBatchService implements OnModuleInit {
       | undefined;
     if (miType) {
       const { miMode, intelligence } = miFlagsFromCreateRequest(req);
-      const pfConfig = mapCreateRequestToBatchPreflightConfiguration({
-        universeType: miType,
-        resolvedSymbols: symbols,
-        analysisPeriod: requestedPeriod,
-        analysisResolution: requestedResolution,
-        predictionHorizon: requestedHorizon,
-        miMode,
-        intelligence,
-        readinessPolicy,
-        analysisSession,
-      });
+      const requireRealFundamentals = await this.arturoFlags.niftyFundamentalsRequired(arturoCtx);
+      const pfConfig = applyArturoNiftyFundamentalsRequirement(
+        mapCreateRequestToBatchPreflightConfiguration({
+          universeType: miType,
+          resolvedSymbols: symbols,
+          analysisPeriod: requestedPeriod,
+          analysisResolution: requestedResolution,
+          predictionHorizon: requestedHorizon,
+          miMode,
+          intelligence,
+          readinessPolicy,
+          analysisSession,
+        }),
+        requireRealFundamentals,
+      );
       // Reuse Review verdict within TTL when fingerprint matches — avoids MDS double-hit.
       const combined = await this.miCombinedPreflight.run(pfConfig, { allowCache: true });
       quoteProvenance = combined.quoteProvenance;

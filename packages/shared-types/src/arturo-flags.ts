@@ -24,6 +24,12 @@
 export const ARTURO_FLAGS = {
   /** Agent Desk non-trading "Experimental" chip. */
   DESK_EXPERIMENTAL_CHIP: 'feat_desk_experimental_chip',
+  /**
+   * Nifty / NSE-all batch: when ON, fundamentals (and related datasource params)
+   * must be present from the real source — do not treat incomplete rows as complete.
+   * Key matches ARTURO UI (`prequirement` spelling preserved).
+   */
+  NIFTY_ALL_STOCK_REQUIREMENT_FUNDAMENTALS: 'feat_nifty_all_stock_prequirement_fundamentals',
 } as const;
 
 export type ArturoFlagKey = (typeof ARTURO_FLAGS)[keyof typeof ARTURO_FLAGS];

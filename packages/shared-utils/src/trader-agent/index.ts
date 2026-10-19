@@ -84,6 +84,7 @@ export * from './mi-data-requirement-plan';
 export * from './mi-combined-preflight';
 export * from './readiness-policy';
 export * from './analysis-session-policy';
+export * from './arturo-nifty-fundamentals';
 export * from './mi-create-preflight-map';
 export * from './mi-batch-snapshot';
 export * from './mi-advanced-contract';

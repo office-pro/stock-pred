@@ -57,6 +57,7 @@ import { AgentService } from './agent.service';
 import { ContinuousIntelligenceStore } from './continuous-intelligence-store';
 import { IntelligenceBatchService } from './intelligence-batch.service';
 import { MiCoverageService } from './mi-coverage.service';
+import { ArturoFlagService } from './arturo-flag.service';
 import { MiCombinedPreflightService } from './mi-combined-preflight.service';
 import {
   emptyHistoricalPredictionProofNote,
@@ -79,6 +80,7 @@ import {
   runMarketIntelligencePreflight,
   combineBatchPreflight,
   listEnabledMiProviders,
+  applyArturoNiftyFundamentalsRequirement,
   normalizeReadinessPolicy,
   readinessPolicyErrorBody,
   normalizeAnalysisSession,
@@ -550,6 +552,7 @@ export class AgentController {
     private readonly continuous: ContinuousIntelligenceStore,
     private readonly miCoverage: MiCoverageService,
     private readonly miCombinedPreflight: MiCombinedPreflightService,
+    private readonly arturoFlags: ArturoFlagService,
   ) {}
 
   @Get('mode')
@@ -716,8 +719,15 @@ export class AgentController {
 
   /** B1 Intelligence Batch — HISTORICAL / FULL_ANALYSIS only (no auth chain). */
   @Post('intelligence-batches')
-  createIntelligenceBatch(@Body() body: CreateIntelligenceBatchDto) {
-    return this.intelligenceBatches.create(body as CreateIntelligenceBatchRequest);
+  createIntelligenceBatch(
+    @Body() body: CreateIntelligenceBatchDto,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-brand-id') brandId?: string,
+  ) {
+    return this.intelligenceBatches.create(body as CreateIntelligenceBatchRequest, {
+      userId,
+      brandId,
+    });
   }
 
   @Get('intelligence-batches')
@@ -821,13 +831,15 @@ export class AgentController {
     body: BatchPreflightConfiguration & {
       analysisPeriod?: BatchPreflightConfiguration['analysisPeriod'] | string;
     },
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-brand-id') brandId?: string,
   ) {
     if (!body?.universeType) throw new BadRequestException('universeType required');
     const analysisPeriod =
       typeof body.analysisPeriod === 'string'
         ? parseDurationToken(body.analysisPeriod)
         : (body.analysisPeriod ?? { value: 3, unit: 'M' as const });
-    const config: BatchPreflightConfiguration = {
+    let config: BatchPreflightConfiguration = {
       universeType: body.universeType,
       customSymbols: body.customSymbols,
       nseEquityAllSymbols: body.nseEquityAllSymbols,
@@ -858,6 +870,11 @@ export class AgentController {
       if (sessionError) throw new BadRequestException(sessionError);
       throw err;
     }
+    const requireRealFundamentals = await this.arturoFlags.niftyFundamentalsRequired({
+      userId,
+      brandId,
+    });
+    config = applyArturoNiftyFundamentalsRequirement(config, requireRealFundamentals);
     return this.miCombinedPreflight.run(config);
   }
 
