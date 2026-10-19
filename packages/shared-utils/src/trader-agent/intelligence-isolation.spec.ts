@@ -118,6 +118,39 @@ describe('IntelligenceSnapshot isolation (P4 crown)', () => {
     expect(evaluateRisk(riskInput)).toEqual(riskA);
   });
 
+  it('MI-7.1 advancedIntelligenceSnapshotId on IntelligenceSnapshot does not change Risk / Policy', () => {
+    const analysis = baseAnalysis();
+    const decision = evaluateTrade({ analysis });
+    const riskInput = {
+      decision,
+      capital: 1_000_000,
+      cash: 1_000_000,
+      tradingEnabled: true,
+      killSwitch: false,
+    };
+    const riskA = evaluateRisk(riskInput);
+    const portfolioSnap = emptyPortfolioSnapshot(TradingMode.PAPER, 1_000_000);
+    const portA = evaluatePortfolio({ decision, risk: riskA, portfolio: portfolioSnap });
+    const policyInput = {
+      operatingMode: 'PAPER' as const,
+      decisionMode: 'AUTONOMOUS' as const,
+      eligibility: decision.eligibility,
+      risk: riskA,
+      portfolio: portA,
+    };
+    const policyA = applyDecisionPolicy(policyInput);
+
+    const snapshot = buildIntelligenceSnapshot({ analysis, decision });
+    snapshot.dataSnapshotVersion = 'batch-data-snapshot.v1';
+    snapshot.marketIntelligenceSnapshotId = 'MI-1';
+    snapshot.advancedIntelligenceSnapshotId = 'ADV-1';
+    snapshot.miAsOf = '2026-09-26T00:00:00.000Z';
+
+    expect(evaluateRisk(riskInput)).toEqual(riskA);
+    expect(evaluatePortfolio({ decision, risk: riskA, portfolio: portfolioSnap })).toEqual(portA);
+    expect(applyDecisionPolicy(policyInput)).toEqual(policyA);
+  });
+
   it('LIVE + AUTONOMOUS remains HUMAN_REQUIRED', () => {
     const analysis = baseAnalysis();
     const decision = evaluateTrade({ analysis });

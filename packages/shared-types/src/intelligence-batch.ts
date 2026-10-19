@@ -218,8 +218,11 @@ export interface IntelligenceBatchContextLabels {
   /**
    * P1 — true only when APPROVE + COMPLETE geometry.
    * APPROVE + PARTIAL is advisory / not execution-ready (auth chain unchanged).
+   * Slice G: OFF_SESSION research forces false via researchNonActionable.
    */
   tradePlanExecutionReady?: boolean;
+  /** When true, applyTradePlanExecutionReady never sets tradePlanExecutionReady. */
+  researchNonActionable?: boolean;
   /** Quote provenance for TradePlan geometry — omit when VALID. */
   quoteStatus?: 'VALID' | 'MDS_UNAVAILABLE' | 'PRICE_ZERO' | 'MAP_MISS_RECOVERED';
   /** B9–B17 compact advisory labels — omit when unavailable. Never rankingScore. */
@@ -427,6 +430,23 @@ export interface IntelligenceBatch {
   identityCounts?: import('./instrument').BatchIdentityCounts;
   snapshotProvider?: string;
   snapshotDataAsOf?: number;
+  /** MI-5 PIT as-of (ISO) frozen at create / preflight. */
+  asOf?: string;
+  /** MI-5 MarketIntelligenceBatchSnapshot id when built. */
+  marketIntelligenceSnapshotId?: string;
+  /** MI mode used for MI-5 snapshot requirements (independent of execution mode). */
+  miMode?: 'STANDARD' | 'ADVANCED' | 'CUSTOM';
+  /** Explicit readiness policy from create; absent means STRICT_ALL. */
+  readinessPolicy?: import('./market-intelligence').ReadinessPolicy;
+  /** ELIGIBLE_SUBSET: eligibility frozen at create; never re-evaluated during the run. */
+  readinessEligibility?: import('./market-intelligence').ReadinessEligibilitySummary;
+  /**
+   * analysis-session.v1 — omit ≡ CURRENT_MARKET.
+   * OFF_SESSION_ANALYSIS stamps NON_ACTIONABLE and never authorizes trades.
+   */
+  analysisSession?: import('./market-intelligence').AnalysisSessionContract;
+  analysisActionability?: import('./market-intelligence').AnalysisActionability;
+  quoteProvenance?: import('./market-intelligence').AnalysisQuoteProvenance;
 }
 
 /** Ranked research rows — order from existing RankingContext engine only. */
@@ -465,6 +485,12 @@ export interface IntelligenceBatchResultRow {
   recommendation?: BatchResultRecommendation;
   reasonCode?: string;
   reason?: string;
+  /** MI-5 lineage — frozen MD + MI snapshots. */
+  dataSnapshotVersion?: string;
+  marketIntelligenceSnapshotId?: string;
+  asOf?: string;
+  /** ELIGIBLE_SUBSET: frozen readiness state of this analyzed row. */
+  readinessState?: import('./market-intelligence').InstrumentReadinessState;
 }
 
 export interface IntelligenceBatchResults {
@@ -482,6 +508,16 @@ export interface IntelligenceBatchResults {
   /** IDENTITY_MISMATCH rows — data-quality counts only, never ranked. */
   quarantined?: IntelligenceBatchResultRow[];
   identityCounts?: import('./instrument').BatchIdentityCounts;
+  /** ELIGIBLE_SUBSET only. */
+  readinessPolicy?: import('./market-intelligence').ReadinessPolicy;
+  /** ELIGIBLE_SUBSET: never analyzed — no prediction, rank, score or recommendation. */
+  ineligible?: import('./market-intelligence').InstrumentReadinessEligibility[];
+  /** ELIGIBLE_SUBSET: set when no instrument was analyzed. */
+  outcome?: 'NO_ELIGIBLE_INSTRUMENTS';
+  /** analysis-session.v1 echo from batch. */
+  analysisSession?: import('./market-intelligence').AnalysisSessionContract;
+  analysisActionability?: import('./market-intelligence').AnalysisActionability;
+  quoteProvenance?: import('./market-intelligence').AnalysisQuoteProvenance;
 }
 
 /**
@@ -507,6 +543,16 @@ export interface IntelligenceBatchResultsPage {
   generatedAt?: number;
   dataAsOf?: number;
   dataStatus?: DataFreshnessStatus;
+  /** ELIGIBLE_SUBSET only — echoed from stored results (not recomputed). */
+  readinessPolicy?: import('./market-intelligence').ReadinessPolicy;
+  /** ELIGIBLE_SUBSET: readiness exclusions — never ranked; batch-level, not paginated. */
+  ineligible?: import('./market-intelligence').InstrumentReadinessEligibility[];
+  /** ELIGIBLE_SUBSET: set when no instrument was analyzed. */
+  outcome?: 'NO_ELIGIBLE_INSTRUMENTS';
+  /** analysis-session.v1 echo from batch. */
+  analysisSession?: import('./market-intelligence').AnalysisSessionContract;
+  analysisActionability?: import('./market-intelligence').AnalysisActionability;
+  quoteProvenance?: import('./market-intelligence').AnalysisQuoteProvenance;
 }
 
 export interface CreateIntelligenceBatchRequest {
@@ -538,6 +584,27 @@ export interface CreateIntelligenceBatchRequest {
   analysisResolution?: import('./instrument').AnalysisResolution;
   analysisWindow?: import('./instrument').AnalysisWindow;
   predictionHorizon?: string;
+  /**
+   * MI requirement mode (STANDARD / ADVANCED / CUSTOM). Independent of execution `mode`
+   * (HISTORICAL / LIVE / HYBRID). Defaults to STANDARD when omitted.
+   */
+  miMode?: 'STANDARD' | 'ADVANCED' | 'CUSTOM';
+  /** Explicit MI capability flags; override miMode defaults when set. */
+  intelligence?: {
+    fundamentals?: boolean;
+    news?: boolean;
+    sentiment?: boolean;
+    corporateEvents?: boolean;
+    macro?: boolean;
+    social?: boolean;
+  };
+  /** Absent → STRICT_ALL. ELIGIBLE_SUBSET requires explicit minimums. */
+  readinessPolicy?: import('./market-intelligence').ReadinessPolicy;
+  /**
+   * analysis-session.v1 — omit ≡ CURRENT_MARKET.
+   * OFF_SESSION_ANALYSIS must be explicit; never inferred from stale quotes.
+   */
+  analysisSession?: import('./market-intelligence').AnalysisSessionContract;
 }
 
 export const INTELLIGENCE_BATCH_PARTITION_SIZE = 50;

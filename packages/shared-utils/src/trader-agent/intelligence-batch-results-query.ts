@@ -279,6 +279,17 @@ export function queryIntelligenceBatchResultsPage(
     return stage != null && stage !== '' && stage !== 'UNKNOWN';
   });
 
+  const readinessEcho = {
+    ...(results.readinessPolicy ? { readinessPolicy: results.readinessPolicy } : {}),
+    ...(results.ineligible ? { ineligible: results.ineligible } : {}),
+    ...(results.outcome ? { outcome: results.outcome } : {}),
+    ...(results.analysisSession ? { analysisSession: results.analysisSession } : {}),
+    ...(results.analysisActionability
+      ? { analysisActionability: results.analysisActionability }
+      : {}),
+    ...(results.quoteProvenance ? { quoteProvenance: results.quoteProvenance } : {}),
+  };
+
   if (preset === 'BULL_RUN' && !anyBullRunEvidence) {
     return {
       batchId: results.batchId,
@@ -297,6 +308,7 @@ export function queryIntelligenceBatchResultsPage(
       generatedAt: results.generatedAt,
       dataAsOf: results.dataAsOf,
       dataStatus: results.dataStatus,
+      ...readinessEcho,
     };
   }
 
@@ -368,5 +380,6 @@ export function queryIntelligenceBatchResultsPage(
     generatedAt: results.generatedAt,
     dataAsOf: results.dataAsOf,
     dataStatus: results.dataStatus,
+    ...readinessEcho,
   };
 }

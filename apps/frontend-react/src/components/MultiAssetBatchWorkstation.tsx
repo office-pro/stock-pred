@@ -20,7 +20,7 @@ import {
   Typography,
 } from '@mui/material';
 import type { InstrumentRef, UniverseCatalogEntry } from '@stockpred/shared-types';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   useCancelIntelligenceBatchMutation,
@@ -34,37 +34,51 @@ import {
   useLazyGetIntelligenceBatchQuery,
   useListIntelligenceBatchesQuery,
   usePauseIntelligenceBatchMutation,
+  usePostCombinedBatchPreflightMutation,
   useResumeIntelligenceBatchMutation,
   useSearchCanonicalInstrumentsQuery,
 } from '../store/api';
 import {
   ANALYSIS_PERIOD_LABELS,
   ANALYSIS_RESOLUTION_LABELS,
-  analysisChecklist,
+  batchRunProgressStages,
   buildMultiAssetBatchRequest,
   clearActiveBatchSession,
   clearWorkstationDraft,
+  computeBackendCanRun,
+  computeCanSubmit,
   defaultCustomAnalysisWindow,
   DEFAULT_WORKSTATION_UNIVERSE,
   FEATURED_PREDEFINED_CARDS,
   FEATURED_UNIVERSE_IDS,
   formatBatchDuration,
+  formatCreateBatchError,
   formatElapsed,
+  formatPreflightRequestError,
   formatTimestamp,
   isActiveBatchStatus,
+  isMiPreflightUniverse,
   isTerminalBatchStatus,
   isValidAnalysisWindow,
   lifecycleStageCopy,
   loadWorkstationDraft,
+  mapWorkstationToPreflightConfig,
+  miWorkflowStepIndex,
   overviewKpis,
   persistActiveBatchId,
   pickDefaultAnalysisPeriod,
   pickDefaultAnalysisResolution,
   pickDefaultPredictionHorizon,
+  pickActiveBatchForUniverse,
   pickLatestTerminalBatch,
+  pickRecoverableCreatedBatch,
   saveWorkstationDraft,
-  wizardStageStates,
+  stableSerializePreflightConfig,
+  unwrapPreflightBlockedBody,
   type FrozenResultIdentity,
+  type PreflightPresentationState,
+  type ReadinessPolicyChoice,
+  type AnalysisSessionChoice,
   type SnapshotCoverageRow,
 } from '../lib/multi-asset-batch';
 import {
@@ -72,22 +86,28 @@ import {
   ArtifactsPanel,
   BatchDetailsPanel,
   BatchHistoryTable,
-  BatchProgress,
-  CapabilityCoverageTable,
   CapabilityDetailsDrawer,
-  CoverageDonut,
-  DataQualityPanel,
-  DataSourceList,
   OptionChips,
   OverviewHome,
   ResultDetailsDrawer,
   ResultsSummary,
   TaskEventsPanel,
-  TerminalContextBar,
   TopOpportunities,
 } from './multi-asset-batch/workstation-panels';
+import {
+  BatchReadinessPanel,
+  BatchResultDetail,
+  BatchRunProgressPanel,
+  DataSourceStatusPanel,
+  GroupedCapabilityCoverageTable,
+  IneligibleInstrumentsTable,
+  MiWorkflowStepper,
+  QuarantineBanner,
+  ResultsReadinessBanner,
+  SnapshotInfoPanel,
+} from './multi-asset-batch/batch-run-panels';
 import { PageTitle, QueryState, WorkstationFooter } from './multi-asset-batch/workstation-chrome';
-
+import type { CombinedBatchPreflightV2 } from '@stockpred/shared-types';
 const WIZARD_STEPS = ['Select Universe', 'Configure Analysis', 'Review & Run'] as const;
 const SELECTOR_TABS = ['Predefined', 'Custom', 'My Watchlists', 'Upload Symbols'] as const;
 type WizardScreen = 'overview' | 'select' | 'configure' | 'review';
@@ -123,11 +143,29 @@ export default function MultiAssetBatchWorkstation(): JSX.Element {
   const [historyStartDate, setHistoryStartDate] = useState('');
   const [historyEndDate, setHistoryEndDate] = useState('');
   const [historyPage, setHistoryPage] = useState(0);
+  const [miMode, setMiMode] = useState<'STANDARD' | 'ADVANCED' | 'CUSTOM'>('STANDARD');
+  const [readinessPolicyChoice, setReadinessPolicyChoice] =
+    useState<ReadinessPolicyChoice>('DEFAULT');
+  const [analysisSessionChoice, setAnalysisSessionChoice] =
+    useState<AnalysisSessionChoice>('CURRENT_MARKET');
+  const [detailTab, setDetailTab] = useState(1);
+  const [preflightPresentation, setPreflightPresentation] =
+    useState<PreflightPresentationState>('NOT_EVALUATED');
+  const [preflightStored, setPreflightStored] = useState<{
+    key: string;
+    result: CombinedBatchPreflightV2;
+  } | null>(null);
+  const [preflightError, setPreflightError] = useState<string | null>(null);
+  const [preflightAttempt, setPreflightAttempt] = useState(0);
   const [peekBatch] = useLazyGetIntelligenceBatchQuery();
-
+  const [postPreflight] = usePostCombinedBatchPreflightMutation();
+  const postPreflightRef = useRef(postPreflight);
+  postPreflightRef.current = postPreflight;
   const { data: catalogResponse, isError: catalogFailed } = useGetCanonicalUniversesQuery();
   const catalog = catalogResponse?.universes ?? [];
   const selected = catalog.find((entry) => entry.universeId === universeId);
+  const selectedUniverseId = selected?.universeId ?? '';
+  const selectedKind = selected?.kind;
   const moreUniverses = useMemo(
     () =>
       catalog.filter(
@@ -217,6 +255,7 @@ export default function MultiAssetBatchWorkstation(): JSX.Element {
   );
   const historyRows = historyData ?? [];
   const latestTerminal = pickLatestTerminalBatch(historyRows);
+  const activeForUniverse = pickActiveBatchForUniverse(historyRows, selected?.universeId);
   const { data: latestBatchDetail } = useGetIntelligenceBatchQuery(latestTerminal?.batchId ?? '', {
     skip: !overviewActive || !latestTerminal?.batchId,
   });
@@ -232,8 +271,9 @@ export default function MultiAssetBatchWorkstation(): JSX.Element {
     if (urlBatchId) persistActiveBatchId(urlBatchId, batch?.status);
   }, [urlBatchId, batch?.status]);
 
+  // Reopen stored active batch only on overview — never hijack Review for another universe.
   useEffect(() => {
-    if (urlBatchId || urlView === 'history') return;
+    if (urlBatchId || urlView === 'history' || wizardScreen !== 'overview') return;
     const stored = sessionStorage.getItem('multiAsset.selectedBatchId');
     if (!stored) return;
     let cancelled = false;
@@ -253,7 +293,7 @@ export default function MultiAssetBatchWorkstation(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [peekBatch, setSearchParams, urlBatchId, urlView]);
+  }, [peekBatch, setSearchParams, urlBatchId, urlView, wizardScreen]);
 
   useEffect(() => {
     const draft = loadWorkstationDraft();
@@ -278,7 +318,7 @@ export default function MultiAssetBatchWorkstation(): JSX.Element {
     setInstrumentQuery('');
   }, [selected?.universeId]);
 
-  const canRun = useMemo(() => {
+  const formValid = useMemo(() => {
     if (!selected?.supported || createState.isLoading) return false;
     if (!analysisPeriod || !horizon || !mode) return false;
     if (analysisPeriod === 'CUSTOM' && !isValidAnalysisWindow(customWindow)) return false;
@@ -297,24 +337,102 @@ export default function MultiAssetBatchWorkstation(): JSX.Element {
     selected,
   ]);
 
+  const isMiUniverse = isMiPreflightUniverse(selected?.universeId);
+  const preflightConfig = useMemo(() => {
+    if (!selectedUniverseId || !isMiUniverse) return null;
+    return mapWorkstationToPreflightConfig({
+      universeId: selectedUniverseId,
+      analysisPeriod,
+      analysisResolution,
+      predictionHorizon: horizon,
+      miMode,
+      readinessPolicyChoice,
+      analysisSessionChoice,
+      lockedSymbols:
+        selectedKind === 'CUSTOM' || selectedKind === 'SINGLE_STOCK'
+          ? instruments.map((i) => i.symbol)
+          : undefined,
+    });
+  }, [
+    analysisPeriod,
+    analysisResolution,
+    analysisSessionChoice,
+    horizon,
+    instruments,
+    isMiUniverse,
+    miMode,
+    readinessPolicyChoice,
+    selectedKind,
+    selectedUniverseId,
+  ]);
+  const currentPreflightKey = stableSerializePreflightConfig(preflightConfig);
+
+  const backendCanRun = computeBackendCanRun({
+    isMiUniverse,
+    currentKey: currentPreflightKey,
+    storedKey: preflightStored?.key ?? null,
+    result: preflightStored?.result,
+    presentation: preflightPresentation,
+  });
+  const canSubmit = computeCanSubmit({ formValid, isMiUniverse, backendCanRun });
+
+  useEffect(() => {
+    setPreflightError(null);
+    if (!isMiUniverse) {
+      setPreflightPresentation('NOT_EVALUATED');
+      setPreflightStored(null);
+      return;
+    }
+    if (!preflightConfig || !formValid) {
+      // Incomplete form is not a pending request — avoid sticky "Loading preflight…".
+      setPreflightPresentation('NOT_EVALUATED');
+      return;
+    }
+    const key = currentPreflightKey;
+    const config = preflightConfig;
+    setPreflightPresentation('LOADING');
+    setPreflightStored((prev) => (prev?.key === key ? prev : null));
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void postPreflightRef
+        .current(config)
+        .unwrap()
+        .then((result) => {
+          if (cancelled) return;
+          setPreflightStored({ key, result });
+          setPreflightPresentation(result.canAnalyze === true ? 'READY' : 'BLOCKED');
+        })
+        .catch((reason: unknown) => {
+          if (cancelled) return;
+          setPreflightStored(null);
+          setPreflightError(formatPreflightRequestError(reason));
+          setPreflightPresentation('ERROR');
+        });
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // Keyed only on stable fingerprint — catalog object identity must not restart LOADING.
+  }, [currentPreflightKey, formValid, isMiUniverse, preflightAttempt]);
+
   const coverage: SnapshotCoverageRow[] = (batch?.capabilityCoverage ??
     (reportEnvelope?.report as { capabilityCoverage?: SnapshotCoverageRow[] } | undefined)
       ?.capabilityCoverage ??
     []) as SnapshotCoverageRow[];
-  const checklist = analysisChecklist({
+  const runProgressStages = batchRunProgressStages({
+    lifecycle: batch?.lifecycleStage,
+    status: batch?.status,
     coverage,
-    capability: selected?.capability
-      ? {
-          marketData: selected.capability.marketData,
-          technical: selected.capability.historicalCandles,
-          fundamentals: selected.capability.fundamentals,
-          news: selected.capability.sentiment,
-          macro: selected.capability.globalImpact,
-          derivatives: selected.capability.derivatives,
-        }
-      : undefined,
   });
-  const progressStages = wizardStageStates(batch?.lifecycleStage, batch?.status, coverage);
+  const workflowIndex = miWorkflowStepIndex({
+    hasBatch: Boolean(urlBatchId),
+    lifecycle: batch?.lifecycleStage,
+    status: batch?.status,
+    preflightPresentation,
+  });
+  const activePreflight =
+    preflightStored?.key === currentPreflightKey ? preflightStored.result : null;
 
   const screen = urlBatchId
     ? running || !terminal
@@ -384,8 +502,9 @@ export default function MultiAssetBatchWorkstation(): JSX.Element {
   };
 
   const run = async (): Promise<void> => {
-    if (!selected || !canRun) return;
+    if (!selected || !canSubmit) return;
     setError(null);
+    const startedAt = Date.now();
     try {
       const body = buildMultiAssetBatchRequest({
         universe: selected,
@@ -396,16 +515,40 @@ export default function MultiAssetBatchWorkstation(): JSX.Element {
         mode,
         sector,
         instruments,
+        miMode,
+        readinessPolicyChoice,
+        analysisSessionChoice,
       });
       const created = await createBatch(body).unwrap();
-      persistActiveBatchId(created.batchId, 'QUEUED');
-      setSearchParams({ batchId: created.batchId }, { replace: true });
+      const newId = created?.batchId || (created as { id?: string } | undefined)?.id || '';
+      if (!newId) {
+        throw new Error('Create succeeded but response had no batchId');
+      }
+      persistActiveBatchId(newId, 'QUEUED');
+      // Navigate immediately so progress header can show ID before detail fetch.
+      setSearchParams({ batchId: newId }, { replace: true });
     } catch (reason) {
-      const data =
-        reason && typeof reason === 'object' && 'data' in reason
-          ? (reason as { data?: { message?: string } }).data
-          : undefined;
-      setError(data?.message ?? (reason instanceof Error ? reason.message : 'Batch rejected'));
+      // Gateway/proxy timeout can lose the 201 while trader-agent already persisted.
+      try {
+        const listed = await refetchHistory().unwrap();
+        const recovered = pickRecoverableCreatedBatch(listed ?? [], selected.universeId, startedAt);
+        if (recovered?.batchId) {
+          persistActiveBatchId(recovered.batchId, recovered.status);
+          setSearchParams({ batchId: recovered.batchId }, { replace: true });
+          return;
+        }
+      } catch {
+        /* fall through to surface original error */
+      }
+      const blocked = unwrapPreflightBlockedBody(reason);
+      if (blocked?.combinedPreflight) {
+        setPreflightStored({
+          key: currentPreflightKey,
+          result: blocked.combinedPreflight,
+        });
+        setPreflightPresentation('BLOCKED');
+      }
+      setError(formatCreateBatchError(reason));
     }
   };
 
@@ -494,7 +637,11 @@ export default function MultiAssetBatchWorkstation(): JSX.Element {
       )}
 
       {error && (
-        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+        <Alert
+          severity="error"
+          onClose={() => setError(null)}
+          sx={{ mb: 2, whiteSpace: 'pre-line' }}
+        >
           {error}
         </Alert>
       )}
@@ -793,13 +940,98 @@ export default function MultiAssetBatchWorkstation(): JSX.Element {
 
       {screen === 'review' && selected && (
         <Paper variant="outlined" sx={{ p: 2 }} data-testid="screen-review-run">
-          <Typography variant="h6" fontWeight={750}>
-            Review & Run
+          <MiWorkflowStepper activeIndex={workflowIndex} />
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            gap={1}
+            alignItems={{ md: 'center' }}
+            flexWrap="wrap"
+            mb={2}
+          >
+            <Typography variant="h6" fontWeight={750} flex={1}>
+              Review & Run
+            </Typography>
+            <TextField
+              select
+              size="small"
+              label="MI Mode"
+              value={miMode}
+              onChange={(e) => setMiMode(e.target.value as 'STANDARD' | 'ADVANCED' | 'CUSTOM')}
+              sx={{ minWidth: 140 }}
+            >
+              <MenuItem value="STANDARD">Standard</MenuItem>
+              <MenuItem value="ADVANCED">Advanced</MenuItem>
+              <MenuItem value="CUSTOM">Custom</MenuItem>
+            </TextField>
+            <TextField
+              select
+              size="small"
+              label="Readiness policy"
+              value={readinessPolicyChoice}
+              onChange={(e) => setReadinessPolicyChoice(e.target.value as ReadinessPolicyChoice)}
+              sx={{ minWidth: 220 }}
+              data-testid="readiness-policy-select"
+            >
+              <MenuItem value="DEFAULT">Default: STRICT_ALL</MenuItem>
+              <MenuItem value="ELIGIBLE_SUBSET">Eligible subset (ELIGIBLE_SUBSET)</MenuItem>
+            </TextField>
+            <TextField
+              select
+              size="small"
+              label="Analysis session"
+              value={analysisSessionChoice}
+              onChange={(e) => setAnalysisSessionChoice(e.target.value as AnalysisSessionChoice)}
+              sx={{ minWidth: 240 }}
+              data-testid="analysis-session-select"
+            >
+              <MenuItem value="CURRENT_MARKET">Current market (15m freshness)</MenuItem>
+              <MenuItem value="OFF_SESSION_ANALYSIS">
+                Off-session research (non-actionable)
+              </MenuItem>
+            </TextField>
+            <Button
+              variant="contained"
+              disabled={!canSubmit}
+              onClick={() => void run()}
+              data-testid="run-batch-button"
+            >
+              {createState.isLoading ? 'Starting…' : 'Run Batch'}
+            </Button>
+          </Stack>
+          <Typography variant="body2" color="text.secondary" mb={1}>
+            Default keeps today&apos;s all-or-nothing gate. Eligible subset runs when ≥90% of the
+            universe is ELIGIBLE (backend-enforced). Off-session research uses completed-session
+            data and is always non-actionable — never a silent downgrade from current market.
           </Typography>
-          <Typography variant="body2" color="text.secondary" mb={2}>
-            Confirm your configuration and start the analysis
-          </Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+          {readinessPolicyChoice === 'ELIGIBLE_SUBSET' ? (
+            <Alert severity="info" sx={{ mb: 2 }} data-testid="eligible-subset-info">
+              Eligible subset (ELIGIBLE_SUBSET) requires ≥1 ELIGIBLE instrument and ≥90% of the
+              universe ELIGIBLE. ANALYZED_NOT_PROMOTABLE does not count toward the threshold.
+            </Alert>
+          ) : null}
+          {analysisSessionChoice === 'OFF_SESSION_ANALYSIS' ? (
+            <Alert severity="warning" sx={{ mb: 2 }} data-testid="off-session-info">
+              Off-session analysis uses the latest completed-session data. Results are marked
+              NON_ACTIONABLE and do not authorize trades. Source timestamps are preserved.
+            </Alert>
+          ) : null}
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', lg: '1.2fr 1fr' },
+              gap: 2,
+              mb: 2,
+            }}
+          >
+            <BatchReadinessPanel
+              presentation={preflightPresentation}
+              preflight={activePreflight}
+              notEvaluatedReason={
+                isMiUniverse ? undefined : 'Market Intelligence — Not evaluated for this universe'
+              }
+              errorMessage={preflightError}
+              onRetry={() => setPreflightAttempt((n) => n + 1)}
+            />
             <AnalysisConfiguration
               universeName={selected.name}
               totalSymbols={
@@ -822,31 +1054,28 @@ export default function MultiAssetBatchWorkstation(): JSX.Element {
               }
               onEdit={() => setWizardScreen('configure')}
             />
-            <Paper variant="outlined" sx={{ p: 2 }}>
-              <Typography fontWeight={700}>What will be analyzed?</Typography>
-              <Stack spacing={0.75} mt={1}>
-                {checklist.map((item) => (
-                  <Typography
-                    key={item.label}
-                    variant="body2"
-                    color={item.applicable ? 'text.primary' : 'text.secondary'}
-                  >
-                    {item.applicable ? '✓' : '○'} {item.label}
-                    {item.status === 'N/A'
-                      ? ' · N/A'
-                      : item.status === 'UNAVAILABLE'
-                        ? ' · UNAVAILABLE'
-                        : ''}
-                  </Typography>
-                ))}
-              </Stack>
-              <Box mt={2}>
-                <Typography fontWeight={700} mb={1}>
-                  Data sources
-                </Typography>
-                <DataSourceList sources={scopedReadiness?.dataSources ?? []} />
-              </Box>
-            </Paper>
+          </Box>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', lg: '1.2fr 1fr' },
+              gap: 2,
+            }}
+          >
+            <DataSourceStatusPanel
+              sources={scopedReadiness?.dataSources ?? []}
+              preflight={activePreflight}
+            />
+            <SnapshotInfoPanel
+              miEvaluated={isMiUniverse}
+              universe={selected.universeId}
+              resolution={analysisResolution}
+              miMode={miMode}
+              batchId={activeForUniverse?.batchId}
+              batchStatus={activeForUniverse?.status}
+              creating={createState.isLoading}
+              onOpenBatch={(id) => setSearchParams({ batchId: id }, { replace: true })}
+            />
           </Box>
           <Alert severity="info" sx={{ mt: 2 }}>
             This is not investment advice. Predictions are probabilistic and there is no guarantee
@@ -854,14 +1083,9 @@ export default function MultiAssetBatchWorkstation(): JSX.Element {
           </Alert>
           <Stack direction="row" justifyContent="space-between" mt={2}>
             <Button onClick={() => setWizardScreen('configure')}>Back</Button>
-            <Stack direction="row" gap={1}>
-              <Button variant="outlined" onClick={saveDraft}>
-                Save Draft
-              </Button>
-              <Button variant="contained" disabled={!canRun} onClick={() => void run()}>
-                {createState.isLoading ? 'Starting…' : 'Run Batch Analysis'}
-              </Button>
-            </Stack>
+            <Button variant="outlined" onClick={saveDraft}>
+              Save Draft
+            </Button>
           </Stack>
         </Paper>
       )}
@@ -912,218 +1136,275 @@ export default function MultiAssetBatchWorkstation(): JSX.Element {
         />
       )}
 
-      {screen === 'progress' && (
-        <Paper variant="outlined" sx={{ p: 2 }} data-testid="screen-batch-progress">
-          <QueryState
-            loading={batchLoading && !batch}
-            error={batchError && !batch}
-            errorMessage="Unable to load batch"
-            onRetry={() => void refetchBatch()}
+      {(screen === 'progress' || screen === 'results') && (
+        <Box data-testid={screen === 'progress' ? 'screen-batch-progress' : 'screen-results'}>
+          {/* Batch ID from URL immediately after create — do not wait for detail fetch. */}
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            justifyContent="space-between"
+            alignItems={{ md: 'center' }}
+            gap={1}
+            mb={1.5}
           >
-            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-              <Typography variant="h6" fontWeight={750}>
-                Batch Analysis Progress
+            <Box>
+              <Typography variant="h6" fontWeight={800}>
+                Multi-Asset Batch Workstation
               </Typography>
-              <Stack direction="row" gap={1} alignItems="center">
-                <Typography variant="caption" color="text.secondary">
-                  {batch?.batchId ?? 'Not available'} · {batch?.universe ?? 'Not available'}
-                </Typography>
-                {batch?.startedAt ? (
-                  <Typography variant="caption" color="text.secondary">
-                    Started at {formatTimestamp(batch.startedAt)}
-                  </Typography>
-                ) : null}
-                {batch?.status ? (
-                  <Chip
-                    label={batch.status}
-                    color={batch.status === 'RUNNING' ? 'success' : 'default'}
-                  />
-                ) : null}
-              </Stack>
-            </Stack>
-            <BatchProgress
-              stages={progressStages}
-              percent={batch?.progress?.percent}
-              backendStages={batch?.progress?.stages}
-              copy={lifecycleStageCopy(
-                batch?.lifecycleStage,
-                batch?.dataReadinessReport?.eligible ?? batch?.eligibleCount,
-              )}
-            />
-            <Stack direction="row" gap={3} mt={2} flexWrap="wrap">
-              <Typography variant="body2">
-                Total{' '}
-                {batch?.dataReadinessReport?.eligible ?? batch?.eligibleCount ?? 'Not available'}
+              <Typography variant="body2" color="text.secondary">
+                End-to-end market intelligence for equities.
               </Typography>
-              <Typography variant="body2">
-                Processed{' '}
-                {batch?.dataReadinessReport?.processed ??
-                  batch?.progress?.processed ??
-                  'Not available'}
-              </Typography>
-              <Typography variant="body2">
-                Failed{' '}
-                {batch?.dataReadinessReport?.failed ?? batch?.progress?.failed ?? 'Not available'}
-              </Typography>
-              <Typography variant="body2">Elapsed {formatElapsed(batch?.startedAt)}</Typography>
-            </Stack>
-            <Stack direction="row" gap={1} mt={2}>
-              {batch?.status === 'RUNNING' && (
-                <Button onClick={() => void pauseBatch(batch.batchId)}>Pause</Button>
-              )}
-              {batch?.status === 'PAUSED' && (
-                <Button onClick={() => void resumeBatch(batch.batchId)}>Resume</Button>
-              )}
-              {(batch?.status === 'RUNNING' || batch?.status === 'PAUSED') && (
-                <Button color="error" onClick={() => void cancelBatch(batch.batchId)}>
-                  Cancel Batch
-                </Button>
-              )}
-            </Stack>
-          </QueryState>
-        </Paper>
-      )}
-
-      {screen === 'results' && (
-        <Paper variant="outlined" sx={{ p: 2 }} data-testid="screen-results">
-          <QueryState
-            loading={batchLoading && !batch}
-            error={batchError && !batch}
-            errorMessage="Unable to load batch"
-            onRetry={() => void refetchBatch()}
-          >
-            <Alert severity={batch?.status === 'FAILED' ? 'error' : 'success'} sx={{ mb: 2 }}>
-              {batch?.status === 'FAILED' ? 'Batch failed' : 'Batch Analysis Completed'}
-              <Typography variant="caption" display="block">
-                Completed at {formatTimestamp(batch?.completedAt)} · Total time{' '}
-                {formatBatchDuration(batch?.startedAt, batch?.completedAt)}
-              </Typography>
-              {batch?.error ? (
-                <Typography variant="caption" display="block">
-                  {batch.error}
-                </Typography>
-              ) : null}
-            </Alert>
-            <TerminalContextBar
-              universe={batch?.universe}
-              eligible={batch?.dataReadinessReport?.eligible ?? batch?.eligibleCount}
-              analysisPeriod={batch?.analysisPeriod}
-              analysisResolution={batch?.analysisResolution}
-              predictionHorizon={batch?.predictionHorizon}
-              status={batch?.status}
-              duration={formatBatchDuration(batch?.startedAt, batch?.completedAt)}
-            />
-            <Tabs value={resultsTab} onChange={(_, value) => setResultsTab(value)} sx={{ mb: 2 }}>
-              <Tab label="Coverage" />
-              <Tab label="Results" />
-              <Tab label="Top Opportunities" />
-              <Tab label="Batch Details" />
-              <Tab label="Logs" />
-              <Tab label="Artifacts" />
-            </Tabs>
-            {resultsTab === 0 && (
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) 280px' },
-                  gap: 2,
-                }}
-              >
-                <Box>
-                  <Typography fontWeight={750} mb={1}>
-                    Data & Intelligence Coverage
-                  </Typography>
-                  <CapabilityCoverageTable rows={coverage} onSelect={setSelectedCapability} />
-                </Box>
-                <Stack spacing={2}>
-                  <CoverageDonut coveragePct={batch?.dataReadinessReport?.coveragePct} />
-                  <DataQualityPanel identityCounts={batch?.identityCounts} />
-                </Stack>
-              </Box>
-            )}
-            {resultsTab === 1 && (
-              <QueryState
-                loading={resultsLoading && !results}
-                error={resultsError && !results}
-                errorMessage="Unable to load results"
-                onRetry={() => void refetchResults()}
-              >
-                <Stack direction={{ xs: 'column', md: 'row' }} gap={1} mb={2}>
-                  <TextField
-                    size="small"
-                    label="Search by symbol, name or identity"
-                    value={resultsQuery}
-                    onChange={(event) => {
-                      setResultsQuery(event.target.value);
-                      setResultsPage(0);
-                    }}
-                    sx={{ flex: 1 }}
-                  />
-                  <TextField
-                    select
-                    size="small"
-                    label="All Recommendations"
-                    value={recommendationFilter}
-                    onChange={(event) => {
-                      setRecommendationFilter(event.target.value);
-                      setResultsPage(0);
-                    }}
-                    sx={{ minWidth: 220 }}
-                  >
-                    <MenuItem value="">All Recommendations</MenuItem>
-                    <MenuItem value="APPROVE">APPROVE</MenuItem>
-                    <MenuItem value="WAIT">WAIT</MenuItem>
-                    <MenuItem value="WATCH">WATCH</MenuItem>
-                    <MenuItem value="NO_TRADE">NO_TRADE</MenuItem>
-                    <MenuItem value="REJECT">REJECT</MenuItem>
-                  </TextField>
-                </Stack>
-                <ResultsSummary rankings={results?.rankings} onSelect={setSelectedResult} />
-                <TablePagination
-                  component="div"
-                  count={results?.total ?? 0}
-                  page={resultsPage}
-                  onPageChange={(_, page) => setResultsPage(page)}
-                  rowsPerPage={10}
-                  rowsPerPageOptions={[10]}
+            </Box>
+            <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+              {batch?.status || (urlBatchId && batchLoading) ? (
+                <Chip
+                  label={
+                    batch?.status === 'COMPLETED' || batch?.status === 'PARTIAL'
+                      ? 'Batch Completed'
+                      : (batch?.status ?? 'Loading…')
+                  }
+                  color={
+                    batch?.status === 'COMPLETED' || batch?.status === 'PARTIAL'
+                      ? 'success'
+                      : batch?.status === 'RUNNING' || batch?.status === 'QUEUED'
+                        ? 'info'
+                        : 'default'
+                  }
                 />
-              </QueryState>
-            )}
-            {resultsTab === 2 && (
-              <QueryState
-                loading={resultsLoading && !results}
-                error={resultsError && !results}
-                errorMessage="Unable to load results"
-                onRetry={() => void refetchResults()}
+              ) : null}
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                data-testid="running-batch-id"
+                fontWeight={700}
               >
-                <TopOpportunities rankings={results?.rankings} onSelect={setSelectedResult} />
-              </QueryState>
-            )}
-            {resultsTab === 3 && (
-              <BatchDetailsPanel
-                universe={batch?.universe}
-                analysisPeriod={batch?.analysisPeriod}
-                analysisResolution={batch?.analysisResolution}
-                predictionHorizon={batch?.predictionHorizon}
-                createdAt={batch?.createdAt}
-                completedAt={batch?.completedAt}
-                eligible={batch?.dataReadinessReport?.eligible ?? batch?.eligibleCount}
-                processed={batch?.dataReadinessReport?.processed ?? batch?.progress?.processed}
-                failed={batch?.dataReadinessReport?.failed ?? batch?.progress?.failed}
-                status={batch?.status}
-                elapsed={formatBatchDuration(batch?.startedAt, batch?.completedAt)}
+                {batch?.batchId ?? urlBatchId ?? '—'}
+                {batch?.completedAt || batch?.startedAt
+                  ? ` · ${formatTimestamp(batch.completedAt ?? batch.startedAt)}`
+                  : ''}
+              </Typography>
+              <Button size="small" variant="contained" onClick={startNewBatch}>
+                + New Batch
+              </Button>
+              <Button size="small" variant="outlined" onClick={openHistory}>
+                View History
+              </Button>
+            </Stack>
+          </Stack>
+          <QueryState
+            loading={batchLoading && !batch}
+            error={batchError && !batch}
+            errorMessage="Unable to load batch"
+            onRetry={() => void refetchBatch()}
+          >
+            <MiWorkflowStepper activeIndex={workflowIndex} />
+            <QuarantineBanner identityCounts={batch?.identityCounts} />
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', lg: '1.15fr 1fr' },
+                gap: 2,
+                mb: 2,
+              }}
+            >
+              <BatchReadinessPanel
+                presentation={isMiPreflightUniverse(batch?.universe) ? 'READY' : 'NOT_EVALUATED'}
+                preflight={activePreflight}
+                notEvaluatedReason={
+                  isMiPreflightUniverse(batch?.universe)
+                    ? undefined
+                    : 'Market Intelligence — Not evaluated for this universe'
+                }
               />
-            )}
-            {resultsTab === 4 && <TaskEventsPanel tasks={batch?.tasks} />}
-            {resultsTab === 5 && (
-              <ArtifactsPanel
-                batchId={batch?.batchId}
-                hasResearchReport={Boolean(reportEnvelope?.report)}
-                hasResults={Boolean(results)}
+              <BatchRunProgressPanel stages={runProgressStages} running={running} />
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', lg: '1.2fr 1fr' },
+                gap: 2,
+                mb: 2,
+              }}
+            >
+              <DataSourceStatusPanel
+                sources={scopedReadiness?.dataSources ?? []}
+                preflight={activePreflight}
               />
+              <SnapshotInfoPanel
+                batchId={batch?.batchId ?? urlBatchId}
+                batchStatus={batch?.status}
+                dataSnapshotVersion={batch?.dataSnapshotVersion}
+                marketIntelligenceSnapshotId={batch?.marketIntelligenceSnapshotId}
+                asOf={batch?.asOf}
+                universe={batch?.universe ?? selected?.universeId}
+                resolution={batch?.analysisResolution ?? analysisResolution}
+                miMode={batch?.miMode ?? miMode}
+                miEvaluated={isMiPreflightUniverse(batch?.universe ?? selected?.universeId)}
+              />
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', xl: '1.3fr 1fr' },
+                gap: 2,
+              }}
+            >
+              <Paper variant="outlined" sx={{ p: 2 }} data-testid="coverage-results-tabs">
+                <Typography
+                  sx={{
+                    fontSize: 11,
+                    fontWeight: 800,
+                    color: 'rgba(148, 163, 184, 0.9)',
+                    mb: 1,
+                  }}
+                >
+                  ⑤ COVERAGE / RESULTS / OPPORTUNITIES
+                </Typography>
+                <Tabs
+                  value={resultsTab}
+                  onChange={(_, value) => setResultsTab(value)}
+                  sx={{ mb: 2 }}
+                >
+                  <Tab label="Coverage" />
+                  <Tab label={`Results${results?.total != null ? ` (${results.total})` : ''}`} />
+                  <Tab label="Top Opportunities" />
+                  <Tab label="Batch Details" />
+                  <Tab label="Logs" />
+                  <Tab label="Artifacts" />
+                </Tabs>
+                {resultsTab === 0 && (
+                  <GroupedCapabilityCoverageTable
+                    rows={coverage}
+                    onSelect={setSelectedCapability}
+                  />
+                )}
+                {resultsTab === 1 && terminal && (
+                  <QueryState
+                    loading={resultsLoading && !results}
+                    error={resultsError && !results}
+                    errorMessage="Unable to load results"
+                    onRetry={() => void refetchResults()}
+                  >
+                    <ResultsReadinessBanner
+                      outcome={results?.outcome}
+                      readinessPolicy={results?.readinessPolicy}
+                      ineligibleCount={results?.ineligible?.length}
+                      batchStatus={batch?.status}
+                      hasRankings={(results?.rankings?.length ?? 0) > 0}
+                    />
+                    <Stack direction={{ xs: 'column', md: 'row' }} gap={1} mb={2}>
+                      <TextField
+                        size="small"
+                        label="Search by symbol, name or identity"
+                        value={resultsQuery}
+                        onChange={(event) => {
+                          setResultsQuery(event.target.value);
+                          setResultsPage(0);
+                        }}
+                        sx={{ flex: 1 }}
+                      />
+                      <TextField
+                        select
+                        size="small"
+                        label="All Recommendations"
+                        value={recommendationFilter}
+                        onChange={(event) => {
+                          setRecommendationFilter(event.target.value);
+                          setResultsPage(0);
+                        }}
+                        sx={{ minWidth: 220 }}
+                      >
+                        <MenuItem value="">All Recommendations</MenuItem>
+                        <MenuItem value="APPROVE">APPROVE</MenuItem>
+                        <MenuItem value="WAIT">WAIT</MenuItem>
+                        <MenuItem value="WATCH">WATCH</MenuItem>
+                        <MenuItem value="NO_TRADE">NO_TRADE</MenuItem>
+                        <MenuItem value="REJECT">REJECT</MenuItem>
+                      </TextField>
+                    </Stack>
+                    <ResultsSummary rankings={results?.rankings} onSelect={setSelectedResult} />
+                    <TablePagination
+                      component="div"
+                      count={results?.total ?? 0}
+                      page={resultsPage}
+                      onPageChange={(_, page) => setResultsPage(page)}
+                      rowsPerPage={10}
+                      rowsPerPageOptions={[10]}
+                    />
+                    <IneligibleInstrumentsTable
+                      rows={
+                        results?.ineligible as
+                          | import('@stockpred/shared-types').InstrumentReadinessEligibility[]
+                          | undefined
+                      }
+                    />
+                  </QueryState>
+                )}
+                {resultsTab === 1 && !terminal && (
+                  <Typography color="text.secondary">
+                    Results appear when the batch completes.
+                  </Typography>
+                )}
+                {resultsTab === 2 && terminal && (
+                  <QueryState
+                    loading={resultsLoading && !results}
+                    error={resultsError && !results}
+                    errorMessage="Unable to load results"
+                    onRetry={() => void refetchResults()}
+                  >
+                    <TopOpportunities rankings={results?.rankings} onSelect={setSelectedResult} />
+                  </QueryState>
+                )}
+                {resultsTab === 3 && (
+                  <BatchDetailsPanel
+                    universe={batch?.universe}
+                    analysisPeriod={batch?.analysisPeriod}
+                    analysisResolution={batch?.analysisResolution}
+                    predictionHorizon={batch?.predictionHorizon}
+                    createdAt={batch?.createdAt}
+                    completedAt={batch?.completedAt}
+                    eligible={batch?.dataReadinessReport?.eligible ?? batch?.eligibleCount}
+                    processed={batch?.dataReadinessReport?.processed ?? batch?.progress?.processed}
+                    failed={batch?.dataReadinessReport?.failed ?? batch?.progress?.failed}
+                    status={batch?.status}
+                    elapsed={formatBatchDuration(batch?.startedAt, batch?.completedAt)}
+                    readinessPolicy={results?.readinessPolicy}
+                  />
+                )}
+                {resultsTab === 4 && <TaskEventsPanel tasks={batch?.tasks} />}
+                {resultsTab === 5 && (
+                  <ArtifactsPanel
+                    batchId={batch?.batchId}
+                    hasResearchReport={Boolean(reportEnvelope?.report)}
+                    hasResults={Boolean(results)}
+                  />
+                )}
+              </Paper>
+              <BatchResultDetail row={selectedResult} tab={detailTab} onTab={setDetailTab} />
+            </Box>
+            {(running || batch?.status === 'PAUSED') && (
+              <Stack direction="row" gap={1} mt={2} flexWrap="wrap">
+                {batch?.status === 'RUNNING' && (
+                  <Button onClick={() => void pauseBatch(batch.batchId)}>Pause</Button>
+                )}
+                {batch?.status === 'PAUSED' && (
+                  <Button onClick={() => void resumeBatch(batch.batchId)}>Resume</Button>
+                )}
+                {(batch?.status === 'RUNNING' || batch?.status === 'PAUSED') && (
+                  <Button color="error" onClick={() => void cancelBatch(batch.batchId)}>
+                    Cancel Batch
+                  </Button>
+                )}
+                <Typography variant="body2" color="text.secondary" alignSelf="center">
+                  {lifecycleStageCopy(
+                    batch?.lifecycleStage,
+                    batch?.dataReadinessReport?.eligible ?? batch?.eligibleCount,
+                  )}{' '}
+                  · Elapsed {formatElapsed(batch?.startedAt)}
+                </Typography>
+              </Stack>
             )}
           </QueryState>
-        </Paper>
+        </Box>
       )}
 
       <ResultDetailsDrawer row={selectedResult} onClose={() => setSelectedResult(null)} />

@@ -15,6 +15,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   Min,
@@ -55,6 +56,8 @@ import type {
 import { AgentService } from './agent.service';
 import { ContinuousIntelligenceStore } from './continuous-intelligence-store';
 import { IntelligenceBatchService } from './intelligence-batch.service';
+import { MiCoverageService } from './mi-coverage.service';
+import { MiCombinedPreflightService } from './mi-combined-preflight.service';
 import {
   emptyHistoricalPredictionProofNote,
   loadHistoricalPredictionProof,
@@ -72,13 +75,42 @@ import {
   listInstrumentAdapters,
   resolveInstrumentWithAdapter,
   adapterHintFromUniverse,
+  resolveMarketIntelligenceRequirements,
+  runMarketIntelligencePreflight,
+  combineBatchPreflight,
+  listEnabledMiProviders,
+  normalizeReadinessPolicy,
+  readinessPolicyErrorBody,
+  normalizeAnalysisSession,
+  analysisSessionErrorBody,
 } from '@stockpred/shared-utils';
-import type { InstrumentRef, LearningPhase, PaperExperimentStatus } from '@stockpred/shared-types';
+import type {
+  BatchPreflightConfiguration,
+  InstrumentRef,
+  LearningPhase,
+  PaperExperimentStatus,
+  MarketIntelligenceUniverseType,
+  MiInstrumentEvidenceStatus,
+  MiRequirementLevel,
+} from '@stockpred/shared-types';
 
 /** BATCH UNIVERSE RULE — exposed on catalog API for FE/docs. */
 const BATCH_UNIVERSE_RULE_NOTE =
   'A predefined universe selection must automatically resolve its complete canonical membership from the backend. Manual symbols are permitted only for CUSTOM and SINGLE_STOCK (and legacy *_CUSTOM). Missing canonical source → Not available / UNSUPPORTED_UNIVERSE — never fall back to CUSTOM, MDS cache, or hardcoded lists.';
 
+function parseDurationToken(raw: string): BatchPreflightConfiguration['analysisPeriod'] {
+  const m = String(raw ?? '')
+    .trim()
+    .toUpperCase()
+    .match(/^(\d+)\s*([DWMY])$/);
+  if (m) {
+    return {
+      value: Number(m[1]),
+      unit: m[2] as 'D' | 'W' | 'M' | 'Y',
+    };
+  }
+  return { value: 3, unit: 'M' };
+}
 class CreatePaperExperimentDto {
   @IsString()
   symbol!: string;
@@ -254,6 +286,32 @@ class AnalysisWindowDto {
   endDate?: string;
 }
 
+class MiIntelligenceFlagsDto {
+  @IsOptional()
+  @IsBoolean()
+  fundamentals?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  news?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  sentiment?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  corporateEvents?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  macro?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  social?: boolean;
+}
+
 class CreateIntelligenceBatchDto {
   @IsIn([
     'NIFTY50',
@@ -400,6 +458,31 @@ class CreateIntelligenceBatchDto {
   @IsOptional()
   @IsString()
   predictionHorizon?: string;
+
+  /** MI requirement mode — independent of execution `mode` (HISTORICAL/LIVE/HYBRID). */
+  @IsOptional()
+  @IsIn(['STANDARD', 'ADVANCED', 'CUSTOM'])
+  miMode?: 'STANDARD' | 'ADVANCED' | 'CUSTOM';
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => MiIntelligenceFlagsDto)
+  intelligence?: MiIntelligenceFlagsDto;
+
+  /** Shape and version are validated by normalizeReadinessPolicy (400 on unknown/invalid). */
+  @IsOptional()
+  @IsObject()
+  readinessPolicy?: Record<string, unknown>;
+
+  /**
+   * Slice G — analysis-session.v1.
+   * Must be on the DTO: ValidationPipe whitelist:true strips unknown keys, which would
+   * silently force CURRENT_MARKET and block OFF_SESSION create from the frontend.
+   * Shape/version validated by normalizeAnalysisSession in IntelligenceBatchService.create.
+   */
+  @IsOptional()
+  @IsObject()
+  analysisSession?: Record<string, unknown>;
 }
 
 class RecordOutcomeDto {
@@ -465,6 +548,8 @@ export class AgentController {
     private readonly agent: AgentService,
     private readonly intelligenceBatches: IntelligenceBatchService,
     private readonly continuous: ContinuousIntelligenceStore,
+    private readonly miCoverage: MiCoverageService,
+    private readonly miCombinedPreflight: MiCombinedPreflightService,
   ) {}
 
   @Get('mode')
@@ -724,6 +809,174 @@ export class AgentController {
   getMultiAssetReadiness(@Query('universe') universe?: string) {
     if (!universe?.trim()) throw new BadRequestException('universe required');
     return this.intelligenceBatches.universeReadiness(universe);
+  }
+
+  /**
+   * MI-3 Combined Batch Preflight (PASS/BLOCK).
+   * Server-side MD + historical + MI Prisma (dual PIT). Never trusts client quotesAvailable.
+   */
+  @Post('multi-asset/preflight')
+  async postCombinedBatchPreflight(
+    @Body()
+    body: BatchPreflightConfiguration & {
+      analysisPeriod?: BatchPreflightConfiguration['analysisPeriod'] | string;
+    },
+  ) {
+    if (!body?.universeType) throw new BadRequestException('universeType required');
+    const analysisPeriod =
+      typeof body.analysisPeriod === 'string'
+        ? parseDurationToken(body.analysisPeriod)
+        : (body.analysisPeriod ?? { value: 3, unit: 'M' as const });
+    const config: BatchPreflightConfiguration = {
+      universeType: body.universeType,
+      customSymbols: body.customSymbols,
+      nseEquityAllSymbols: body.nseEquityAllSymbols,
+      lockedMembershipSymbols: body.lockedMembershipSymbols,
+      analysisPeriod,
+      resolution: body.resolution ?? '1D',
+      predictionHorizon: body.predictionHorizon ?? { value: 1, unit: 'M' },
+      mode: body.mode,
+      intelligence: body.intelligence,
+      asOf: body.asOf,
+      newsLookbackDays: body.newsLookbackDays,
+      coveragePolicy: body.coveragePolicy,
+    };
+    try {
+      const readinessPolicy = normalizeReadinessPolicy(body.readinessPolicy);
+      if (readinessPolicy) config.readinessPolicy = readinessPolicy;
+    } catch (err) {
+      const policyError = readinessPolicyErrorBody(err);
+      if (policyError) throw new BadRequestException(policyError);
+      throw err;
+    }
+    // Slice G: must forward analysisSession — omitting it silently forces CURRENT_MARKET.
+    try {
+      const analysisSession = normalizeAnalysisSession(body.analysisSession);
+      config.analysisSession = analysisSession;
+    } catch (err) {
+      const sessionError = analysisSessionErrorBody(err);
+      if (sessionError) throw new BadRequestException(sessionError);
+      throw err;
+    }
+    return this.miCombinedPreflight.run(config);
+  }
+
+  /**
+   * Market Intelligence + optional Market Data combined preflight.
+   * Universe size is always derived from resolved InstrumentRef[] — never hard-coded.
+   * When combinedV2=true, delegates to MI-3 orchestrator.
+   */
+  @Post('multi-asset/intelligence/preflight')
+  async postMarketIntelligencePreflight(
+    @Body()
+    body: {
+      universeType?: MarketIntelligenceUniverseType;
+      customSymbols?: string[];
+      nseEquityAllSymbols?: string[];
+      mode?: string;
+      asOf?: string;
+      newsLookbackDays?: number;
+      combinedV2?: boolean;
+      analysisPeriod?: BatchPreflightConfiguration['analysisPeriod'] | string;
+      resolution?: string;
+      predictionHorizon?: BatchPreflightConfiguration['predictionHorizon'];
+      intelligence?: BatchPreflightConfiguration['intelligence'];
+      features?: {
+        fundamentals?: MiRequirementLevel;
+        news?: MiRequirementLevel;
+        corporateEvents?: MiRequirementLevel;
+      };
+      evidence?: MiInstrumentEvidenceStatus[];
+      marketData?: {
+        canRun?: boolean;
+        eligible?: number;
+        quotesAvailable?: number;
+        historicalAvailable?: number;
+        blockingReasons?: string[];
+        warnings?: string[];
+      };
+    },
+  ) {
+    const universeType = body?.universeType;
+    if (!universeType) throw new BadRequestException('universeType required');
+
+    if (body.combinedV2) {
+      const analysisPeriod =
+        typeof body.analysisPeriod === 'string'
+          ? parseDurationToken(body.analysisPeriod)
+          : (body.analysisPeriod ?? { value: 3, unit: 'M' as const });
+      return this.miCombinedPreflight.run({
+        universeType,
+        customSymbols: body.customSymbols,
+        nseEquityAllSymbols: body.nseEquityAllSymbols,
+        analysisPeriod,
+        resolution: body.resolution ?? '1D',
+        predictionHorizon: body.predictionHorizon ?? { value: 1, unit: 'M' },
+        mode: body.mode as BatchPreflightConfiguration['mode'],
+        intelligence: body.intelligence,
+        asOf: body.asOf,
+        newsLookbackDays: body.newsLookbackDays,
+      });
+    }
+
+    const requirements = resolveMarketIntelligenceRequirements({
+      universeType,
+      customSymbols: body.customSymbols,
+      nseEquityAllSymbols: body.nseEquityAllSymbols,
+      mode: body.mode as 'STANDARD' | 'ADVANCED' | 'CUSTOM' | undefined,
+      asOf: body.asOf,
+      newsLookbackDays: body.newsLookbackDays,
+      features: body.features,
+    });
+    const evidence =
+      body.evidence ??
+      requirements.instruments.map(
+        (instrument): MiInstrumentEvidenceStatus => ({
+          instrument,
+          identityStatus: 'RESOLVED',
+          hasFundamentals: false,
+          hasNewsInWindow: false,
+          hasCorporateEvents: false,
+        }),
+      );
+    const marketIntelligence = runMarketIntelligencePreflight({ requirements, evidence });
+    const marketData = {
+      canRun: body.marketData?.canRun ?? true,
+      eligible: body.marketData?.eligible ?? requirements.requiredCount,
+      quotesAvailable: body.marketData?.quotesAvailable ?? requirements.requiredCount,
+      historicalAvailable: body.marketData?.historicalAvailable,
+      blockingReasons: body.marketData?.blockingReasons,
+      warnings: body.marketData?.warnings,
+    };
+    const combined = combineBatchPreflight({ marketData, marketIntelligence });
+    return {
+      ...combined,
+      providers: listEnabledMiProviders(),
+    };
+  }
+
+  /**
+   * MI-2 data-only coverage report (no PASS/BLOCK).
+   * Counts from persisted MarketIntelligence* evidence for resolved InstrumentRef[].
+   */
+  @Post('multi-asset/intelligence/coverage')
+  postMarketIntelligenceCoverage(
+    @Body()
+    body: {
+      universeType?: MarketIntelligenceUniverseType;
+      customSymbols?: string[];
+      nseEquityAllSymbols?: string[];
+      asOf?: string;
+    },
+  ) {
+    const universeType = body?.universeType;
+    if (!universeType) throw new BadRequestException('universeType required');
+    return this.miCoverage.report({
+      universeType,
+      customSymbols: body.customSymbols,
+      nseEquityAllSymbols: body.nseEquityAllSymbols,
+      asOf: body.asOf,
+    });
   }
 
   @Post('multi-asset/universes/:universe/refresh')

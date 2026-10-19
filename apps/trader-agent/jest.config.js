@@ -5,7 +5,8 @@ module.exports = {
   roots: ['<rootDir>/src'],
   testMatch: ['**/*.spec.ts', '**/*.test.ts'],
   moduleNameMapper: {
-    '^@stockpred/shared\-types$': '<rootDir>/../../packages/shared-types/src/index.ts',
-    '^@stockpred/shared-utils$': '<rootDir>/../../packages/shared-utils/src/index.ts',
+    // Prefer built dist to avoid CJS circular init (AppView vs execution-identity).
+    '^@stockpred/shared\\-types$': '<rootDir>/../../packages/shared-types/dist/index.js',
+    '^@stockpred/shared-utils$': '<rootDir>/../../packages/shared-utils/dist/index.js',
   },
 };

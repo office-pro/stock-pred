@@ -172,7 +172,10 @@ describe('snapshot-owned capability coverage', () => {
     ]);
     const missingCov = buildSnapshotCapabilityCoverage(missing);
     expect(missingCov.find((row) => row.capability === 'news')?.status).toBe('UNAVAILABLE');
-    expect(missingCov.find((row) => row.capability === 'sentiment')?.status).toBe('UNAVAILABLE');
+    // Sentiment without news context is N/A (not counted against universe N).
+    expect(missingCov.find((row) => row.capability === 'sentiment')?.status).toBe('N/A');
+    expect(missingCov.find((row) => row.capability === 'sentiment')?.eligible).toBe(0);
+    expect(missingCov.find((row) => row.capability === 'sentiment')?.na).toBe(1);
   });
 
   it('rolls macro coverage from snapshot.macro once, not per instrument', () => {

@@ -7,6 +7,7 @@ import {
   YahooFundamentalsClient,
   type FundamentalSnapshotInput,
 } from './providers/yahoo-fundamentals';
+import { persistMiFundamentalsFromSnapshots } from './mi-persist';
 
 const yahoo = new YahooFundamentalsClient();
 const nse = new NseFundamentalsClient();
@@ -69,7 +70,31 @@ export async function upsertSnapshots(rows: FundamentalSnapshotInput[]): Promise
     });
     written += 1;
   }
+  // Additive MI persist — never replaces fundamentalSnapshot; skip on empty.
+  try {
+    await persistMiFundamentalsFromSnapshots(rows);
+  } catch (err) {
+    console.warn('[mi-persist] fundamentals write skipped', err);
+  }
   return written;
+}
+
+/**
+ * Mirror already-stored snapshots into MI facts. Snapshots written before the MI
+ * tables existed are otherwise invisible to MI preflight while the cache is fresh.
+ * Idempotent: persist dedupes on content hash.
+ */
+export async function mirrorStoredSnapshotsToMi(symbol: string): Promise<number> {
+  const prisma = getPrismaClient();
+  const rows = await prisma.fundamentalSnapshot.findMany({ where: { symbol } });
+  if (rows.length === 0) return 0;
+  try {
+    const { written } = await persistMiFundamentalsFromSnapshots(rows);
+    return written;
+  } catch (err) {
+    console.warn(`[mi-persist] ${symbol} fundamentals mirror skipped`, err);
+    return 0;
+  }
 }
 
 function median(values: number[]): number | null {
@@ -154,7 +179,10 @@ export async function ingestSymbol(
       select: { availableAt: true },
     });
     if (isFundamentalsFresh(latest?.availableAt)) {
-      console.log(`[fundamentals] ${symbol}: cached`);
+      const mirrored = await mirrorStoredSnapshotsToMi(symbol);
+      console.log(
+        `[fundamentals] ${symbol}: cached` + (mirrored > 0 ? ` (mirrored ${mirrored} to MI)` : ''),
+      );
       return { symbol, snapshots: 0, cached: true };
     }
   }

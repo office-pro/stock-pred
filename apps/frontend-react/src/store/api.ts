@@ -1706,6 +1706,10 @@ export const api = createApi({
         error?: string;
         mode?: string;
         sector?: string;
+        /** MI-5 lineage — observe-only. */
+        asOf?: string;
+        marketIntelligenceSnapshotId?: string;
+        miMode?: 'STANDARD' | 'ADVANCED' | 'CUSTOM';
       },
       string
     >({
@@ -1737,6 +1741,10 @@ export const api = createApi({
           recommendation?: string;
           reasonCode?: string;
           reason?: string;
+          /** MI-5 lineage — observe-only. */
+          dataSnapshotVersion?: string;
+          marketIntelligenceSnapshotId?: string;
+          asOf?: string;
         }>;
         total: number;
         page: number;
@@ -1761,6 +1769,14 @@ export const api = createApi({
         generatedAt?: number;
         dataAsOf?: number;
         dataStatus?: string;
+        /** ELIGIBLE_SUBSET — echoed from stored results; FE must not recompute. */
+        readinessPolicy?: {
+          id: string;
+          version: string;
+          minimums?: { minEligibleCount: number; minEligibleFraction: number };
+        };
+        ineligible?: Array<{ symbol: string; state: string; reasons: string[] }>;
+        outcome?: 'NO_ELIGIBLE_INSTRUMENTS';
       },
       {
         id: string;
@@ -1832,10 +1848,72 @@ export const api = createApi({
         analysisResolution?: string;
         analysisWindow?: { startDate: string; endDate: string };
         predictionHorizon?: string;
+        miMode?: 'STANDARD' | 'ADVANCED' | 'CUSTOM';
+        readinessPolicy?: {
+          id: string;
+          version: string;
+          minimums?: { minEligibleCount: number; minEligibleFraction: number };
+        };
+        analysisSession?: {
+          id: 'CURRENT_MARKET' | 'OFF_SESSION_ANALYSIS';
+          version: 'analysis-session.v1';
+        };
       }
     >({
-      query: (body) => ({ url: '/agent/intelligence-batches', method: 'POST', body }),
+      async queryFn(body, api, _extra, baseQuery) {
+        // Align with gateway 300s — default 60s proxy was dropping create after PASS.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 300_000);
+        const onAbort = () => controller.abort();
+        api.signal.addEventListener('abort', onAbort);
+        try {
+          const result = await baseQuery({
+            url: '/agent/intelligence-batches',
+            method: 'POST',
+            body,
+            signal: controller.signal,
+          });
+          if (result.error) return { error: result.error };
+          return {
+            data: result.data as {
+              batchId: string;
+              universeVersion?: string;
+              eligibleCount?: number;
+            },
+          };
+        } finally {
+          clearTimeout(timer);
+          api.signal.removeEventListener('abort', onAbort);
+        }
+      },
       invalidatesTags: ['IntelligenceBatches'],
+    }),
+    postCombinedBatchPreflight: builder.mutation<
+      import('@stockpred/shared-types').CombinedBatchPreflightV2,
+      import('@stockpred/shared-types').BatchPreflightConfiguration
+    >({
+      async queryFn(body, api, _extra, baseQuery) {
+        // Cap wait so Review & Run cannot stick on LOADING when MDS is slow.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 120_000);
+        const onAbort = () => controller.abort();
+        api.signal.addEventListener('abort', onAbort);
+        try {
+          const result = await baseQuery({
+            url: '/agent/multi-asset/preflight',
+            method: 'POST',
+            body,
+            signal: controller.signal,
+          });
+          if (result.error) return { error: result.error };
+          return {
+            data: result.data as import('@stockpred/shared-types').CombinedBatchPreflightV2,
+          };
+        } finally {
+          clearTimeout(timer);
+          api.signal.removeEventListener('abort', onAbort);
+        }
+      },
     }),
     getCanonicalUniverses: builder.query<
       {
@@ -2851,6 +2929,7 @@ export const {
   useLazyGetIntelligenceBatchQuery,
   useGetIntelligenceBatchResultsQuery,
   useCreateIntelligenceBatchMutation,
+  usePostCombinedBatchPreflightMutation,
   useGetCanonicalUniversesQuery,
   useSearchCanonicalInstrumentsQuery,
   useGetMultiAssetReadinessQuery,

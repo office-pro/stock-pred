@@ -828,6 +828,78 @@ describe('Professional Batch Discovery — identity / TradePlan / presets', () =
 
     const search = queryIntelligenceBatchResultsPage(results, { q: 'relian' });
     expect(search.rankings.map((r) => r.symbol)).toEqual(['RELIANCE']);
+    // STRICT_ALL / no readiness section → page omits readiness fields.
+    expect(page1).not.toHaveProperty('outcome');
+    expect(page1).not.toHaveProperty('ineligible');
+    expect(page1).not.toHaveProperty('readinessPolicy');
+  });
+
+  it('paginated page echoes stored readiness outcome / ineligible / policy (not recomputed)', () => {
+    const policy = {
+      id: 'ELIGIBLE_SUBSET' as const,
+      version: 'readiness-policy.v1' as const,
+      minimums: { minEligibleCount: 1, minEligibleFraction: 0.9 },
+    };
+    const ineligible = [
+      { symbol: 'AAA', state: 'INELIGIBLE' as const, reasons: ['QUOTE_STALE'] },
+      { symbol: 'BBB', state: 'INELIGIBLE' as const, reasons: ['NO_HISTORY'] },
+    ];
+    const withReadiness = {
+      schemaVersion: 'intelligence-batch-results.v1' as const,
+      batchId: 'IBATCH-ES-B',
+      generatedAt: 1,
+      dataAsOf: 1,
+      dataStatus: 'CLOSED_MARKET' as const,
+      rankingEngineVersion: 'rank-v1',
+      calculationVersion: 'calc-v1',
+      tradeHorizon: 'SWING_TRADE',
+      strategyTag: 'BREAKOUT',
+      rankings: [
+        {
+          rank: 1,
+          symbol: 'TCS',
+          opportunityId: 'o1',
+          readinessState: 'ELIGIBLE' as const,
+          intelligenceContext: {
+            tradePlanRecommendation: 'APPROVE' as const,
+            opportunityQuality: 'HIGH',
+            intelligenceLifecycleState: 'OPPORTUNITY' as const,
+          },
+        },
+      ],
+      readinessPolicy: policy,
+      ineligible,
+    };
+    const page = queryIntelligenceBatchResultsPage(withReadiness, { page: 1, pageSize: 50 });
+    expect(page.readinessPolicy).toEqual(policy);
+    expect(page.ineligible).toEqual(ineligible);
+    expect(page).not.toHaveProperty('outcome');
+    expect(page.rankings.map((r) => r.symbol)).toEqual(['TCS']);
+    // Pagination must not slice or filter the batch-level ineligible list.
+    const pageTiny = queryIntelligenceBatchResultsPage(withReadiness, { page: 1, pageSize: 1 });
+    expect(pageTiny.ineligible).toEqual(ineligible);
+
+    const terminal = {
+      ...withReadiness,
+      rankings: [] as typeof withReadiness.rankings,
+      outcome: 'NO_ELIGIBLE_INSTRUMENTS' as const,
+      ineligible: [
+        { symbol: 'AAA', state: 'INELIGIBLE' as const, reasons: ['QUOTE_STALE'] },
+        { symbol: 'BBB', state: 'INELIGIBLE' as const, reasons: ['QUOTE_STALE'] },
+      ],
+    };
+    const emptyPage = queryIntelligenceBatchResultsPage(terminal, { page: 1, pageSize: 50 });
+    expect(emptyPage.rankings).toEqual([]);
+    expect(emptyPage.total).toBe(0);
+    expect(emptyPage.outcome).toBe('NO_ELIGIBLE_INSTRUMENTS');
+    expect(emptyPage.ineligible).toEqual(terminal.ineligible);
+    expect(emptyPage.readinessPolicy).toEqual(policy);
+
+    // Early BULL_RUN empty path still echoes readiness fields.
+    const bullEmpty = queryIntelligenceBatchResultsPage(terminal, { preset: 'BULL_RUN' });
+    expect(bullEmpty.bullRunAvailable).toBe(false);
+    expect(bullEmpty.outcome).toBe('NO_ELIGIBLE_INSTRUMENTS');
+    expect(bullEmpty.ineligible).toEqual(terminal.ineligible);
   });
 
   it('filters by bullRunV2Cells target/horizon/conf + integrity exclude without FE scoring', () => {

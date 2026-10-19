@@ -23,6 +23,8 @@ export * from './p7-breakers';
 export * from './p8-scale';
 export * from './focus-universe';
 export * from './asset-intelligence';
+export * from './market-intelligence';
+export * from './advanced-intelligence';
 export * from './intelligence-batch';
 export * from './professional-trader';
 export * from './continuous-intelligence';

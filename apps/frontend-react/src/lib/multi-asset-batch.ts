@@ -24,6 +24,83 @@ export interface MultiAssetBatchRequest {
   sector?: string;
   instruments?: InstrumentRef[];
   instrument?: InstrumentRef;
+  /** MI mode — independent of execution mode. */
+  miMode?: 'STANDARD' | 'ADVANCED' | 'CUSTOM';
+  /** Absent → backend STRICT_ALL default. */
+  readinessPolicy?: import('@stockpred/shared-types').ReadinessPolicy;
+  /** Absent → CURRENT_MARKET (analysis-session.v1). */
+  analysisSession?: import('@stockpred/shared-types').AnalysisSessionContract;
+}
+
+/** Review & Run selector — DEFAULT omits readinessPolicy from requests. */
+export type ReadinessPolicyChoice = 'DEFAULT' | 'ELIGIBLE_SUBSET';
+
+export const ELIGIBLE_SUBSET_POLICY: import('@stockpred/shared-types').ReadinessPolicy = {
+  id: 'ELIGIBLE_SUBSET',
+  version: 'readiness-policy.v1',
+  minimums: { minEligibleCount: 1, minEligibleFraction: 0.9 },
+};
+
+/** Map UI choice → request field. DEFAULT → undefined (omit). */
+export function readinessPolicyFromChoice(
+  choice: ReadinessPolicyChoice | undefined,
+): import('@stockpred/shared-types').ReadinessPolicy | undefined {
+  return choice === 'ELIGIBLE_SUBSET' ? ELIGIBLE_SUBSET_POLICY : undefined;
+}
+
+/** Review & Run — CURRENT_MARKET omits analysisSession (backend default). */
+export type AnalysisSessionChoice = 'CURRENT_MARKET' | 'OFF_SESSION_ANALYSIS';
+
+export const OFF_SESSION_ANALYSIS_CONTRACT: import('@stockpred/shared-types').AnalysisSessionContract =
+  {
+    id: 'OFF_SESSION_ANALYSIS',
+    version: 'analysis-session.v1',
+  };
+
+/** Map UI choice → request field. CURRENT_MARKET → undefined (omit). */
+export function analysisSessionFromChoice(
+  choice: AnalysisSessionChoice | undefined,
+): import('@stockpred/shared-types').AnalysisSessionContract | undefined {
+  return choice === 'OFF_SESSION_ANALYSIS' ? OFF_SESSION_ANALYSIS_CONTRACT : undefined;
+}
+
+const INVENTORY_OUTAGE_CODES = new Set([
+  'QUOTE_INVENTORY_UNAVAILABLE',
+  'HISTORICAL_INVENTORY_UNAVAILABLE',
+  'FUNDAMENTALS_INVENTORY_UNAVAILABLE',
+]);
+
+export function isInventoryOutageBlocker(code: string): boolean {
+  return INVENTORY_OUTAGE_CODES.has(code);
+}
+
+export function humanizePreflightBlocker(code: string): string {
+  switch (code) {
+    case 'NO_ELIGIBLE_INSTRUMENTS':
+      return 'No eligible instruments';
+    case 'QUOTE_INVENTORY_UNAVAILABLE':
+      return 'Quote inventory unavailable';
+    case 'HISTORICAL_INVENTORY_UNAVAILABLE':
+      return 'Historical inventory unavailable';
+    case 'FUNDAMENTALS_INVENTORY_UNAVAILABLE':
+      return 'Fundamentals inventory unavailable';
+    case 'ELIGIBLE_SUBSET_BELOW_MINIMUM':
+      return 'Eligible subset below minimum';
+    case 'HISTORICAL_FAILURE_THRESHOLD_EXCEEDED':
+      return 'Historical failure threshold exceeded';
+    default:
+      return code.replace(/_/g, ' ');
+  }
+}
+
+/** Sort backend ineligibleByReason by count descending — no FE eligibility math. */
+export function sortedIneligibleReasons(
+  byReason: Record<string, number> | undefined | null,
+): Array<{ reason: string; count: number }> {
+  if (!byReason) return [];
+  return Object.entries(byReason)
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason));
 }
 
 export function pickDefaultAnalysisPeriod(periods: string[] | undefined): string {
@@ -251,6 +328,9 @@ export interface FrozenResultIdentity {
   companyName?: string;
   rank?: number;
   intelligenceContext?: Record<string, unknown>;
+  dataSnapshotVersion?: string;
+  marketIntelligenceSnapshotId?: string;
+  asOf?: string;
 }
 
 export function frozenResultIdentity(row: {
@@ -264,6 +344,9 @@ export function frozenResultIdentity(row: {
   reason?: string;
   reasonCode?: string;
   intelligenceContext?: Record<string, unknown>;
+  dataSnapshotVersion?: string;
+  marketIntelligenceSnapshotId?: string;
+  asOf?: string;
 }): FrozenResultIdentity {
   const instrument = row.instrument;
   const symbol = instrument?.symbol ?? row.symbol;
@@ -278,6 +361,9 @@ export function frozenResultIdentity(row: {
     companyName: row.companyName,
     rank: row.rank,
     intelligenceContext: row.intelligenceContext,
+    dataSnapshotVersion: row.dataSnapshotVersion,
+    marketIntelligenceSnapshotId: row.marketIntelligenceSnapshotId,
+    asOf: row.asOf,
   };
 }
 
@@ -308,18 +394,22 @@ export function analysisChecklist(input: {
   capability?: Record<string, string>;
 }): AnalysisCheckItem[] {
   const coverage = input.coverage ?? [];
-  const byCap = new Map(coverage.map((row) => [row.capability, row]));
-  const items: Array<{ label: string; capability: string }> = [
-    { label: 'Market Data & Historical Prices', capability: 'marketData' },
-    { label: 'Technical Indicators', capability: 'technical' },
-    { label: 'Fundamental Analysis', capability: 'fundamentals' },
-    { label: 'News & Sentiment', capability: 'news' },
-    { label: 'Macro / Economic Factors', capability: 'macro' },
-    { label: 'Derivatives Analysis (if applicable)', capability: 'derivatives' },
+  const items: Array<{ label: string; aliases: string[] }> = [
+    { label: 'Market Data & Historical Prices', aliases: ['marketdata', 'quotes'] },
+    {
+      label: 'Technical Indicators',
+      aliases: ['technical', 'historicalcandles', 'historical'],
+    },
+    { label: 'Fundamental Analysis', aliases: ['fundamentals', 'fundamental'] },
+    { label: 'News & Sentiment', aliases: ['news', 'sentiment'] },
+    { label: 'Macro / Economic Factors', aliases: ['macro'] },
+    { label: 'Derivatives Analysis (if applicable)', aliases: ['derivatives'] },
   ];
   return items.map((item) => {
-    const row = byCap.get(item.capability);
-    const capState = input.capability?.[item.capability];
+    const row = coverageByCapability(coverage, item.aliases);
+    const capState =
+      input.capability?.[item.aliases[0]!] ??
+      input.capability?.[item.aliases.find((a) => input.capability?.[a] != null) ?? ''];
     const status = row?.status ?? capState;
     const applicable = status != null && status !== 'N/A' && status !== 'UNAVAILABLE';
     return { label: item.label, applicable, status };
@@ -438,6 +528,9 @@ export function buildMultiAssetBatchRequest(input: {
   sector?: string;
   analysisResolution?: string;
   instruments: InstrumentRef[];
+  miMode?: 'STANDARD' | 'ADVANCED' | 'CUSTOM';
+  readinessPolicyChoice?: ReadinessPolicyChoice;
+  analysisSessionChoice?: AnalysisSessionChoice;
 }): MultiAssetBatchRequest {
   const request: MultiAssetBatchRequest = {
     universe: input.universe.universeId,
@@ -446,7 +539,12 @@ export function buildMultiAssetBatchRequest(input: {
     analysisResolution: input.analysisResolution ?? DEFAULT_ANALYSIS_RESOLUTION,
     predictionHorizon: input.predictionHorizon,
     mode: input.mode,
+    miMode: input.miMode ?? 'STANDARD',
   };
+  const readinessPolicy = readinessPolicyFromChoice(input.readinessPolicyChoice);
+  if (readinessPolicy) request.readinessPolicy = readinessPolicy;
+  const analysisSession = analysisSessionFromChoice(input.analysisSessionChoice);
+  if (analysisSession) request.analysisSession = analysisSession;
   if (input.analysisPeriod === 'CUSTOM') {
     if (!isValidAnalysisWindow(input.analysisWindow)) {
       throw new Error('CUSTOM analysis period requires startDate and endDate');
@@ -528,6 +626,39 @@ export function pickLatestTerminalBatch<T extends HistoryBatchLike>(rows: T[]): 
         (b.completedAt ?? b.createdAt ?? b.updatedAt) -
         (a.completedAt ?? a.createdAt ?? a.updatedAt),
     )[0];
+}
+
+/** Newest non-terminal batch for a universe (QUEUED / RUNNING / PAUSED). */
+export function pickActiveBatchForUniverse<T extends HistoryBatchLike>(
+  rows: T[],
+  universeId: string | undefined,
+): T | undefined {
+  const u = String(universeId ?? '')
+    .trim()
+    .toUpperCase();
+  if (!u) return undefined;
+  return [...rows]
+    .filter(
+      (row) =>
+        isActiveBatchStatus(row.status) &&
+        String(row.universe ?? '')
+          .trim()
+          .toUpperCase() === u,
+    )
+    .sort((a, b) => (b.createdAt ?? b.updatedAt ?? 0) - (a.createdAt ?? a.updatedAt ?? 0))[0];
+}
+
+/** After a create transport failure, recover a batch that may have been persisted anyway. */
+export function pickRecoverableCreatedBatch<T extends HistoryBatchLike>(
+  rows: T[],
+  universeId: string,
+  sinceMs: number,
+): T | undefined {
+  const active = pickActiveBatchForUniverse(rows, universeId);
+  if (!active) return undefined;
+  const created = active.createdAt ?? active.updatedAt ?? 0;
+  if (created < sinceMs - 5_000) return undefined;
+  return active;
 }
 
 export function coverageByCapability(
@@ -651,7 +782,7 @@ export function lifecycleStageCopy(stage: string | undefined, eligible?: number)
       return `Hydrating ${n.toLocaleString('en-US')} instruments...`;
     }
     case 'DATA_VALIDATED':
-      return 'Validating coverage...';
+      return 'Snapshot validated — Market Intelligence gate waiting...';
     case 'RUNNING_INTELLIGENCE':
       return 'Data ready — starting intelligence...';
     case 'RUNNING_PROFESSIONAL_TRADER':
@@ -661,4 +792,524 @@ export function lifecycleStageCopy(stage: string | undefined, eligible?: number)
     default:
       return '';
   }
+}
+
+export type PreflightPresentationState =
+  | 'NOT_EVALUATED'
+  | 'LOADING'
+  | 'READY'
+  | 'BLOCKED'
+  | 'ERROR';
+
+/** Presentation optimization only — backend miUniverseTypeForCreate remains authoritative. */
+export function isMiPreflightUniverse(universeId: string | undefined | null): boolean {
+  const id = String(universeId ?? '')
+    .trim()
+    .toUpperCase();
+  return (
+    id === 'NIFTY50' ||
+    id === 'NIFTY100' ||
+    id === 'NIFTY200' ||
+    id === 'NIFTY500' ||
+    id === 'CUSTOM' ||
+    id === 'NSE_ALL' ||
+    id === 'NSE_EQUITY_ALL'
+  );
+}
+
+export function catalogUniverseToMiTypePresentation(
+  universeId: string,
+): 'NIFTY50' | 'NIFTY100' | 'NIFTY200' | 'NIFTY500' | 'CUSTOM' | 'NSE_EQUITY_ALL' | null {
+  const id = universeId.trim().toUpperCase();
+  if (
+    id === 'NIFTY50' ||
+    id === 'NIFTY100' ||
+    id === 'NIFTY200' ||
+    id === 'NIFTY500' ||
+    id === 'CUSTOM'
+  ) {
+    return id;
+  }
+  if (id === 'NSE_ALL' || id === 'NSE_EQUITY_ALL') return 'NSE_EQUITY_ALL';
+  return null;
+}
+
+function parseAnalysisPeriodToDuration(raw?: string | null): {
+  value: number;
+  unit: 'D' | 'W' | 'M' | 'Y';
+} {
+  const token = String(raw ?? '3M')
+    .trim()
+    .toUpperCase();
+  if (token === '1W') return { value: 1, unit: 'W' };
+  if (token === '1M') return { value: 1, unit: 'M' };
+  if (token === '3M') return { value: 3, unit: 'M' };
+  if (token === '6M') return { value: 6, unit: 'M' };
+  if (token === '1Y' || token === '12M') return { value: 1, unit: 'Y' };
+  const m = token.match(/^(\d+)\s*([DWMY])$/);
+  if (m) return { value: Number(m[1]), unit: m[2] as 'D' | 'W' | 'M' | 'Y' };
+  return { value: 3, unit: 'M' };
+}
+
+export interface WorkstationPreflightForm {
+  universeId: string;
+  analysisPeriod: string;
+  analysisResolution: string;
+  predictionHorizon: string;
+  miMode?: 'STANDARD' | 'ADVANCED' | 'CUSTOM';
+  readinessPolicyChoice?: ReadinessPolicyChoice;
+  analysisSessionChoice?: AnalysisSessionChoice;
+  /** Exact symbols when CUSTOM / SINGLE_STOCK — presentation lock for fingerprint. */
+  lockedSymbols?: string[];
+  intelligence?: {
+    fundamentals?: boolean;
+    news?: boolean;
+    sentiment?: boolean;
+    corporateEvents?: boolean;
+    macro?: boolean;
+    social?: boolean;
+  };
+}
+
+/** Map workstation form → BatchPreflightConfiguration (mirrors backend create mapping). */
+export function mapWorkstationToPreflightConfig(
+  form: WorkstationPreflightForm,
+): import('@stockpred/shared-types').BatchPreflightConfiguration | null {
+  const universeType = catalogUniverseToMiTypePresentation(form.universeId);
+  if (!universeType) return null;
+  const locked = (form.lockedSymbols ?? [])
+    .map((s) => String(s).trim().toUpperCase())
+    .filter(Boolean);
+  const config: import('@stockpred/shared-types').BatchPreflightConfiguration = {
+    universeType,
+    analysisPeriod: parseAnalysisPeriodToDuration(form.analysisPeriod),
+    resolution: String(form.analysisResolution ?? '1D').trim() || '1D',
+    predictionHorizon: parseAnalysisPeriodToDuration(form.predictionHorizon),
+    mode: form.miMode ?? 'STANDARD',
+    intelligence: form.intelligence,
+  };
+  const readinessPolicy = readinessPolicyFromChoice(form.readinessPolicyChoice);
+  if (readinessPolicy) config.readinessPolicy = readinessPolicy;
+  const analysisSession = analysisSessionFromChoice(form.analysisSessionChoice);
+  if (analysisSession) config.analysisSession = analysisSession;
+  if (locked.length > 0) {
+    config.lockedMembershipSymbols = locked;
+  }
+  if (universeType === 'CUSTOM') {
+    config.customSymbols = locked;
+  } else if (universeType === 'NSE_EQUITY_ALL' && locked.length > 0) {
+    config.nseEquityAllSymbols = locked;
+  }
+  return config;
+}
+
+/** Stable fingerprint for Guard 1 — stale preflight must not enable Run. */
+export function stableSerializePreflightConfig(
+  config: import('@stockpred/shared-types').BatchPreflightConfiguration | null,
+): string {
+  if (!config) return '';
+  return JSON.stringify({
+    universeType: config.universeType,
+    locked: [...(config.lockedMembershipSymbols ?? [])].sort(),
+    custom: [...(config.customSymbols ?? [])].sort(),
+    nseAll: [...(config.nseEquityAllSymbols ?? [])].sort(),
+    analysisPeriod: config.analysisPeriod,
+    resolution: config.resolution,
+    predictionHorizon: config.predictionHorizon,
+    mode: config.mode ?? 'STANDARD',
+    intelligence: config.intelligence ?? null,
+    readinessPolicy: config.readinessPolicy ?? null,
+    analysisSession: config.analysisSession ?? null,
+  });
+}
+
+export function computeBackendCanRun(input: {
+  isMiUniverse: boolean;
+  currentKey: string;
+  storedKey: string | null;
+  result: import('@stockpred/shared-types').CombinedBatchPreflightV2 | null | undefined;
+  presentation: PreflightPresentationState;
+}): boolean {
+  if (!input.isMiUniverse) return true;
+  if (input.presentation === 'LOADING' || input.presentation === 'ERROR') return false;
+  if (!input.storedKey || input.storedKey !== input.currentKey) return false;
+  const pf = input.result;
+  if (!pf) return false;
+  // canAnalyze mirrors canRun when venue is open; research path when closed.
+  return pf.canAnalyze === true;
+}
+
+export function computeCanSubmit(input: {
+  formValid: boolean;
+  isMiUniverse: boolean;
+  backendCanRun: boolean;
+}): boolean {
+  return input.formValid && (!input.isMiUniverse || input.backendCanRun);
+}
+
+export type PreflightLegRow = {
+  key: string;
+  label: string;
+  mode: string;
+  available: number;
+  requiredCount: number;
+  coverage: string;
+  freshness: string;
+  reasonCodes?: string[];
+};
+
+/** Flatten CombinedBatchPreflightV2 legs for display — no arithmetic. */
+export function preflightLegsFromV2(
+  pf: import('@stockpred/shared-types').CombinedBatchPreflightV2 | null | undefined,
+): PreflightLegRow[] {
+  if (!pf) return [];
+  const leg = (
+    key: string,
+    label: string,
+    r: import('@stockpred/shared-types').MiReadinessResult,
+  ): PreflightLegRow => ({
+    key,
+    label,
+    mode: r.mode,
+    available: r.available,
+    requiredCount: r.requiredCount,
+    coverage: r.coverage,
+    freshness: r.freshness,
+    reasonCodes: r.reasonCodes,
+  });
+  return [
+    leg('marketData', 'Market Data', pf.marketData),
+    leg('historical', 'Historical Candles', pf.historical),
+    leg('fundamentals', 'Fundamentals', pf.intelligence.fundamentals),
+    leg('news', 'News', pf.intelligence.news),
+    leg('sentiment', 'Sentiment', pf.intelligence.sentiment),
+    leg('corporateEvents', 'Corporate Events', pf.intelligence.corporateEvents),
+    leg('macro', 'Macro', pf.intelligence.macro),
+    leg('social', 'Social', pf.intelligence.social),
+  ];
+}
+
+export const COVERAGE_GROUP_LABELS: Record<string, string> = {
+  data: 'Core Data',
+  intelligence: 'Derived Intelligence',
+  derivatives: 'Derivatives',
+  execution: 'Execution',
+};
+
+export function coverageGroupLabel(group?: string): string {
+  const g = String(group ?? 'data').toLowerCase();
+  return COVERAGE_GROUP_LABELS[g] ?? group ?? 'Core Data';
+}
+
+/** Presentation label for capability keys — never invents counts. */
+export function capabilityDisplayLabel(capability: string): string {
+  const map: Record<string, string> = {
+    marketData: 'Market Data',
+    historicalCandles: 'Historical Candles',
+    historical: 'Historical Candles',
+    fundamentals: 'Fundamentals',
+    news: 'News',
+    sentiment: 'Sentiment',
+    macro: 'Macro',
+    social: 'Social',
+    onchain: 'On-chain',
+    technical: 'Technical',
+    sector: 'Sector',
+    ml: 'ML',
+    catalyst: 'Catalyst',
+    derivatives: 'Derivatives',
+    corporateEvents: 'Corporate Events',
+  };
+  return map[capability] ?? capability;
+}
+
+export function formatDataAge(dataAsOf?: number | string | null): string {
+  if (dataAsOf == null || dataAsOf === '') return '—';
+  const ts = typeof dataAsOf === 'number' ? dataAsOf : Date.parse(String(dataAsOf));
+  if (!Number.isFinite(ts)) return '—';
+  const ms = Math.max(0, Date.now() - ts);
+  if (ms < 60_000) return `${Math.floor(ms / 1000)} sec`;
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} min`;
+  return `${Math.floor(ms / 3_600_000)} h`;
+}
+
+/** Workflow stepper index for Batch Run wireframe (Configure→…→Generate). */
+export function miWorkflowStepIndex(input: {
+  hasBatch: boolean;
+  lifecycle?: string;
+  status?: string;
+  preflightPresentation?: PreflightPresentationState;
+}): number {
+  if (
+    input.status === 'COMPLETED' ||
+    input.status === 'PARTIAL' ||
+    input.lifecycle === 'FINALIZING'
+  ) {
+    return 4;
+  }
+  if (
+    input.lifecycle === 'RUNNING_INTELLIGENCE' ||
+    input.lifecycle === 'RUNNING_PROFESSIONAL_TRADER'
+  ) {
+    return 4;
+  }
+  if (input.lifecycle === 'DATA_VALIDATED') return 3;
+  if (input.lifecycle === 'DATA_HYDRATING' || input.lifecycle === 'DATA_PREPARING') return 2;
+  if (input.hasBatch) return 2;
+  if (input.preflightPresentation === 'READY' || input.preflightPresentation === 'BLOCKED') {
+    return 1;
+  }
+  return 0;
+}
+
+export const MI_WORKFLOW_STEPS = [
+  { id: 'configure', label: 'Configure' },
+  { id: 'preflight', label: 'Preflight' },
+  { id: 'snapshot', label: 'Data Snapshot' },
+  { id: 'intelligence', label: 'Intelligence' },
+  { id: 'generate', label: 'Generate' },
+] as const;
+
+/** Progress stages for wireframe Batch Progress panel. */
+export function batchRunProgressStages(input: {
+  lifecycle?: string;
+  status?: string;
+  coverage?: SnapshotCoverageRow[];
+}): Array<{
+  id: string;
+  label: string;
+  state: WizardStageState;
+  available?: number;
+  eligible?: number;
+  coveragePct?: number | null;
+}> {
+  const lc = String(input.lifecycle ?? '');
+  const st = String(input.status ?? '');
+  const cov = input.coverage ?? [];
+  const row = (...names: string[]) =>
+    coverageByCapability(
+      cov,
+      names.map((n) => n.toLowerCase()),
+    );
+
+  const terminal = st === 'COMPLETED' || st === 'PARTIAL';
+  const failed = st === 'FAILED' || st === 'CANCELLED';
+  const runningIntel = lc === 'RUNNING_INTELLIGENCE' || lc === 'RUNNING_PROFESSIONAL_TRADER';
+  const validated = lc === 'DATA_VALIDATED';
+  const hydrating = lc === 'DATA_HYDRATING' || lc === 'DATA_PREPARING';
+  const finalizing = lc === 'FINALIZING';
+
+  const covState = (r: SnapshotCoverageRow | undefined): WizardStageState => {
+    if (!r) return 'pending';
+    const s = String(r.status).toUpperCase();
+    if (s === 'AVAILABLE') return 'complete';
+    if (s === 'PENDING') return runningIntel ? 'active' : 'pending';
+    if (s === 'PARTIAL') return 'active';
+    if (s === 'UNAVAILABLE') return 'unavailable';
+    if (s === 'N/A') return 'na';
+    return 'pending';
+  };
+
+  const tech = row('technical', 'historicalcandles');
+  const fund = row('fundamentals');
+  const news = row('news');
+  const sent = row('sentiment');
+
+  let preflight: WizardStageState = 'pending';
+  let snapshot: WizardStageState = 'pending';
+  let generate: WizardStageState = 'pending';
+  let results: WizardStageState = 'pending';
+
+  if (terminal || finalizing) {
+    preflight = snapshot = generate = results = 'complete';
+  } else if (failed) {
+    generate = 'unavailable';
+    results = 'unavailable';
+    if (hydrating || validated || runningIntel) {
+      preflight = 'complete';
+      snapshot = validated || runningIntel ? 'complete' : 'active';
+    }
+  } else if (runningIntel) {
+    preflight = 'complete';
+    snapshot = 'complete';
+    generate = 'active';
+    results = 'pending';
+  } else if (validated) {
+    preflight = 'complete';
+    snapshot = 'complete';
+    // Generate WAITING while coverage still PENDING — never active before RUNNING_INTELLIGENCE
+    generate = 'pending';
+    results = 'pending';
+  } else if (hydrating) {
+    preflight = 'complete';
+    snapshot = 'active';
+  } else if (input.lifecycle || input.status === 'QUEUED' || input.status === 'RUNNING') {
+    preflight = 'complete';
+    snapshot = 'pending';
+  }
+
+  return [
+    { id: 'preflight', label: 'Preflight', state: preflight },
+    { id: 'snapshot', label: 'Data Snapshot', state: snapshot },
+    {
+      id: 'technical',
+      label: 'Technical',
+      state: terminal || runningIntel || validated ? covState(tech) || 'complete' : covState(tech),
+      available: tech?.available,
+      eligible: tech?.eligible,
+      coveragePct: tech?.coveragePct,
+    },
+    {
+      id: 'fundamentals',
+      label: 'Fundamentals',
+      state: covState(fund),
+      available: fund?.available,
+      eligible: fund?.eligible,
+      coveragePct: fund?.coveragePct,
+    },
+    {
+      id: 'news',
+      label: 'News',
+      state: covState(news),
+      available: news?.available,
+      eligible: news?.eligible,
+      coveragePct: news?.coveragePct,
+    },
+    {
+      id: 'sentiment',
+      label: 'Sentiment',
+      state: covState(sent),
+      available: sent?.available,
+      eligible: sent?.eligible,
+      coveragePct: sent?.coveragePct,
+    },
+    { id: 'generate', label: 'Generate', state: generate },
+    { id: 'results', label: 'Results', state: results },
+  ];
+}
+
+/** Format create-batch / PREFLIGHT_BLOCKED errors for the workstation Alert. */
+export function formatCreateBatchError(reason: unknown): string {
+  const body = unwrapPreflightBlockedBody(reason);
+  if (body) {
+    const lines = ['Cannot start batch', ''];
+    if (body.outcome) {
+      lines.push(`Outcome: ${body.outcome}`, '');
+    }
+    const elig = body.combinedPreflight?.eligibility;
+    if (elig) {
+      lines.push(
+        `Eligible ${elig.eligible} / ${elig.universeTotal}` +
+          (elig.analyzedNotPromotable
+            ? ` · ANALYZED_NOT_PROMOTABLE ${elig.analyzedNotPromotable}`
+            : '') +
+          (elig.ineligible ? ` · INELIGIBLE ${elig.ineligible}` : ''),
+        '',
+      );
+    }
+    const legs = preflightLegsFromV2(body.combinedPreflight);
+    for (const leg of legs) {
+      if (leg.mode === 'NOT_APPLICABLE') continue;
+      lines.push(`• ${leg.label}: ${leg.available} / ${leg.requiredCount} (${leg.coverage})`);
+    }
+    const u = body.combinedPreflight?.universe;
+    if (u) {
+      lines.push(
+        '',
+        `Universe resolved ${u.resolved} / requested ${u.requested}` +
+          (u.unresolved || u.mismatched
+            ? ` · unresolved ${u.unresolved} · mismatched ${u.mismatched}`
+            : ''),
+      );
+    }
+    if (body.blockers?.length) {
+      lines.push('', `Blockers: ${body.blockers.join(', ')}`);
+    }
+    if (body.combinedPreflight?.warnings?.length) {
+      lines.push(`Warnings: ${body.combinedPreflight.warnings.join(', ')}`);
+    }
+    lines.push('', 'Resolve the required data issues and try again.');
+    return lines.join('\n');
+  }
+
+  const data =
+    reason && typeof reason === 'object' && 'data' in reason
+      ? (reason as { data?: unknown }).data
+      : reason;
+  if (data && typeof data === 'object' && 'message' in data) {
+    const msg = (data as { message?: unknown }).message;
+    if (typeof msg === 'string') return msg;
+  }
+  if (reason instanceof Error) return reason.message;
+  return 'Batch rejected';
+}
+
+/**
+ * Format a failed combined-preflight request for the readiness panel.
+ * Transport/exception failures only — a 2xx BLOCKED result is not an error.
+ */
+export function formatPreflightRequestError(reason: unknown): string {
+  if (!reason || typeof reason !== 'object') return 'Preflight request failed';
+  const err = reason as {
+    status?: unknown;
+    originalStatus?: unknown;
+    data?: unknown;
+    error?: unknown;
+  };
+  const detail = typeof err.error === 'string' ? err.error : undefined;
+
+  if (err.status === 'FETCH_ERROR') {
+    return `Network error — could not reach the API gateway${detail ? ` (${detail})` : ''}`;
+  }
+  if (err.status === 'TIMEOUT_ERROR') {
+    return `Preflight request timed out${detail ? ` (${detail})` : ''}`;
+  }
+
+  const httpStatus =
+    typeof err.status === 'number'
+      ? err.status
+      : typeof err.originalStatus === 'number'
+        ? err.originalStatus
+        : undefined;
+  let message: string | undefined;
+  const data = err.data;
+  if (typeof data === 'string' && data.trim()) {
+    message = data.trim().slice(0, 300);
+  } else if (data && typeof data === 'object') {
+    const raw = (data as { message?: unknown }).message;
+    if (typeof raw === 'string') message = raw;
+    else if (Array.isArray(raw)) message = raw.map(String).join('; ');
+    else if (
+      raw &&
+      typeof raw === 'object' &&
+      typeof (raw as { message?: unknown }).message === 'string'
+    ) {
+      message = (raw as { message: string }).message;
+    }
+  }
+  if (!message && detail) message = detail;
+
+  if (httpStatus !== undefined) return `HTTP ${httpStatus}${message ? ` — ${message}` : ''}`;
+  return message ?? 'Preflight request failed';
+}
+
+export function unwrapPreflightBlockedBody(
+  reason: unknown,
+): import('@stockpred/shared-types').PreflightBlockedErrorBody | null {
+  const data =
+    reason && typeof reason === 'object' && 'data' in reason
+      ? (reason as { data?: unknown }).data
+      : reason;
+  if (!data || typeof data !== 'object') return null;
+  const row = data as Record<string, unknown>;
+  if (row.code === 'PREFLIGHT_BLOCKED' && row.combinedPreflight) {
+    return row as unknown as import('@stockpred/shared-types').PreflightBlockedErrorBody;
+  }
+  if (row.message && typeof row.message === 'object') {
+    const nested = row.message as Record<string, unknown>;
+    if (nested.code === 'PREFLIGHT_BLOCKED' && nested.combinedPreflight) {
+      return nested as unknown as import('@stockpred/shared-types').PreflightBlockedErrorBody;
+    }
+  }
+  return null;
 }

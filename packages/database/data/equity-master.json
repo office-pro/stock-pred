@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-09-18T18:10:22.317Z",
+  "updatedAt": "2026-10-19T05:51:47.484Z",
   "source": "NSE EQUITY_L.csv + BSE ListofScripData (ISIN-deduped)",
   "stocks": [
     {
@@ -87,6 +87,18 @@
       "listingDate": "19-JUL-1995"
     },
     {
+      "symbol": "4THGEN",
+      "name": "Fourth Generation Information Systems Ltd",
+      "exchange": "BSE",
+      "isin": "INE739B01039",
+      "series": "XT",
+      "bseCode": "532403",
+      "yahooSymbol": "4THGEN.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "5PAISA",
       "name": "5Paisa Capital Limited",
       "exchange": "NSE",
@@ -115,7 +127,7 @@
       "name": "7NR Retail Ltd",
       "exchange": "BSE",
       "isin": "INE413X01035",
-      "series": "XT",
+      "series": "X",
       "bseCode": "540615",
       "yahooSymbol": "7NR.BO",
       "sector": "Unknown",
@@ -195,6 +207,18 @@
       "listingDate": "15-MAY-2024"
     },
     {
+      "symbol": "AADIIND",
+      "name": "Aadi Industries Ltd",
+      "exchange": "BSE",
+      "isin": "INE563D01013",
+      "series": "X",
+      "bseCode": "530027",
+      "yahooSymbol": "AADIIND.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "AAIL",
       "name": "Akar Auto Industries Ltd",
       "exchange": "BSE",
@@ -217,6 +241,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "29-SEP-2020"
+    },
+    {
+      "symbol": "AANANDALAK",
+      "name": "Aananda Lakshmi Spinning Mills Ltd",
+      "exchange": "BSE",
+      "isin": "INE197R01010",
+      "series": "XT",
+      "bseCode": "539096",
+      "yahooSymbol": "AANANDALAK.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "AANCHALISP",
@@ -280,15 +316,15 @@
     },
     {
       "symbol": "AARTECH",
-      "name": "Aartech Solonics Ltd",
-      "exchange": "BSE",
+      "name": "Aartech Solonics Limited",
+      "exchange": "NSE",
       "isin": "INE01C001026",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "542580",
-      "yahooSymbol": "AARTECH.BO",
+      "yahooSymbol": "AARTECH.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "10-JUL-2023"
     },
     {
       "symbol": "AARTIDRUGS",
@@ -523,7 +559,7 @@
       "name": "Abhinav Capital Services Ltd",
       "exchange": "BSE",
       "isin": "INE516F01016",
-      "series": "X",
+      "series": "XT",
       "bseCode": "532057",
       "yahooSymbol": "ABHICAP.BO",
       "sector": "Unknown",
@@ -547,7 +583,7 @@
       "name": "Abhishek Infraventures Ltd",
       "exchange": "BSE",
       "isin": "INE281P01016",
-      "series": "X",
+      "series": "XT",
       "bseCode": "539544",
       "yahooSymbol": "ABHIINFRA.BO",
       "sector": "Unknown",
@@ -688,15 +724,15 @@
     },
     {
       "symbol": "ACCURACY",
-      "name": "Accuracy Shipping Ltd",
-      "exchange": "BSE",
+      "name": "Accuracy Shipping Limited",
+      "exchange": "NSE",
       "isin": "INE648Z01023",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "544598",
-      "yahooSymbol": "ACCURACY.BO",
+      "yahooSymbol": "ACCURACY.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "11-DEC-2020"
     },
     {
       "symbol": "ACE",
@@ -711,11 +747,23 @@
       "listingDate": "26-SEP-2006"
     },
     {
+      "symbol": "ACEEDU",
+      "name": "ACE Edutrend Ltd",
+      "exchange": "BSE",
+      "isin": "INE715F01014",
+      "series": "Z",
+      "bseCode": "530093",
+      "yahooSymbol": "ACEEDU.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "ACEENGITEC",
       "name": "Ace Engitech Ltd",
       "exchange": "BSE",
       "isin": "INE035401020",
-      "series": "X",
+      "series": "XT",
       "bseCode": "530669",
       "yahooSymbol": "ACEENGITEC.BO",
       "sector": "Unknown",
@@ -759,6 +807,18 @@
       "listingDate": null
     },
     {
+      "symbol": "ACEVECTOR",
+      "name": "AceVector Limited",
+      "exchange": "NSE",
+      "isin": "INE580P01029",
+      "series": "EQ",
+      "bseCode": "544962",
+      "yahooSymbol": "ACEVECTOR.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "05-OCT-2026"
+    },
+    {
       "symbol": "ACFL",
       "name": "Apex Capital And Finance Ltd",
       "exchange": "BSE",
@@ -787,7 +847,7 @@
       "name": "Achyut Healthcare Ltd",
       "exchange": "BSE",
       "isin": "INE0K1401020",
-      "series": "T",
+      "series": "B",
       "bseCode": "543499",
       "yahooSymbol": "ACHYUT.BO",
       "sector": "Unknown",
@@ -991,7 +1051,7 @@
       "name": "ADC India Communications Ltd-$",
       "exchange": "BSE",
       "isin": "INE833A01016",
-      "series": "XT",
+      "series": "X",
       "bseCode": "523411",
       "yahooSymbol": "ADCINDIA.BO",
       "sector": "Unknown",
@@ -1003,7 +1063,7 @@
       "name": "Adcon Capital Services Ltd",
       "exchange": "BSE",
       "isin": "INE805Q01028",
-      "series": "XT",
+      "series": "X",
       "bseCode": "539506",
       "yahooSymbol": "ADCON.BO",
       "sector": "Unknown",
@@ -1131,16 +1191,28 @@
       "listingDate": "10-MAY-1995"
     },
     {
-      "symbol": "ADROITINFO",
-      "name": "Adroit Infotech Limited",
+      "symbol": "ADROITIND",
+      "name": "Adroit Industries (India) Limited",
       "exchange": "NSE",
-      "isin": "INE737B01033",
+      "isin": "INE505M01015",
       "series": "EQ",
-      "bseCode": "532172",
-      "yahooSymbol": "ADROITINFO.NS",
+      "bseCode": "544950",
+      "yahooSymbol": "ADROITIND.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "13-AUG-1997"
+      "listingDate": "30-SEP-2026"
+    },
+    {
+      "symbol": "ADROITINFO",
+      "name": "Adroit Infotech Ltd",
+      "exchange": "BSE",
+      "isin": "INE737B01033",
+      "series": "T",
+      "bseCode": "532172",
+      "yahooSymbol": "ADROITINFO.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "ADSL",
@@ -1162,6 +1234,18 @@
       "series": "X",
       "bseCode": "544185",
       "yahooSymbol": "ADTECH.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "ADTYFRG",
+      "name": "Aditya Forge Ltd",
+      "exchange": "BSE",
+      "isin": "INE281H01013",
+      "series": "X",
+      "bseCode": "522150",
+      "yahooSymbol": "ADTYFRG.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -1237,6 +1321,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "17-AUG-2026"
+    },
+    {
+      "symbol": "ADVIKLA",
+      "name": "Advik Laboratories Ltd",
+      "exchange": "BSE",
+      "isin": "INE537C01019",
+      "series": "XT",
+      "bseCode": "531686",
+      "yahooSymbol": "ADVIKLA.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "ADVLIFE",
@@ -1588,15 +1684,15 @@
     },
     {
       "symbol": "AGOL",
-      "name": "Ashapuri Gold Ornament Ltd",
-      "exchange": "BSE",
+      "name": "Ashapuri Gold Ornament Limited",
+      "exchange": "NSE",
       "isin": "INE05FR01029",
-      "series": "B",
+      "series": "EQ",
       "bseCode": "542579",
-      "yahooSymbol": "AGOL.BO",
+      "yahooSymbol": "AGOL.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "12-OCT-2026"
     },
     {
       "symbol": "AGRIBIO",
@@ -1747,7 +1843,7 @@
       "name": "AI Champdany Industries Ltd",
       "exchange": "BSE",
       "isin": "INE768E01024",
-      "series": "XT",
+      "series": "X",
       "bseCode": "532806",
       "yahooSymbol": "AICHAMP.BO",
       "sector": "Unknown",
@@ -1813,6 +1909,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "03-MAY-2019"
+    },
+    {
+      "symbol": "AIRLTD",
+      "name": "Avishkar Infra Realty Ltd",
+      "exchange": "BSE",
+      "isin": "INE433O01024",
+      "series": "X",
+      "bseCode": "508929",
+      "yahooSymbol": "AIRLTD.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "AIROLAM",
@@ -2031,6 +2139,18 @@
       "listingDate": "14-JUN-2016"
     },
     {
+      "symbol": "ALCHCORP",
+      "name": "Alchemist Corporation Ltd",
+      "exchange": "BSE",
+      "isin": "INE057D01016",
+      "series": "XT",
+      "bseCode": "531409",
+      "yahooSymbol": "ALCHCORP.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "ALEMBICLTD",
       "name": "Alembic Limited",
       "exchange": "NSE",
@@ -2152,15 +2272,15 @@
     },
     {
       "symbol": "ALKALI",
-      "name": "Alkali Metals Limited",
-      "exchange": "NSE",
+      "name": "Alkali Metals Ltd",
+      "exchange": "BSE",
       "isin": "INE773I01017",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "533029",
-      "yahooSymbol": "ALKALI.NS",
+      "yahooSymbol": "ALKALI.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "06-NOV-2008"
+      "listingDate": null
     },
     {
       "symbol": "ALKEM",
@@ -2224,15 +2344,15 @@
     },
     {
       "symbol": "ALMONDZ",
-      "name": "Almondz Global Securities Limited",
-      "exchange": "NSE",
+      "name": "Almondz Global Securities Ltd",
+      "exchange": "BSE",
       "isin": "INE326B01035",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "531400",
-      "yahooSymbol": "ALMONDZ.NS",
+      "yahooSymbol": "ALMONDZ.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "16-JUN-2008"
+      "listingDate": null
     },
     {
       "symbol": "ALOKINDS",
@@ -2320,15 +2440,15 @@
     },
     {
       "symbol": "ALUFLUOR",
-      "name": "Alufluoride Limited",
-      "exchange": "NSE",
+      "name": "Alufluoride Ltd",
+      "exchange": "BSE",
       "isin": "INE058F01019",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "524634",
-      "yahooSymbol": "ALUFLUOR.NS",
+      "yahooSymbol": "ALUFLUOR.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "17-AUG-2026"
+      "listingDate": null
     },
     {
       "symbol": "AMAGI",
@@ -2355,16 +2475,28 @@
       "listingDate": "17-AUG-2026"
     },
     {
-      "symbol": "AMANTA",
-      "name": "Amanta Healthcare Ltd",
+      "symbol": "AMALGAM",
+      "name": "Amalgamated Electricity Company Ltd",
       "exchange": "BSE",
-      "isin": "INE084K01015",
-      "series": "T",
-      "bseCode": "544502",
-      "yahooSymbol": "AMANTA.BO",
+      "isin": "INE492N01022",
+      "series": "XT",
+      "bseCode": "501622",
+      "yahooSymbol": "AMALGAM.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
+    },
+    {
+      "symbol": "AMANTA",
+      "name": "Amanta Healthcare Limited",
+      "exchange": "NSE",
+      "isin": "INE084K01015",
+      "series": "EQ",
+      "bseCode": "544502",
+      "yahooSymbol": "AMANTA.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "09-SEP-2025"
     },
     {
       "symbol": "AMARJOTHI",
@@ -2386,6 +2518,18 @@
       "series": "X",
       "bseCode": "538863",
       "yahooSymbol": "AMARNATH.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "AMARSEC",
+      "name": "Amarnath Securities Ltd",
+      "exchange": "BSE",
+      "isin": "INE745P01010",
+      "series": "XT",
+      "bseCode": "538465",
+      "yahooSymbol": "AMARSEC.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -2611,7 +2755,7 @@
       "name": "Amrapali Industries Ltd",
       "exchange": "BSE",
       "isin": "INE762C01021",
-      "series": "XT",
+      "series": "X",
       "bseCode": "526241",
       "yahooSymbol": "AMRAPLIN.BO",
       "sector": "Unknown",
@@ -2650,6 +2794,18 @@
       "series": "X",
       "bseCode": "534612",
       "yahooSymbol": "AMTL.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "ANANDPROJ",
+      "name": "Anand Projects Ltd",
+      "exchange": "BSE",
+      "isin": "INE134R01013",
+      "series": "XT",
+      "bseCode": "501630",
+      "yahooSymbol": "ANANDPROJ.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -3051,6 +3207,18 @@
       "listingDate": null
     },
     {
+      "symbol": "AONESTEELS",
+      "name": "A-One Steels India Limited",
+      "exchange": "NSE",
+      "isin": "INE0OTC01025",
+      "series": "EQ",
+      "bseCode": "544952",
+      "yahooSymbol": "AONESTEELS.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "01-OCT-2026"
+    },
+    {
       "symbol": "APARINDS",
       "name": "Apar Industries Limited",
       "exchange": "NSE",
@@ -3099,11 +3267,23 @@
       "listingDate": "04-SEP-2017"
     },
     {
+      "symbol": "APIL",
+      "name": "Avi Products India Ltd",
+      "exchange": "BSE",
+      "isin": "INE316O01021",
+      "series": "XT",
+      "bseCode": "523896",
+      "yahooSymbol": "APIL.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "APIS",
       "name": "Apis India Ltd",
       "exchange": "BSE",
       "isin": "INE070K01014",
-      "series": "B",
+      "series": "X",
       "bseCode": "506166",
       "yahooSymbol": "APIS.BO",
       "sector": "Unknown",
@@ -3244,27 +3424,27 @@
     },
     {
       "symbol": "APOORVA",
-      "name": "Apoorva Leasing Finance and Investment Company Limited",
-      "exchange": "NSE",
-      "isin": "INE217S01014",
-      "series": "EQ",
-      "bseCode": "539545",
-      "yahooSymbol": "APOORVA.NS",
-      "sector": "Unknown",
-      "indices": [],
-      "listingDate": "17-AUG-2026"
-    },
-    {
-      "symbol": "APTECHT",
-      "name": "Aptech Ltd",
+      "name": "Apoorva Leasing Finance and Investment Company Ltd",
       "exchange": "BSE",
-      "isin": "INE266F01018",
+      "isin": "INE217S01014",
       "series": "T",
-      "bseCode": "532475",
-      "yahooSymbol": "APTECHT.BO",
+      "bseCode": "539545",
+      "yahooSymbol": "APOORVA.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
+    },
+    {
+      "symbol": "APTECHT",
+      "name": "Aptech Limited",
+      "exchange": "NSE",
+      "isin": "INE266F01018",
+      "series": "EQ",
+      "bseCode": "532475",
+      "yahooSymbol": "APTECHT.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "27-SEP-2002"
     },
     {
       "symbol": "APTPACK",
@@ -3367,7 +3547,7 @@
       "name": "Archit Organosys Ltd",
       "exchange": "BSE",
       "isin": "INE078I01011",
-      "series": "XT",
+      "series": "X",
       "bseCode": "524640",
       "yahooSymbol": "ARCHITORG.BO",
       "sector": "Unknown",
@@ -3436,15 +3616,15 @@
     },
     {
       "symbol": "ARENTERP",
-      "name": "Rajdarshan Industries Limited",
-      "exchange": "NSE",
+      "name": "Rajdarshan Industries Ltd",
+      "exchange": "BSE",
       "isin": "INE610C01014",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "526662",
-      "yahooSymbol": "ARENTERP.NS",
+      "yahooSymbol": "ARENTERP.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "18-OCT-1995"
+      "listingDate": null
     },
     {
       "symbol": "AREXMIS",
@@ -3555,6 +3735,18 @@
       "listingDate": null
     },
     {
+      "symbol": "ARISINT",
+      "name": "Aris International Ltd",
+      "exchange": "BSE",
+      "isin": "INE588E01026",
+      "series": "XT",
+      "bseCode": "531677",
+      "yahooSymbol": "ARISINT.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "ARKADE",
       "name": "Arkade Developers Limited",
       "exchange": "NSE",
@@ -3601,6 +3793,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "14-JUN-2016"
+    },
+    {
+      "symbol": "ARMEE",
+      "name": "ArMee Infotech Limited",
+      "exchange": "NSE",
+      "isin": "INE0TWE01016",
+      "series": "EQ",
+      "bseCode": "544951",
+      "yahooSymbol": "ARMEE.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "30-SEP-2026"
     },
     {
       "symbol": "ARNOLD",
@@ -4192,15 +4396,15 @@
     },
     {
       "symbol": "ASMS",
-      "name": "Avio Smart Market Stack Ltd",
-      "exchange": "BSE",
+      "name": "Avio Smart Market Stack Limited",
+      "exchange": "NSE",
       "isin": "INE855F01042",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "532694",
-      "yahooSymbol": "ASMS.BO",
+      "yahooSymbol": "ASMS.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "09-FEB-2023"
     },
     {
       "symbol": "ASMTEC",
@@ -4231,7 +4435,7 @@
       "name": "Aspira Pathlab & Diagnostics Ltd",
       "exchange": "BSE",
       "isin": "INE500C01017",
-      "series": "X",
+      "series": "XT",
       "bseCode": "540788",
       "yahooSymbol": "ASPIRA.BO",
       "sector": "Unknown",
@@ -4371,6 +4575,18 @@
       "listingDate": null
     },
     {
+      "symbol": "ASYL",
+      "name": "Advance Syntex Ltd",
+      "exchange": "BSE",
+      "isin": "INE184U01012",
+      "series": "Z",
+      "bseCode": "539982",
+      "yahooSymbol": "ASYL.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "ATALREAL",
       "name": "Atal Realtech Limited",
       "exchange": "NSE",
@@ -4501,6 +4717,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "23-OCT-1996"
+    },
+    {
+      "symbol": "ATMAIND",
+      "name": "Atma Industries Ltd",
+      "exchange": "BSE",
+      "isin": "INE805R01018",
+      "series": "XT",
+      "bseCode": "539246",
+      "yahooSymbol": "ATMAIND.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "ATUL",
@@ -4731,6 +4959,18 @@
       "listingDate": null
     },
     {
+      "symbol": "AUTOPRD",
+      "name": "Automobile Products of India Ltd",
+      "exchange": "BSE",
+      "isin": "INE0NY101012",
+      "series": "XT",
+      "bseCode": "505032",
+      "yahooSymbol": "AUTOPRD.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "AVADHSUGAR",
       "name": "Avadh Sugar & Energy Limited",
       "exchange": "NSE",
@@ -4747,7 +4987,7 @@
       "name": "Available Finance Ltd",
       "exchange": "BSE",
       "isin": "INE325G01010",
-      "series": "B",
+      "series": "X",
       "bseCode": "531310",
       "yahooSymbol": "AVAILFC.BO",
       "sector": "Unknown",
@@ -4816,15 +5056,15 @@
     },
     {
       "symbol": "AVG",
-      "name": "AVG Logistics Ltd",
-      "exchange": "BSE",
+      "name": "AVG Logistics Limited",
+      "exchange": "NSE",
       "isin": "INE680Z01018",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "543910",
-      "yahooSymbol": "AVG.BO",
+      "yahooSymbol": "AVG.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "12-MAY-2023"
     },
     {
       "symbol": "AVIVA",
@@ -4942,6 +5182,18 @@
       "series": "X",
       "bseCode": "513642",
       "yahooSymbol": "AXELPOLY.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "AXENTRA",
+      "name": "Axentra Corp Ltd",
+      "exchange": "BSE",
+      "isin": "INE919M01026",
+      "series": "X",
+      "bseCode": "511634",
+      "yahooSymbol": "AXENTRA.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -5071,7 +5323,7 @@
       "name": "Baba Arts Ltd-$",
       "exchange": "BSE",
       "isin": "INE893A01036",
-      "series": "X",
+      "series": "XT",
       "bseCode": "532380",
       "yahooSymbol": "BABA.BO",
       "sector": "Unknown",
@@ -5380,15 +5632,15 @@
     },
     {
       "symbol": "BALPHARMA",
-      "name": "Bal Pharma Limited",
-      "exchange": "NSE",
+      "name": "Bal Pharma Ltd",
+      "exchange": "BSE",
       "isin": "INE083D01012",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "524824",
-      "yahooSymbol": "BALPHARMA.NS",
+      "yahooSymbol": "BALPHARMA.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "08-MAY-2006"
+      "listingDate": null
     },
     {
       "symbol": "BALRAMCHIN",
@@ -5574,7 +5826,7 @@
       "symbol": "BANSALWIRE",
       "name": "Bansal Wire Industries Limited",
       "exchange": "NSE",
-      "isin": "INE0B9K01025",
+      "isin": "INE0B9K01033",
       "series": "EQ",
       "bseCode": "544209",
       "yahooSymbol": "BANSALWIRE.NS",
@@ -5631,6 +5883,18 @@
       "listingDate": null
     },
     {
+      "symbol": "BARONINF",
+      "name": "Baron Infotech Ltd",
+      "exchange": "BSE",
+      "isin": "INE228B01017",
+      "series": "Z",
+      "bseCode": "532336",
+      "yahooSymbol": "BARONINF.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "BASANTGL",
       "name": "Basant Agro Tech India Ltd-$",
       "exchange": "BSE",
@@ -5656,15 +5920,15 @@
     },
     {
       "symbol": "BASML",
-      "name": "Bannari Amman Spinning Mills Ltd",
-      "exchange": "BSE",
+      "name": "Bannari Amman Spinning Mills Limited",
+      "exchange": "NSE",
       "isin": "INE186H01022",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "532674",
-      "yahooSymbol": "BASML.BO",
+      "yahooSymbol": "BASML.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "14-NOV-2005"
     },
     {
       "symbol": "BATAINDIA",
@@ -5791,7 +6055,7 @@
       "name": "BCL Enterprises Ltd",
       "exchange": "BSE",
       "isin": "INE368E01023",
-      "series": "XT",
+      "series": "X",
       "bseCode": "539621",
       "yahooSymbol": "BCLENTERPR.BO",
       "sector": "Unknown",
@@ -5935,7 +6199,7 @@
       "name": "Befound Movement Ltd",
       "exchange": "BSE",
       "isin": "INE425F01028",
-      "series": "XT",
+      "series": "X",
       "bseCode": "511585",
       "yahooSymbol": "BEFOUNDMOL.BO",
       "sector": "Unknown",
@@ -5956,15 +6220,15 @@
     },
     {
       "symbol": "BELDING",
-      "name": "Belding India Ltd",
-      "exchange": "BSE",
+      "name": "Belding India Limited",
+      "exchange": "NSE",
       "isin": "INE363L01045",
-      "series": "X",
+      "series": "EQ",
       "bseCode": "513307",
-      "yahooSymbol": "BELDING.BO",
+      "yahooSymbol": "BELDING.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "12-OCT-2026"
     },
     {
       "symbol": "BELLACASA",
@@ -6231,6 +6495,18 @@
       "listingDate": null
     },
     {
+      "symbol": "BGLOBAL",
+      "name": "Bharatiya Global Infomedia Ltd",
+      "exchange": "BSE",
+      "isin": "INE224M01013",
+      "series": "Z",
+      "bseCode": "533499",
+      "yahooSymbol": "BGLOBAL.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "BGRENERGY",
       "name": "BGR Energy Systems Ltd",
       "exchange": "BSE",
@@ -6268,15 +6544,15 @@
     },
     {
       "symbol": "BHAGERIA",
-      "name": "Bhageria Industries Ltd",
-      "exchange": "BSE",
+      "name": "Bhageria Industries Limited",
+      "exchange": "NSE",
       "isin": "INE354C01027",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "530803",
-      "yahooSymbol": "BHAGERIA.BO",
+      "yahooSymbol": "BHAGERIA.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "02-MAR-2016"
     },
     {
       "symbol": "BHAGGAS",
@@ -6304,15 +6580,15 @@
     },
     {
       "symbol": "BHAGYANGR",
-      "name": "Bhagyanagar India Limited",
-      "exchange": "NSE",
+      "name": "Bhagyanagar India Ltd",
+      "exchange": "BSE",
       "isin": "INE458B01036",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "512296",
-      "yahooSymbol": "BHAGYANGR.NS",
+      "yahooSymbol": "BHAGYANGR.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "17-MAY-2017"
+      "listingDate": null
     },
     {
       "symbol": "BHANDARI",
@@ -6376,15 +6652,15 @@
     },
     {
       "symbol": "BHARATGEAR",
-      "name": "Bharat Gears Ltd",
-      "exchange": "BSE",
+      "name": "Bharat Gears Limited",
+      "exchange": "NSE",
       "isin": "INE561C01019",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "505688",
-      "yahooSymbol": "BHARATGEAR.BO",
+      "yahooSymbol": "BHARATGEAR.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "03-APR-1996"
     },
     {
       "symbol": "BHARATRAS",
@@ -6499,7 +6775,7 @@
       "name": "Bhudevi Infra Projects Ltd",
       "exchange": "BSE",
       "isin": "INE432N01010",
-      "series": "X",
+      "series": "XT",
       "bseCode": "526488",
       "yahooSymbol": "BHUDEVI.BO",
       "sector": "Unknown",
@@ -6607,7 +6883,7 @@
       "name": "Binny Mills Ltd",
       "exchange": "BSE",
       "isin": "INE160L01011",
-      "series": "X",
+      "series": "XT",
       "bseCode": "535620",
       "yahooSymbol": "BINNYMILLS.BO",
       "sector": "Unknown",
@@ -6760,15 +7036,15 @@
     },
     {
       "symbol": "BLACKROSE",
-      "name": "Black Rose Industries Ltd",
-      "exchange": "BSE",
+      "name": "Black Rose Inds. Limited",
+      "exchange": "NSE",
       "isin": "INE761G01016",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "514183",
-      "yahooSymbol": "BLACKROSE.BO",
+      "yahooSymbol": "BLACKROSE.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "20-APR-2026"
     },
     {
       "symbol": "BLAL",
@@ -6870,13 +7146,25 @@
       "symbol": "BLSE",
       "name": "BLS E-Services Limited",
       "exchange": "NSE",
-      "isin": "INE0NLT01010",
+      "isin": "INE0NLT01028",
       "series": "EQ",
       "bseCode": "544107",
       "yahooSymbol": "BLSE.NS",
       "sector": "Unknown",
       "indices": [],
       "listingDate": "06-FEB-2024"
+    },
+    {
+      "symbol": "BLUECHIP",
+      "name": "Blue Chip India Ltd",
+      "exchange": "BSE",
+      "isin": "INE657B01025",
+      "series": "T",
+      "bseCode": "531936",
+      "yahooSymbol": "BLUECHIP.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "BLUECHIPT",
@@ -7060,24 +7348,12 @@
     },
     {
       "symbol": "BODALCHEM",
-      "name": "Bodal Chemicals Limited",
-      "exchange": "NSE",
-      "isin": "INE338D01028",
-      "series": "EQ",
-      "bseCode": "524370",
-      "yahooSymbol": "BODALCHEM.NS",
-      "sector": "Unknown",
-      "indices": [],
-      "listingDate": "22-AUG-2011"
-    },
-    {
-      "symbol": "BODHTREE",
-      "name": "Bodhtree Consulting Ltd",
+      "name": "Bodal Chemicals Ltd",
       "exchange": "BSE",
-      "isin": "INE104F01029",
-      "series": "X",
-      "bseCode": "539122",
-      "yahooSymbol": "BODHTREE.BO",
+      "isin": "INE338D01028",
+      "series": "T",
+      "bseCode": "524370",
+      "yahooSymbol": "BODALCHEM.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -7102,6 +7378,18 @@
       "series": "X",
       "bseCode": "501430",
       "yahooSymbol": "BOMBCYC.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "BOMBPOT",
+      "name": "Bombay Potteries & Tiles Ltd",
+      "exchange": "BSE",
+      "isin": "INE06AE01018",
+      "series": "XT",
+      "bseCode": "502216",
+      "yahooSymbol": "BOMBPOT.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -7243,7 +7531,7 @@
       "name": "Boston Commerce Ltd",
       "exchange": "BSE",
       "isin": "INE109B01019",
-      "series": "X",
+      "series": "XT",
       "bseCode": "531458",
       "yahooSymbol": "BOSTON.BO",
       "sector": "Unknown",
@@ -7258,6 +7546,18 @@
       "series": "B",
       "bseCode": "514440",
       "yahooSymbol": "BPAGRI.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "BPCAP",
+      "name": "B. P. Capital Ltd",
+      "exchange": "BSE",
+      "isin": "INE947C01010",
+      "series": "XT",
+      "bseCode": "536965",
+      "yahooSymbol": "BPCAP.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -7447,7 +7747,7 @@
       "name": "Bansal Roofing Products Ltd",
       "exchange": "BSE",
       "isin": "INE319Q01012",
-      "series": "B",
+      "series": "T",
       "bseCode": "538546",
       "yahooSymbol": "BRPL.BO",
       "sector": "Unknown",
@@ -7528,21 +7828,21 @@
     },
     {
       "symbol": "BTTL",
-      "name": "Bhilwara Technical Textiles Ltd",
-      "exchange": "BSE",
+      "name": "Bhilwara Technical Textiles Limited",
+      "exchange": "NSE",
       "isin": "INE274K01012",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "533108",
-      "yahooSymbol": "BTTL.BO",
+      "yahooSymbol": "BTTL.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "20-APR-2026"
     },
     {
       "symbol": "BUILDPRO",
       "name": "Shankara Buildpro Limited",
       "exchange": "NSE",
-      "isin": "INE24OJ01011",
+      "isin": "INE24OJ01029",
       "series": "EQ",
       "bseCode": "544517",
       "yahooSymbol": "BUILDPRO.NS",
@@ -7589,11 +7889,23 @@
     {
       "symbol": "BYKE",
       "name": "The Byke Hospitality Ltd",
-      "exchange": "BSE",
+      "exchange": "NSE",
       "isin": "INE319B01014",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "531373",
-      "yahooSymbol": "BYKE.BO",
+      "yahooSymbol": "BYKE.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "15-APR-2015"
+    },
+    {
+      "symbol": "BYLD",
+      "name": "BYLD Capital Finance Ltd",
+      "exchange": "BSE",
+      "isin": "INE759D01017",
+      "series": "XT",
+      "bseCode": "511730",
+      "yahooSymbol": "BYLD.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -7755,6 +8067,18 @@
       "listingDate": "25-SEP-2017"
     },
     {
+      "symbol": "CAPFIN",
+      "name": "Capfin India Ltd",
+      "exchange": "BSE",
+      "isin": "INE960C01013",
+      "series": "XT",
+      "bseCode": "539198",
+      "yahooSymbol": "CAPFIN.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "CAPILLARY",
       "name": "Capillary Technologies India Limited",
       "exchange": "NSE",
@@ -7875,6 +8199,18 @@
       "listingDate": "26-DEC-2012"
     },
     {
+      "symbol": "CARNATIN",
+      "name": "Carnation Industries Ltd",
+      "exchange": "BSE",
+      "isin": "INE081B01028",
+      "series": "XT",
+      "bseCode": "530609",
+      "yahooSymbol": "CARNATIN.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "CARRARO",
       "name": "Carraro India Limited",
       "exchange": "NSE",
@@ -7962,7 +8298,7 @@
       "symbol": "CCAVENUE",
       "name": "AvenuesAI Limited",
       "exchange": "NSE",
-      "isin": "INE483S01020",
+      "isin": "INE483S01038",
       "series": "EQ",
       "bseCode": "539807",
       "yahooSymbol": "CCAVENUE.NS",
@@ -7987,7 +8323,7 @@
       "name": "Consecutive Commodities Ltd",
       "exchange": "BSE",
       "isin": "INE187R01029",
-      "series": "XT",
+      "series": "X",
       "bseCode": "539091",
       "yahooSymbol": "CCDL.BO",
       "sector": "Unknown",
@@ -8035,7 +8371,7 @@
       "name": "CCME Global Ltd",
       "exchange": "BSE",
       "isin": "INE194N01016",
-      "series": "X",
+      "series": "XT",
       "bseCode": "514336",
       "yahooSymbol": "CCME.BO",
       "sector": "Unknown",
@@ -8167,7 +8503,7 @@
       "name": "Cemantic Infra-Tech Ltd",
       "exchange": "BSE",
       "isin": "INE222B01028",
-      "series": "X",
+      "series": "XT",
       "bseCode": "538596",
       "yahooSymbol": "CEMAINFRA.BO",
       "sector": "Unknown",
@@ -8295,6 +8631,18 @@
       "listingDate": "02-NOV-2007"
     },
     {
+      "symbol": "CEREBRAINT",
+      "name": "Cerebra Integrated Technologies Ltd",
+      "exchange": "BSE",
+      "isin": "INE345B01019",
+      "series": "Z",
+      "bseCode": "532413",
+      "yahooSymbol": "CEREBRAINT.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "CESC",
       "name": "CESC Limited",
       "exchange": "NSE",
@@ -8347,7 +8695,7 @@
       "name": "Classic Filaments Ltd",
       "exchange": "BSE",
       "isin": "INE181U01018",
-      "series": "X",
+      "series": "XT",
       "bseCode": "540310",
       "yahooSymbol": "CFL.BO",
       "sector": "Unknown",
@@ -8500,27 +8848,27 @@
     },
     {
       "symbol": "CHEMBONDCH",
-      "name": "Chembond Chemicals Ltd",
-      "exchange": "BSE",
+      "name": "Chembond Chemicals Limited",
+      "exchange": "NSE",
       "isin": "INE0TGX01019",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "544450",
-      "yahooSymbol": "CHEMBONDCH.BO",
+      "yahooSymbol": "CHEMBONDCH.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "23-JUL-2025"
     },
     {
       "symbol": "CHEMCON",
-      "name": "Chemcon Speciality Chemicals Ltd",
-      "exchange": "BSE",
+      "name": "Chemcon Speciality Chemicals Limited",
+      "exchange": "NSE",
       "isin": "INE03YM01018",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "543233",
-      "yahooSymbol": "CHEMCON.BO",
+      "yahooSymbol": "CHEMCON.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "01-OCT-2020"
     },
     {
       "symbol": "CHEMCRUX",
@@ -8551,7 +8899,7 @@
       "name": "Chemiesynth (Vapi) Ltd",
       "exchange": "BSE",
       "isin": "INE829R01018",
-      "series": "XT",
+      "series": "X",
       "bseCode": "539230",
       "yahooSymbol": "CHEMIESYNT.BO",
       "sector": "Unknown",
@@ -8907,6 +9255,18 @@
       "listingDate": null
     },
     {
+      "symbol": "CITURGIA",
+      "name": "Citurgia Biochemicals Ltd",
+      "exchange": "BSE",
+      "isin": "INE795B01031",
+      "series": "B",
+      "bseCode": "506373",
+      "yahooSymbol": "CITURGIA.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "CITYMAN",
       "name": "Cityman Ltd",
       "exchange": "BSE",
@@ -8955,6 +9315,18 @@
       "listingDate": null
     },
     {
+      "symbol": "CLCIND",
+      "name": "CLC Industries Ltd",
+      "exchange": "BSE",
+      "isin": "INE376C01038",
+      "series": "T",
+      "bseCode": "521082",
+      "yahooSymbol": "CLCIND.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "CLEAN",
       "name": "Clean Science and Technology Limited",
       "exchange": "NSE",
@@ -8989,6 +9361,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "31-MAR-2017"
+    },
+    {
+      "symbol": "CLENON",
+      "name": "Clenon Enterprises Ltd",
+      "exchange": "BSE",
+      "isin": "INE769B01028",
+      "series": "XT",
+      "bseCode": "517564",
+      "yahooSymbol": "CLENON.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "CLFL",
@@ -9034,6 +9418,18 @@
       "series": "X",
       "bseCode": "540199",
       "yahooSymbol": "CMBL.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "CMICABLES",
+      "name": "CMI Ltd",
+      "exchange": "BSE",
+      "isin": "INE981B01011",
+      "series": "Z",
+      "bseCode": "517330",
+      "yahooSymbol": "CMICABLES.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -9103,7 +9499,7 @@
       "name": "CMX Holdings Ltd",
       "exchange": "BSE",
       "isin": "INE027F01014",
-      "series": "XT",
+      "series": "Z",
       "bseCode": "532217",
       "yahooSymbol": "CMXLTD.BO",
       "sector": "Unknown",
@@ -9231,11 +9627,23 @@
       "listingDate": "09-MAR-2020"
     },
     {
+      "symbol": "COLAB",
+      "name": "Colab Platforms Ltd",
+      "exchange": "BSE",
+      "isin": "INE317W01030",
+      "series": "B",
+      "bseCode": "542866",
+      "yahooSymbol": "COLAB.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "COLINZ",
       "name": "Colinz Laboratories Ltd",
       "exchange": "BSE",
       "isin": "INE923C01011",
-      "series": "XT",
+      "series": "X",
       "bseCode": "531210",
       "yahooSymbol": "COLINZ.BO",
       "sector": "Unknown",
@@ -9511,7 +9919,7 @@
       "name": "Coral Laboratories Ltd",
       "exchange": "BSE",
       "isin": "INE683E01017",
-      "series": "XT",
+      "series": "X",
       "bseCode": "524506",
       "yahooSymbol": "CORALAB.BO",
       "sector": "Unknown",
@@ -9544,15 +9952,15 @@
     },
     {
       "symbol": "CORDSCABLE",
-      "name": "Cords Cable Industries Limited",
-      "exchange": "NSE",
+      "name": "Cords Cable Industries Ltd",
+      "exchange": "BSE",
       "isin": "INE792I01017",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "532941",
-      "yahooSymbol": "CORDSCABLE.NS",
+      "yahooSymbol": "CORDSCABLE.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "13-FEB-2008"
+      "listingDate": null
     },
     {
       "symbol": "CORNE",
@@ -9571,7 +9979,7 @@
       "name": "Coromandel Engineering Company Ltd",
       "exchange": "BSE",
       "isin": "INE312J01012",
-      "series": "X",
+      "series": "XT",
       "bseCode": "533167",
       "yahooSymbol": "COROENGG.BO",
       "sector": "Unknown",
@@ -9676,15 +10084,15 @@
     },
     {
       "symbol": "CPCAP",
-      "name": "CP Capital Limited",
-      "exchange": "NSE",
+      "name": "CP Capital Ltd",
+      "exchange": "BSE",
       "isin": "INE521J01018",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "533260",
-      "yahooSymbol": "CPCAP.NS",
+      "yahooSymbol": "CPCAP.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "06-OCT-2010"
+      "listingDate": null
     },
     {
       "symbol": "CPEDU",
@@ -9787,7 +10195,7 @@
       "name": "Cranex Ltd",
       "exchange": "BSE",
       "isin": "INE608B01010",
-      "series": "XT",
+      "series": "X",
       "bseCode": "522001",
       "yahooSymbol": "CRANEX.BO",
       "sector": "Unknown",
@@ -9843,6 +10251,18 @@
       "listingDate": "23-AUG-2018"
     },
     {
+      "symbol": "CRESANTO",
+      "name": "Cresanto Global Ltd",
+      "exchange": "BSE",
+      "isin": "INE741C01017",
+      "series": "XT",
+      "bseCode": "531207",
+      "yahooSymbol": "CRESANTO.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "CRESCENTIS",
       "name": "Crescentis Capital Ltd",
       "exchange": "BSE",
@@ -9865,18 +10285,6 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "27-DEC-2006"
-    },
-    {
-      "symbol": "CRESTO",
-      "name": "CRESTO TECHNO LIMITED",
-      "exchange": "NSE",
-      "isin": "INE203Y01012",
-      "series": "EQ",
-      "bseCode": null,
-      "yahooSymbol": "CRESTO.NS",
-      "sector": "Unknown",
-      "indices": [],
-      "listingDate": "08-JUL-2020"
     },
     {
       "symbol": "CRISIL",
@@ -9931,7 +10339,7 @@
       "name": "Cropster Agro Ltd",
       "exchange": "BSE",
       "isin": "INE293E01031",
-      "series": "T",
+      "series": "XT",
       "bseCode": "523105",
       "yahooSymbol": "CROPSTER.BO",
       "sector": "Unknown",
@@ -9955,7 +10363,7 @@
       "name": "Cressanda Railway Solutions Ltd",
       "exchange": "BSE",
       "isin": "INE716D01033",
-      "series": "T",
+      "series": "Z",
       "bseCode": "512379",
       "yahooSymbol": "CRSL.BO",
       "sector": "Unknown",
@@ -10084,15 +10492,15 @@
     },
     {
       "symbol": "CUBEXTUB",
-      "name": "Cubex Tubings Limited",
-      "exchange": "NSE",
+      "name": "Cubex Tubings Ltd",
+      "exchange": "BSE",
       "isin": "INE144D01012",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "526027",
-      "yahooSymbol": "CUBEXTUB.NS",
+      "yahooSymbol": "CUBEXTUB.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "24-APR-1996"
+      "listingDate": null
     },
     {
       "symbol": "CUBIFIN",
@@ -10135,7 +10543,7 @@
       "name": "Cupid Breweries And Distilleries Ltd",
       "exchange": "BSE",
       "isin": "INE108G01010",
-      "series": "X",
+      "series": "XT",
       "bseCode": "512361",
       "yahooSymbol": "CUPIDALBV.BO",
       "sector": "Unknown",
@@ -10180,15 +10588,15 @@
     },
     {
       "symbol": "CYBERTECH",
-      "name": "CyberTech Systems and Software Ltd",
-      "exchange": "BSE",
+      "name": "Cybertech Systems And Software Limited",
+      "exchange": "NSE",
       "isin": "INE214A01019",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "532173",
-      "yahooSymbol": "CYBERTECH.BO",
+      "yahooSymbol": "CYBERTECH.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "27-JAN-1999"
     },
     {
       "symbol": "CYIENT",
@@ -10243,7 +10651,7 @@
       "name": "Daikaffil Chemicals India Ltd",
       "exchange": "BSE",
       "isin": "INE789B01018",
-      "series": "XT",
+      "series": "X",
       "bseCode": "530825",
       "yahooSymbol": "DAIKAFFI.BO",
       "sector": "Unknown",
@@ -10300,15 +10708,15 @@
     },
     {
       "symbol": "DAMODARIND",
-      "name": "Damodar Industries Ltd-$",
-      "exchange": "BSE",
+      "name": "Damodar Industries Limited",
+      "exchange": "NSE",
       "isin": "INE497D01022",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "521220",
-      "yahooSymbol": "DAMODARIND.BO",
+      "yahooSymbol": "DAMODARIND.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "04-JUL-2016"
     },
     {
       "symbol": "DANGEE",
@@ -10339,7 +10747,7 @@
       "name": "Danube Industries Ltd",
       "exchange": "BSE",
       "isin": "INE575D01041",
-      "series": "XT",
+      "series": "X",
       "bseCode": "540361",
       "yahooSymbol": "DANUBE.BO",
       "sector": "Unknown",
@@ -10366,6 +10774,18 @@
       "series": "X",
       "bseCode": "539884",
       "yahooSymbol": "DARSHANORNA.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "DATAKOSA",
+      "name": "Datakosa Ltd",
+      "exchange": "BSE",
+      "isin": "INE104F01029",
+      "series": "X",
+      "bseCode": "539122",
+      "yahooSymbol": "DATAKOSA.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -10480,15 +10900,15 @@
     },
     {
       "symbol": "DBSTOCKBRO",
-      "name": "DB International Stock Brokers Ltd",
-      "exchange": "BSE",
+      "name": "DB (International) Stock Brokers Limited",
+      "exchange": "NSE",
       "isin": "INE921B01025",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "530393",
-      "yahooSymbol": "DBSTOCKBRO.BO",
+      "yahooSymbol": "DBSTOCKBRO.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "29-FEB-2012"
     },
     {
       "symbol": "DCAL",
@@ -10552,15 +10972,15 @@
     },
     {
       "symbol": "DCMNVL",
-      "name": "DCM Nouvelle Limited",
-      "exchange": "NSE",
+      "name": "DCM Nouvelle Ltd",
+      "exchange": "BSE",
       "isin": "INE08KP01019",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "542729",
-      "yahooSymbol": "DCMNVL.NS",
+      "yahooSymbol": "DCMNVL.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "16-JUL-2019"
+      "listingDate": null
     },
     {
       "symbol": "DCMSHRIRAM",
@@ -10639,7 +11059,7 @@
       "name": "Deccan Health Care Ltd",
       "exchange": "BSE",
       "isin": "INE452W01019",
-      "series": "T",
+      "series": "B",
       "bseCode": "542248",
       "yahooSymbol": "DECCAN.BO",
       "sector": "Unknown",
@@ -10720,15 +11140,15 @@
     },
     {
       "symbol": "DEEP",
-      "name": "Deep Polymers Limited",
-      "exchange": "NSE",
+      "name": "Deep Polymers Ltd",
+      "exchange": "BSE",
       "isin": "INE00IY01012",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "541778",
-      "yahooSymbol": "DEEP.NS",
+      "yahooSymbol": "DEEP.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "17-AUG-2026"
+      "listingDate": null
     },
     {
       "symbol": "DEEPA",
@@ -10747,7 +11167,7 @@
       "name": "Deep Health AI India Ltd",
       "exchange": "BSE",
       "isin": "INE005G01026",
-      "series": "XT",
+      "series": "X",
       "bseCode": "539559",
       "yahooSymbol": "DEEPAI.BO",
       "sector": "Unknown",
@@ -10923,6 +11343,18 @@
       "listingDate": "29-JAN-2025"
     },
     {
+      "symbol": "DESIFARMS",
+      "name": "Desi Farms India Ltd",
+      "exchange": "BSE",
+      "isin": "INE358F01013",
+      "series": "XT",
+      "bseCode": "507984",
+      "yahooSymbol": "DESIFARMS.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "DEVINE",
       "name": "Devine Impex Ltd",
       "exchange": "BSE",
@@ -11059,7 +11491,7 @@
       "name": "Dhanlaxmi Cotex Ltd",
       "exchange": "BSE",
       "isin": "INE977F01010",
-      "series": "XT",
+      "series": "X",
       "bseCode": "512485",
       "yahooSymbol": "DHANCOT.BO",
       "sector": "Unknown",
@@ -11131,7 +11563,7 @@
       "name": "Dharani Finance Ltd",
       "exchange": "BSE",
       "isin": "INE899D01011",
-      "series": "XT",
+      "series": "X",
       "bseCode": "511451",
       "yahooSymbol": "DHARFIN.BO",
       "sector": "Unknown",
@@ -11149,6 +11581,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "08-DEC-2022"
+    },
+    {
+      "symbol": "DHARTI",
+      "name": "Dharti Proteins Ltd",
+      "exchange": "BSE",
+      "isin": "INE248C01021",
+      "series": "XT",
+      "bseCode": "531171",
+      "yahooSymbol": "DHARTI.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "DHATRE",
@@ -11278,6 +11722,18 @@
       "series": "T",
       "bseCode": "522163",
       "yahooSymbol": "DIACABS.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "DIAMANT",
+      "name": "Diamant Infrastructure Ltd",
+      "exchange": "BSE",
+      "isin": "INE206I01026",
+      "series": "XT",
+      "bseCode": "508860",
+      "yahooSymbol": "DIAMANT.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -11511,6 +11967,18 @@
       "listingDate": "05-DEC-2022"
     },
     {
+      "symbol": "DJSSS",
+      "name": "DJS Stock & Shares Ltd",
+      "exchange": "BSE",
+      "isin": "INE234E01027",
+      "series": "XT",
+      "bseCode": "511636",
+      "yahooSymbol": "DJSSS.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "DLF",
       "name": "DLF Limited",
       "exchange": "NSE",
@@ -11655,6 +12123,18 @@
       "listingDate": "21-AUG-2023"
     },
     {
+      "symbol": "DOLPHMED",
+      "name": "Dolphin Medical Services Ltd",
+      "exchange": "BSE",
+      "isin": "INE796B01013",
+      "series": "XT",
+      "bseCode": "526504",
+      "yahooSymbol": "DOLPHMED.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "DOMS",
       "name": "DOMS Industries Limited",
       "exchange": "NSE",
@@ -11692,15 +12172,15 @@
     },
     {
       "symbol": "DPWIRES",
-      "name": "D.P. Wires Ltd",
-      "exchange": "BSE",
+      "name": "D P Wires Limited",
+      "exchange": "NSE",
       "isin": "INE864X01013",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "543962",
-      "yahooSymbol": "DPWIRES.BO",
+      "yahooSymbol": "DPWIRES.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "17-JAN-2020"
     },
     {
       "symbol": "DRAGARWQ",
@@ -11959,7 +12439,7 @@
       "name": "Dynamic Portfolio Management & Services Ltd",
       "exchange": "BSE",
       "isin": "INE118C01018",
-      "series": "X",
+      "series": "XT",
       "bseCode": "530779",
       "yahooSymbol": "DYNAMICP.BO",
       "sector": "Unknown",
@@ -12031,7 +12511,7 @@
       "name": "East Buildtech Ltd",
       "exchange": "BSE",
       "isin": "INE706N01017",
-      "series": "XT",
+      "series": "X",
       "bseCode": "507917",
       "yahooSymbol": "EASTBUILD.BO",
       "sector": "Unknown",
@@ -12219,6 +12699,18 @@
       "listingDate": "04-SEP-2024"
     },
     {
+      "symbol": "ECS",
+      "name": "ECS Biztech Ltd",
+      "exchange": "BSE",
+      "isin": "INE925Q01024",
+      "series": "XT",
+      "bseCode": "540063",
+      "yahooSymbol": "ECS.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "EDELWEISS",
       "name": "Edelweiss Financial Services Limited",
       "exchange": "NSE",
@@ -12229,6 +12721,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "12-DEC-2007"
+    },
+    {
+      "symbol": "EDUCOMP",
+      "name": "Educomp Solutions Ltd",
+      "exchange": "BSE",
+      "isin": "INE216H01027",
+      "series": "Z",
+      "bseCode": "532696",
+      "yahooSymbol": "EDUCOMP.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "EDVENSWA",
@@ -12400,15 +12904,15 @@
     },
     {
       "symbol": "EKI",
-      "name": "EKI Energy Services Limited",
-      "exchange": "NSE",
+      "name": "EKI Energy Services Ltd",
+      "exchange": "BSE",
       "isin": "INE0CPR01018",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "543284",
-      "yahooSymbol": "EKI.NS",
+      "yahooSymbol": "EKI.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "17-AUG-2026"
+      "listingDate": null
     },
     {
       "symbol": "ELAND",
@@ -12531,11 +13035,23 @@
       "listingDate": null
     },
     {
+      "symbol": "ELEVATE",
+      "name": "Elevate Campuses Limited",
+      "exchange": "NSE",
+      "isin": "INE147X01013",
+      "series": "EQ",
+      "bseCode": "544945",
+      "yahooSymbol": "ELEVATE.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "30-SEP-2026"
+    },
+    {
       "symbol": "ELFORGE",
       "name": "El Forge Ltd-$",
       "exchange": "BSE",
       "isin": "INE158F01017",
-      "series": "X",
+      "series": "XT",
       "bseCode": "531144",
       "yahooSymbol": "ELFORGE.BO",
       "sector": "Unknown",
@@ -12772,15 +13288,15 @@
     },
     {
       "symbol": "EMMBI",
-      "name": "Emmbi Industries Ltd",
-      "exchange": "BSE",
+      "name": "Emmbi Industries Limited",
+      "exchange": "NSE",
       "isin": "INE753K01015",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "533161",
-      "yahooSymbol": "EMMBI.BO",
+      "yahooSymbol": "EMMBI.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "24-FEB-2010"
     },
     {
       "symbol": "EMMESSA",
@@ -12835,7 +13351,7 @@
       "name": "Emrock Corporation Ltd",
       "exchange": "BSE",
       "isin": "INE554H01021",
-      "series": "XT",
+      "series": "X",
       "bseCode": "531676",
       "yahooSymbol": "EMROCK.BO",
       "sector": "Unknown",
@@ -12874,6 +13390,18 @@
       "series": "X",
       "bseCode": "512441",
       "yahooSymbol": "ENBETRD.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "ENCODE",
+      "name": "Encode Packaging India Ltd",
+      "exchange": "BSE",
+      "isin": "INE900O01014",
+      "series": "XT",
+      "bseCode": "530733",
+      "yahooSymbol": "ENCODE.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -13015,7 +13543,7 @@
       "name": "EPIC Energy Ltd-$",
       "exchange": "BSE",
       "isin": "INE932F01015",
-      "series": "X",
+      "series": "XT",
       "bseCode": "530407",
       "yahooSymbol": "EPIC.BO",
       "sector": "Unknown",
@@ -13051,7 +13579,7 @@
       "name": "Epsom Properties Ltd",
       "exchange": "BSE",
       "isin": "INE601F01016",
-      "series": "XT",
+      "series": "X",
       "bseCode": "531155",
       "yahooSymbol": "EPSOMPRO.BO",
       "sector": "Unknown",
@@ -13396,15 +13924,15 @@
     },
     {
       "symbol": "EVERESTIND",
-      "name": "Everest Industries Ltd",
-      "exchange": "BSE",
+      "name": "Everest Industries Limited",
+      "exchange": "NSE",
       "isin": "INE295A01018",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "508906",
-      "yahooSymbol": "EVERESTIND.BO",
+      "yahooSymbol": "EVERESTIND.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "29-MAR-1995"
     },
     {
       "symbol": "EVERESTO",
@@ -13567,7 +14095,7 @@
       "name": "Facor Alloys Ltd",
       "exchange": "BSE",
       "isin": "INE828G01013",
-      "series": "XT",
+      "series": "X",
       "bseCode": "532656",
       "yahooSymbol": "FACORALL.BO",
       "sector": "Unknown",
@@ -13588,15 +14116,15 @@
     },
     {
       "symbol": "FAIRCHEMOR",
-      "name": "Fairchem Organics Ltd",
-      "exchange": "BSE",
+      "name": "Fairchem Organics Limited",
+      "exchange": "NSE",
       "isin": "INE0DNW01011",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "543252",
-      "yahooSymbol": "FAIRCHEMOR.BO",
+      "yahooSymbol": "FAIRCHEMOR.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "24-DEC-2020"
     },
     {
       "symbol": "FAMILYCARE",
@@ -13747,7 +14275,7 @@
       "name": "FGP Ltd",
       "exchange": "BSE",
       "isin": "INE512A01016",
-      "series": "XT",
+      "series": "X",
       "bseCode": "500142",
       "yahooSymbol": "FGP.BO",
       "sector": "Unknown",
@@ -13807,7 +14335,7 @@
       "name": "Filmcity Media Ltd",
       "exchange": "BSE",
       "isin": "INE600B01033",
-      "series": "X",
+      "series": "XT",
       "bseCode": "531486",
       "yahooSymbol": "FILME.BO",
       "sector": "Unknown",
@@ -14079,6 +14607,18 @@
       "listingDate": "31-DEC-2010"
     },
     {
+      "symbol": "FOCUS",
+      "name": "Focus Lighting and Fixtures Limited",
+      "exchange": "NSE",
+      "isin": "INE593W01028",
+      "series": "EQ",
+      "bseCode": null,
+      "yahooSymbol": "FOCUS.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "24-NOV-2021"
+    },
+    {
       "symbol": "FOODSIN",
       "name": "Foods & Inns Limited",
       "exchange": "NSE",
@@ -14235,13 +14775,13 @@
       "listingDate": "17-AUG-2026"
     },
     {
-      "symbol": "FRONTCAP",
-      "name": "Frontier Capital Ltd",
+      "symbol": "FRESITA",
+      "name": "Fresita Proteins Ltd",
       "exchange": "BSE",
-      "isin": "INE977E01013",
+      "isin": "INE995U01011",
       "series": "XT",
-      "bseCode": "508980",
-      "yahooSymbol": "FRONTCAP.BO",
+      "bseCode": "519242",
+      "yahooSymbol": "FRESITA.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -14539,7 +15079,7 @@
       "name": "Galaxy Bearings Ltd",
       "exchange": "BSE",
       "isin": "INE020S01012",
-      "series": "XT",
+      "series": "X",
       "bseCode": "526073",
       "yahooSymbol": "GALXBRG.BO",
       "sector": "Unknown",
@@ -14911,7 +15451,7 @@
       "name": "Goenka Business & Finance Ltd",
       "exchange": "BSE",
       "isin": "INE997C01015",
-      "series": "X",
+      "series": "XT",
       "bseCode": "538787",
       "yahooSymbol": "GBFL.BO",
       "sector": "Unknown",
@@ -14971,7 +15511,7 @@
       "name": "GDL Leasing & Finance Ltd",
       "exchange": "BSE",
       "isin": "INE545E01018",
-      "series": "X",
+      "series": "XT",
       "bseCode": "530855",
       "yahooSymbol": "GDLLEAS.BO",
       "sector": "Unknown",
@@ -14983,7 +15523,7 @@
       "name": "GEE Ltd",
       "exchange": "BSE",
       "isin": "INE064H01021",
-      "series": "XT",
+      "series": "X",
       "bseCode": "504028",
       "yahooSymbol": "GEE.BO",
       "sector": "Unknown",
@@ -14992,15 +15532,15 @@
     },
     {
       "symbol": "GEECEE",
-      "name": "GeeCee Ventures Ltd",
-      "exchange": "BSE",
+      "name": "GeeCee Ventures Limited",
+      "exchange": "NSE",
       "isin": "INE916G01016",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "532764",
-      "yahooSymbol": "GEECEE.BO",
+      "yahooSymbol": "GEECEE.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "04-OCT-2006"
     },
     {
       "symbol": "GEEKAYWIRE",
@@ -15013,6 +15553,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "06-MAR-2020"
+    },
+    {
+      "symbol": "GEETANJ",
+      "name": "Geetanjali Credit and Capital Ltd",
+      "exchange": "BSE",
+      "isin": "INE263R01010",
+      "series": "XT",
+      "bseCode": "539486",
+      "yahooSymbol": "GEETANJ.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "GEMAROMA",
@@ -15147,6 +15699,18 @@
       "listingDate": "01-JUL-2005"
     },
     {
+      "symbol": "GERMAN",
+      "name": "German Green Steel and Power Limited",
+      "exchange": "NSE",
+      "isin": "INE0D4501011",
+      "series": "EQ",
+      "bseCode": "544957",
+      "yahooSymbol": "GERMAN.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "05-OCT-2026"
+    },
+    {
       "symbol": "GESHIP",
       "name": "The Great Eastern Shipping Company Limited",
       "exchange": "NSE",
@@ -15169,18 +15733,6 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "25-MAY-1995"
-    },
-    {
-      "symbol": "GFSTEELS",
-      "name": "Grand Foundry Ltd",
-      "exchange": "BSE",
-      "isin": "INE534A01028",
-      "series": "T",
-      "bseCode": "513343",
-      "yahooSymbol": "GFSTEELS.BO",
-      "sector": "Unknown",
-      "indices": [],
-      "listingDate": null
     },
     {
       "symbol": "GGAUTO",
@@ -15259,7 +15811,7 @@
       "name": "GHV Infra Projects Ltd",
       "exchange": "BSE",
       "isin": "INE809Q01020",
-      "series": "XT",
+      "series": "T",
       "bseCode": "505504",
       "yahooSymbol": "GHVINFRA.BO",
       "sector": "Unknown",
@@ -15352,15 +15904,15 @@
     },
     {
       "symbol": "GINNIFILA",
-      "name": "Ginni Filaments Ltd",
-      "exchange": "BSE",
+      "name": "Ginni Filaments Limited",
+      "exchange": "NSE",
       "isin": "INE424C01010",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "590025",
-      "yahooSymbol": "GINNIFILA.BO",
+      "yahooSymbol": "GINNIFILA.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "10-MAY-1995"
     },
     {
       "symbol": "GIPCL",
@@ -16147,7 +16699,7 @@
       "name": "Gourmet Gateway India Ltd",
       "exchange": "BSE",
       "isin": "INE512D01028",
-      "series": "XT",
+      "series": "X",
       "bseCode": "506134",
       "yahooSymbol": "GOURMET.BO",
       "sector": "Unknown",
@@ -16159,7 +16711,7 @@
       "name": "Gowra Leasing & Finance Ltd",
       "exchange": "BSE",
       "isin": "INE225G01012",
-      "series": "XT",
+      "series": "X",
       "bseCode": "530709",
       "yahooSymbol": "GOWRALE.BO",
       "sector": "Unknown",
@@ -16183,7 +16735,7 @@
       "name": "Goyal Associates Ltd",
       "exchange": "BSE",
       "isin": "INE912B01032",
-      "series": "X",
+      "series": "XT",
       "bseCode": "530663",
       "yahooSymbol": "GOYALASS.BO",
       "sector": "Unknown",
@@ -16243,7 +16795,7 @@
       "name": "Grameva Ltd",
       "exchange": "BSE",
       "isin": "INE578R01011",
-      "series": "XT",
+      "series": "X",
       "bseCode": "539120",
       "yahooSymbol": "GRAMEVA.BO",
       "sector": "Unknown",
@@ -16615,7 +17167,7 @@
       "name": "GSL Securities Ltd",
       "exchange": "BSE",
       "isin": "INE721D01017",
-      "series": "X",
+      "series": "XT",
       "bseCode": "530469",
       "yahooSymbol": "GSLSEC.BO",
       "sector": "Unknown",
@@ -16659,6 +17211,18 @@
       "listingDate": "24-MAR-2026"
     },
     {
+      "symbol": "GSPLTRANS",
+      "name": "GSPL Transmission Limited",
+      "exchange": "NSE",
+      "isin": "INE1TUG01013",
+      "series": "EQ",
+      "bseCode": "544801",
+      "yahooSymbol": "GSPLTRANS.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "30-SEP-2026"
+    },
+    {
       "symbol": "GSS",
       "name": "GSS Infotech Limited",
       "exchange": "NSE",
@@ -16683,16 +17247,16 @@
       "listingDate": null
     },
     {
-      "symbol": "GTECJAINX",
-      "name": "G-TEC JAINX EDUCATION LIMITED",
-      "exchange": "NSE",
-      "isin": "INE586X01012",
-      "series": "EQ",
-      "bseCode": null,
-      "yahooSymbol": "GTECJAINX.NS",
+      "symbol": "GTEIT",
+      "name": "G-Tech Info-Training Ltd",
+      "exchange": "BSE",
+      "isin": "INE634D01038",
+      "series": "XT",
+      "bseCode": "532139",
+      "yahooSymbol": "GTEIT.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "13-NOV-2020"
+      "listingDate": null
     },
     {
       "symbol": "GTL",
@@ -16819,7 +17383,7 @@
       "name": "Gujarat Poly Electronics Ltd",
       "exchange": "BSE",
       "isin": "INE541F01022",
-      "series": "XT",
+      "series": "X",
       "bseCode": "517288",
       "yahooSymbol": "GUJARATPOLY.BO",
       "sector": "Unknown",
@@ -16948,15 +17512,15 @@
     },
     {
       "symbol": "GUJRAFFIA",
-      "name": "Gujarat Raffia Industries Limited",
-      "exchange": "NSE",
+      "name": "Gujarat Raffia Industries Ltd",
+      "exchange": "BSE",
       "isin": "INE610B01024",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "523836",
-      "yahooSymbol": "GUJRAFFIA.NS",
+      "yahooSymbol": "GUJRAFFIA.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "09-OCT-1996"
+      "listingDate": null
     },
     {
       "symbol": "GUJSTATFIN",
@@ -17164,15 +17728,15 @@
     },
     {
       "symbol": "HALDYNGL",
-      "name": "Haldyn Glass Ltd-$",
-      "exchange": "BSE",
+      "name": "Haldyn Glass Limited",
+      "exchange": "NSE",
       "isin": "INE506D01020",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "515147",
-      "yahooSymbol": "HALDYNGL.BO",
+      "yahooSymbol": "HALDYNGL.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "20-APR-2026"
     },
     {
       "symbol": "HALEOSLABS",
@@ -17299,7 +17863,7 @@
       "name": "Haria Exports Ltd-$",
       "exchange": "BSE",
       "isin": "INE772B01014",
-      "series": "XT",
+      "series": "X",
       "bseCode": "512604",
       "yahooSymbol": "HARIAEXPO.BO",
       "sector": "Unknown",
@@ -17763,16 +18327,16 @@
       "listingDate": null
     },
     {
-      "symbol": "HEG",
-      "name": "HEG Ltd",
-      "exchange": "BSE",
+      "symbol": "HEGAM",
+      "name": "HEG Advanced Materials Limited",
+      "exchange": "NSE",
       "isin": "INE545A01024",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "509631",
-      "yahooSymbol": "HEG.BO",
+      "yahooSymbol": "HEGAM.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "10-MAY-1995"
     },
     {
       "symbol": "HEIDELBERG",
@@ -17823,6 +18387,18 @@
       "listingDate": "22-OCT-2020"
     },
     {
+      "symbol": "HEMORGANIC",
+      "name": "Hemo Organic Ltd",
+      "exchange": "BSE",
+      "isin": "INE422G01015",
+      "series": "XT",
+      "bseCode": "524590",
+      "yahooSymbol": "HEMORGANIC.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "HERANBA",
       "name": "Heranba Industries Limited",
       "exchange": "NSE",
@@ -17871,6 +18447,18 @@
       "listingDate": "11-APR-2003"
     },
     {
+      "symbol": "HEROMOTORS",
+      "name": "Hero Motors Limited",
+      "exchange": "NSE",
+      "isin": "INE012G01022",
+      "series": "EQ",
+      "bseCode": "544936",
+      "yahooSymbol": "HEROMOTORS.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "23-SEP-2026"
+    },
+    {
       "symbol": "HESTERBIO",
       "name": "Hester Biosciences Limited",
       "exchange": "NSE",
@@ -17884,15 +18472,15 @@
     },
     {
       "symbol": "HEXAGON",
-      "name": "Hexagon Nutrition Ltd",
-      "exchange": "BSE",
+      "name": "Hexagon Nutrition Limited",
+      "exchange": "NSE",
       "isin": "INE0JUI01012",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "544785",
-      "yahooSymbol": "HEXAGON.BO",
+      "yahooSymbol": "HEXAGON.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "12-JUN-2026"
     },
     {
       "symbol": "HEXATRADEX",
@@ -17991,6 +18579,18 @@
       "listingDate": null
     },
     {
+      "symbol": "HIIL",
+      "name": "Hindusthan Insulators & Industries Ltd",
+      "exchange": "BSE",
+      "isin": "INE799B01025",
+      "series": "X",
+      "bseCode": "539984",
+      "yahooSymbol": "HIIL.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "HIKAL",
       "name": "Hikal Limited",
       "exchange": "NSE",
@@ -18019,7 +18619,7 @@
       "name": "Hiliks Technologies Ltd",
       "exchange": "BSE",
       "isin": "INE966Q01010",
-      "series": "XT",
+      "series": "X",
       "bseCode": "539697",
       "yahooSymbol": "HILIKS.BO",
       "sector": "Unknown",
@@ -18157,18 +18757,6 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "08-MAY-1996"
-    },
-    {
-      "symbol": "HINDCON",
-      "name": "Hindcon Chemicals Limited",
-      "exchange": "NSE",
-      "isin": "INE642Y01029",
-      "series": "EQ",
-      "bseCode": null,
-      "yahooSymbol": "HINDCON.NS",
-      "sector": "Unknown",
-      "indices": [],
-      "listingDate": "05-JUL-2021"
     },
     {
       "symbol": "HINDCOPPER",
@@ -18475,7 +19063,7 @@
       "name": "Hindustan Organic Chemicals Ltd",
       "exchange": "BSE",
       "isin": "INE048A01011",
-      "series": "B",
+      "series": "T",
       "bseCode": "500449",
       "yahooSymbol": "HOCL.BO",
       "sector": "Unknown",
@@ -18487,7 +19075,7 @@
       "name": "HOMRE Ltd",
       "exchange": "BSE",
       "isin": "INE982C01033",
-      "series": "X",
+      "series": "XT",
       "bseCode": "523387",
       "yahooSymbol": "HOM.BO",
       "sector": "Unknown",
@@ -18639,6 +19227,18 @@
       "listingDate": "04-OCT-2016"
     },
     {
+      "symbol": "HRMNYCP",
+      "name": "Harmony Capital Service Ltd",
+      "exchange": "BSE",
+      "isin": "INE264N01017",
+      "series": "XT",
+      "bseCode": "530055",
+      "yahooSymbol": "HRMNYCP.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "HRYNSHP",
       "name": "Hariyana Ship Breakers Limited",
       "exchange": "NSE",
@@ -18736,15 +19336,15 @@
     },
     {
       "symbol": "HYBRIDFIN",
-      "name": "Hybrid Financial Services Ltd",
-      "exchange": "BSE",
+      "name": "Hybrid Financial Services Limited",
+      "exchange": "NSE",
       "isin": "INE965B01022",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "500262",
-      "yahooSymbol": "HYBRIDFIN.BO",
+      "yahooSymbol": "HYBRIDFIN.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "05-DEC-2022"
     },
     {
       "symbol": "HYPERSOFT",
@@ -18975,6 +19575,18 @@
       "listingDate": "06-NOV-2015"
     },
     {
+      "symbol": "IDM",
+      "name": "International Data Management Ltd",
+      "exchange": "BSE",
+      "isin": "INE649R01010",
+      "series": "XT",
+      "bseCode": "517044",
+      "yahooSymbol": "IDM.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "IECEDU",
       "name": "IEC Education Ltd",
       "exchange": "BSE",
@@ -19183,9 +19795,21 @@
       "name": "IIRM Holdings India Ltd",
       "exchange": "BSE",
       "isin": "INE670C01026",
-      "series": "XT",
+      "series": "X",
       "bseCode": "526530",
       "yahooSymbol": "IIRM.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "IISL",
+      "name": "Ishaan Infrastructures and Shelters Ltd",
+      "exchange": "BSE",
+      "isin": "INE818R01011",
+      "series": "XT",
+      "bseCode": "540134",
+      "yahooSymbol": "IISL.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -19231,7 +19855,7 @@
       "name": "Ikoma Technologies Ltd",
       "exchange": "BSE",
       "isin": "INE164D01010",
-      "series": "XT",
+      "series": "X",
       "bseCode": "531997",
       "yahooSymbol": "IKOMA.BO",
       "sector": "Unknown",
@@ -19363,9 +19987,21 @@
       "name": "Inani Marbles & Industries Ltd",
       "exchange": "BSE",
       "isin": "INE635D01027",
-      "series": "X",
+      "series": "XT",
       "bseCode": "531129",
       "yahooSymbol": "INANI.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "INANISEC",
+      "name": "Inani Securities Ltd",
+      "exchange": "BSE",
+      "isin": "INE224C01014",
+      "series": "XT",
+      "bseCode": "531672",
+      "yahooSymbol": "INANISEC.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -19387,7 +20023,7 @@
       "name": "Incon Engineers Ltd",
       "exchange": "BSE",
       "isin": "INE507D01010",
-      "series": "XT",
+      "series": "X",
       "bseCode": "531594",
       "yahooSymbol": "INCON.BO",
       "sector": "Unknown",
@@ -19423,7 +20059,7 @@
       "name": "Ind Agiv Commerce Ltd",
       "exchange": "BSE",
       "isin": "INE115E01010",
-      "series": "XT",
+      "series": "X",
       "bseCode": "517077",
       "yahooSymbol": "INDAGIV.BO",
       "sector": "Unknown",
@@ -19732,15 +20368,15 @@
     },
     {
       "symbol": "INDOAMIN",
-      "name": "Indo Amines Ltd-$",
-      "exchange": "BSE",
+      "name": "Indo Amines Limited",
+      "exchange": "NSE",
       "isin": "INE760F01028",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "524648",
-      "yahooSymbol": "INDOAMIN.BO",
+      "yahooSymbol": "INDOAMIN.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "29-APR-2022"
     },
     {
       "symbol": "INDOBORAX",
@@ -20163,6 +20799,18 @@
       "listingDate": null
     },
     {
+      "symbol": "INNOCORP",
+      "name": "Innocorp Ltd",
+      "exchange": "BSE",
+      "isin": "INE214B01017",
+      "series": "X",
+      "bseCode": "531929",
+      "yahooSymbol": "INNOCORP.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "INNOVACAP",
       "name": "Innova Captab Limited",
       "exchange": "NSE",
@@ -20206,6 +20854,18 @@
       "series": "X",
       "bseCode": "523840",
       "yahooSymbol": "INNOVTEC.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "INOVSYNTH",
+      "name": "Innovassynth Technologies (India) Ltd",
+      "exchange": "BSE",
+      "isin": "INE690J01011",
+      "series": "X",
+      "bseCode": "533315",
+      "yahooSymbol": "INOVSYNTH.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -20331,6 +20991,18 @@
       "listingDate": null
     },
     {
+      "symbol": "INTEGSW",
+      "name": "Integra Switchgear Ltd",
+      "exchange": "BSE",
+      "isin": "INE0IPL01018",
+      "series": "XT",
+      "bseCode": "517423",
+      "yahooSymbol": "INTEGSW.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "INTELLECT",
       "name": "Intellect Design Arena Limited",
       "exchange": "NSE",
@@ -20365,6 +21037,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "26-AUG-2024"
+    },
+    {
+      "symbol": "INTERDIGI",
+      "name": "Interworld Digital Ltd-$",
+      "exchange": "BSE",
+      "isin": "INE177D01020",
+      "series": "XT",
+      "bseCode": "532072",
+      "yahooSymbol": "INTERDIGI.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "INTLCOMBQ",
@@ -20523,6 +21207,18 @@
       "listingDate": "05-JUL-2021"
     },
     {
+      "symbol": "IPOWER",
+      "name": "I-Power Solutions India Ltd",
+      "exchange": "BSE",
+      "isin": "INE468F01010",
+      "series": "XT",
+      "bseCode": "512405",
+      "yahooSymbol": "IPOWER.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "IPRINGLTD",
       "name": "IP Rings Limited",
       "exchange": "NSE",
@@ -20668,15 +21364,15 @@
     },
     {
       "symbol": "ISFT",
-      "name": "Intrasoft Technologies Limited",
-      "exchange": "NSE",
+      "name": "Intrasoft Technologies Ltd",
+      "exchange": "BSE",
       "isin": "INE566K01011",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "533181",
-      "yahooSymbol": "ISFT.NS",
+      "yahooSymbol": "ISFT.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "12-APR-2010"
+      "listingDate": null
     },
     {
       "symbol": "ISGEC",
@@ -20860,15 +21556,15 @@
     },
     {
       "symbol": "IVP",
-      "name": "IVP Ltd",
-      "exchange": "BSE",
+      "name": "IVP Limited",
+      "exchange": "NSE",
       "isin": "INE043C01018",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "507580",
-      "yahooSymbol": "IVP.BO",
+      "yahooSymbol": "IVP.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "13-SEP-1995"
     },
     {
       "symbol": "IWP",
@@ -20893,6 +21589,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "18-JUN-2024"
+    },
+    {
+      "symbol": "IYKOTHITE",
+      "name": "Iykot Hitech Toolroom Ltd",
+      "exchange": "BSE",
+      "isin": "INE079L01013",
+      "series": "XT",
+      "bseCode": "522245",
+      "yahooSymbol": "IYKOTHITE.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "IZMO",
@@ -21079,7 +21787,7 @@
       "name": "Jainex Aamcol Ltd",
       "exchange": "BSE",
       "isin": "INE280F01019",
-      "series": "X",
+      "series": "XT",
       "bseCode": "505212",
       "yahooSymbol": "JAINEX.BO",
       "sector": "Unknown",
@@ -21187,7 +21895,7 @@
       "name": "Jasch Industries Ltd",
       "exchange": "BSE",
       "isin": "INE711C01028",
-      "series": "XT",
+      "series": "X",
       "bseCode": "500220",
       "yahooSymbol": "JASCH.BO",
       "sector": "Unknown",
@@ -21210,8 +21918,8 @@
       "symbol": "JATTAINDUS",
       "name": "Jattashankar Industries Ltd",
       "exchange": "BSE",
-      "isin": "INE722N01014",
-      "series": "X",
+      "isin": "INE722N01022",
+      "series": "XT",
       "bseCode": "514318",
       "yahooSymbol": "JATTAINDUS.BO",
       "sector": "Unknown",
@@ -21223,7 +21931,7 @@
       "name": "Jauss Polymers Ltd",
       "exchange": "BSE",
       "isin": "INE593O01017",
-      "series": "X",
+      "series": "XT",
       "bseCode": "526001",
       "yahooSymbol": "JAUSPOL.BO",
       "sector": "Unknown",
@@ -21351,6 +22059,18 @@
       "listingDate": null
     },
     {
+      "symbol": "JAYTEX",
+      "name": "Jaybharat Textiles and Real Estate Ltd",
+      "exchange": "BSE",
+      "isin": "INE091E01039",
+      "series": "Z",
+      "bseCode": "512233",
+      "yahooSymbol": "JAYTEX.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "JAYUSH",
       "name": "Jay Ushin Ltd",
       "exchange": "BSE",
@@ -21448,15 +22168,15 @@
     },
     {
       "symbol": "JHS",
-      "name": "JHS Svendgaard Laboratories Limited",
-      "exchange": "NSE",
+      "name": "JHS Svendgaard Laboratories Ltd",
+      "exchange": "BSE",
       "isin": "INE544H01014",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "532771",
-      "yahooSymbol": "JHS.NS",
+      "yahooSymbol": "JHS.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "21-OCT-2006"
+      "listingDate": null
     },
     {
       "symbol": "JINDALPHOT",
@@ -21759,6 +22479,18 @@
       "listingDate": "10-OCT-2006"
     },
     {
+      "symbol": "JMGCORP",
+      "name": "JMG Corporation Ltd",
+      "exchange": "BSE",
+      "isin": "INE745F01011",
+      "series": "XT",
+      "bseCode": "523712",
+      "yahooSymbol": "JMGCORP.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "JMJFIN",
       "name": "JMJ Fintech Ltd",
       "exchange": "BSE",
@@ -21847,7 +22579,7 @@
       "name": "Jolly Plastic Industries Ltd",
       "exchange": "BSE",
       "isin": "INE289M01016",
-      "series": "XT",
+      "series": "X",
       "bseCode": "507968",
       "yahooSymbol": "JOLYPLS.BO",
       "sector": "Unknown",
@@ -21891,6 +22623,18 @@
       "listingDate": "18-APR-2005"
     },
     {
+      "symbol": "JPTSEC",
+      "name": "JPT Securities Ltd",
+      "exchange": "BSE",
+      "isin": "INE630C01012",
+      "series": "XT",
+      "bseCode": "530985",
+      "yahooSymbol": "JPTSEC.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "JSFB",
       "name": "Jana Small Finance Bank Limited",
       "exchange": "NSE",
@@ -21901,6 +22645,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "14-FEB-2024"
+    },
+    {
+      "symbol": "JSIPL",
+      "name": "Jindal Supreme (India) Ltd",
+      "exchange": "BSE",
+      "isin": "INE1DLO01028",
+      "series": "T",
+      "bseCode": "544935",
+      "yahooSymbol": "JSIPL.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "JSL",
@@ -22155,6 +22911,18 @@
       "listingDate": null
     },
     {
+      "symbol": "JUNE",
+      "name": "June Industries Ltd",
+      "exchange": "BSE",
+      "isin": "INE108B01029",
+      "series": "XT",
+      "bseCode": "531960",
+      "yahooSymbol": "JUNE.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "JUNIPER",
       "name": "Juniper Hotels Limited",
       "exchange": "NSE",
@@ -22260,7 +23028,7 @@
       "yahooSymbol": "JYOTIRES.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "17-AUG-2026"
+      "listingDate": "08-OCT-2026"
     },
     {
       "symbol": "JYOTISTRUC",
@@ -22288,15 +23056,15 @@
     },
     {
       "symbol": "KABRAEXTRU",
-      "name": "Kabra Extrusion Technik Limited",
-      "exchange": "NSE",
+      "name": "Kabra Extrusiontechnik Ltd",
+      "exchange": "BSE",
       "isin": "INE900B01029",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "524109",
-      "yahooSymbol": "KABRAEXTRU.NS",
+      "yahooSymbol": "KABRAEXTRU.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "06-SEP-1995"
+      "listingDate": null
     },
     {
       "symbol": "KABSON",
@@ -22435,7 +23203,7 @@
       "name": "Kalind Ltd",
       "exchange": "BSE",
       "isin": "INE377D01026",
-      "series": "X",
+      "series": "B",
       "bseCode": "526935",
       "yahooSymbol": "KALIND.BO",
       "sector": "Unknown",
@@ -22576,15 +23344,15 @@
     },
     {
       "symbol": "KAMDHENU",
-      "name": "Kamdhenu Ltd",
-      "exchange": "BSE",
+      "name": "Kamdhenu Limited",
+      "exchange": "NSE",
       "isin": "INE390H01020",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "532741",
-      "yahooSymbol": "KAMDHENU.BO",
+      "yahooSymbol": "KAMDHENU.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "09-MAY-2006"
     },
     {
       "symbol": "KAMOPAINTS",
@@ -22633,6 +23401,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "17-AUG-2026"
+    },
+    {
+      "symbol": "KANDAGIRI",
+      "name": "Kandagiri Spinning Mills Ltd-$",
+      "exchange": "BSE",
+      "isin": "INE292D01019",
+      "series": "XT",
+      "bseCode": "521242",
+      "yahooSymbol": "KANDAGIRI.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "KANELIND",
@@ -22852,15 +23632,15 @@
     },
     {
       "symbol": "KAUSHALYA",
-      "name": "Kaushalya Infrastructure Development Corporation Ltd",
-      "exchange": "BSE",
+      "name": "Kaushalya Infrastructure Development Corporation Limited",
+      "exchange": "NSE",
       "isin": "INE234I01028",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "532925",
-      "yahooSymbol": "KAUSHALYA.BO",
+      "yahooSymbol": "KAUSHALYA.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "14-DEC-2007"
     },
     {
       "symbol": "KAVDEFENCE",
@@ -23107,7 +23887,7 @@
       "name": "KELTECH Energies Ltd",
       "exchange": "BSE",
       "isin": "INE881E01017",
-      "series": "XT",
+      "series": "X",
       "bseCode": "506528",
       "yahooSymbol": "KELENRG.BO",
       "sector": "Unknown",
@@ -23155,7 +23935,7 @@
       "name": "Ken Financial Services Ltd",
       "exchange": "BSE",
       "isin": "INE395E01018",
-      "series": "XT",
+      "series": "X",
       "bseCode": "530547",
       "yahooSymbol": "KENFIN.BO",
       "sector": "Unknown",
@@ -23236,15 +24016,15 @@
     },
     {
       "symbol": "KESORAMIND",
-      "name": "Kesoram Industries Ltd",
-      "exchange": "BSE",
+      "name": "Kesoram Industries Limited",
+      "exchange": "NSE",
       "isin": "INE087A01019",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "502937",
-      "yahooSymbol": "KESORAMIND.BO",
+      "yahooSymbol": "KESORAMIND.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "06-SEP-1995"
     },
     {
       "symbol": "KETOMOTORS",
@@ -23395,7 +24175,7 @@
       "name": "Khyati Multimedia Entertainment Ltd",
       "exchange": "BSE",
       "isin": "INE593B01030",
-      "series": "XT",
+      "series": "X",
       "bseCode": "531692",
       "yahooSymbol": "KHYATI.BO",
       "sector": "Unknown",
@@ -23440,15 +24220,15 @@
     },
     {
       "symbol": "KILITCH",
-      "name": "Kilitch Drugs India Ltd",
-      "exchange": "BSE",
+      "name": "Kilitch Drugs (India) Limited",
+      "exchange": "NSE",
       "isin": "INE729D01010",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "524500",
-      "yahooSymbol": "KILITCH.BO",
+      "yahooSymbol": "KILITCH.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "29-SEP-2010"
     },
     {
       "symbol": "KIMIABL",
@@ -23479,7 +24259,7 @@
       "name": "Kinetic Engineering Ltd",
       "exchange": "BSE",
       "isin": "INE266B01017",
-      "series": "XT",
+      "series": "X",
       "bseCode": "500240",
       "yahooSymbol": "KINETICENG.BO",
       "sector": "Unknown",
@@ -23659,7 +24439,7 @@
       "name": "Kisan Mouldings Ltd-$",
       "exchange": "BSE",
       "isin": "INE017C01012",
-      "series": "XT",
+      "series": "X",
       "bseCode": "530145",
       "yahooSymbol": "KISAN.BO",
       "sector": "Unknown",
@@ -23739,6 +24519,18 @@
       "listingDate": "13-APR-2006"
     },
     {
+      "symbol": "KKPLASTICK",
+      "name": "Kkalpana Plastick Ltd",
+      "exchange": "BSE",
+      "isin": "INE465K01016",
+      "series": "XT",
+      "bseCode": "523652",
+      "yahooSymbol": "KKPLASTICK.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "KLBRENG-B",
       "name": "Kilburn Engineering Limited",
       "exchange": "NSE",
@@ -23749,6 +24541,30 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "20-APR-2026"
+    },
+    {
+      "symbol": "KLGCAP",
+      "name": "KLG Capital Services Ltd",
+      "exchange": "BSE",
+      "isin": "INE929C01018",
+      "series": "XT",
+      "bseCode": "530771",
+      "yahooSymbol": "KLGCAP.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "KLIFESTYL",
+      "name": "K-Lifestyle & Industries Ltd",
+      "exchange": "BSE",
+      "isin": "INE218A01028",
+      "series": "Z",
+      "bseCode": "514221",
+      "yahooSymbol": "KLIFESTYL.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "KLRFM",
@@ -23980,15 +24796,15 @@
     },
     {
       "symbol": "KOTYARK",
-      "name": "Kotyark Industries Ltd",
-      "exchange": "BSE",
+      "name": "Kotyark Industries Limited",
+      "exchange": "NSE",
       "isin": "INE0J0B01017",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "544726",
-      "yahooSymbol": "KOTYARK.BO",
+      "yahooSymbol": "KOTYARK.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "12-MAR-2026"
     },
     {
       "symbol": "KOVAI",
@@ -24163,7 +24979,7 @@
       "name": "Krishna Filament Industries Ltd",
       "exchange": "BSE",
       "isin": "INE073A01019",
-      "series": "XT",
+      "series": "X",
       "bseCode": "500248",
       "yahooSymbol": "KRIFILIND.BO",
       "sector": "Unknown",
@@ -24202,6 +25018,18 @@
       "series": "XT",
       "bseCode": "504392",
       "yahooSymbol": "KRISHNA.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "KRISHNACAP",
+      "name": "Krishna Capital and Securities Ltd",
+      "exchange": "BSE",
+      "isin": "INE897B01019",
+      "series": "XT",
+      "bseCode": "539384",
+      "yahooSymbol": "KRISHNACAP.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -24289,6 +25117,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "16-SEP-2024"
+    },
+    {
+      "symbol": "KROWNIQ",
+      "name": "KROWNIQ Ltd",
+      "exchange": "BSE",
+      "isin": "INE624M01014",
+      "series": "X",
+      "bseCode": "530689",
+      "yahooSymbol": "KROWNIQ.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "KRRAIL",
@@ -24387,18 +25227,6 @@
       "listingDate": "23-DEC-2025"
     },
     {
-      "symbol": "KSHITIJPOL",
-      "name": "Kshitij Polyline Limited",
-      "exchange": "NSE",
-      "isin": "INE013801027",
-      "series": "EQ",
-      "bseCode": null,
-      "yahooSymbol": "KSHITIJPOL.NS",
-      "sector": "Unknown",
-      "indices": [],
-      "listingDate": "27-JUL-2022"
-    },
-    {
       "symbol": "KSL",
       "name": "Kalyani Steels Limited",
       "exchange": "NSE",
@@ -24439,7 +25267,7 @@
       "name": "KS Smart Technologies Ltd",
       "exchange": "BSE",
       "isin": "INE737E01011",
-      "series": "X",
+      "series": "B",
       "bseCode": "516038",
       "yahooSymbol": "KSSMART.BO",
       "sector": "Unknown",
@@ -24571,7 +25399,7 @@
       "name": "Krishanveer Forge Ltd",
       "exchange": "BSE",
       "isin": "INE013J01016",
-      "series": "XT",
+      "series": "X",
       "bseCode": "513369",
       "yahooSymbol": "KVFORGE.BO",
       "sector": "Unknown",
@@ -24816,7 +25644,7 @@
       "yahooSymbol": "LANCER.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "17-AUG-2026"
+      "listingDate": "14-OCT-2026"
     },
     {
       "symbol": "LANCORHOL",
@@ -24856,15 +25684,15 @@
     },
     {
       "symbol": "LANDSMILL",
-      "name": "Landsmill Green Limited",
-      "exchange": "NSE",
+      "name": "Landsmill Green Ltd",
+      "exchange": "BSE",
       "isin": "INE688J01023",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "533090",
-      "yahooSymbol": "LANDSMILL.NS",
+      "yahooSymbol": "LANDSMILL.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "03-AUG-2009"
+      "listingDate": null
     },
     {
       "symbol": "LAOPALA",
@@ -24877,6 +25705,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "16-MAR-2007"
+    },
+    {
+      "symbol": "LASA",
+      "name": "Lasa Supergenerics Ltd",
+      "exchange": "BSE",
+      "isin": "INE670X01014",
+      "series": "T",
+      "bseCode": "540702",
+      "yahooSymbol": "LASA.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "LASERPOWER",
@@ -24988,15 +25828,15 @@
     },
     {
       "symbol": "LCCINFOTEC",
-      "name": "LCC Infotech Limited",
-      "exchange": "NSE",
+      "name": "LCC Infotech Ltd",
+      "exchange": "BSE",
       "isin": "INE938A01021",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "532019",
-      "yahooSymbol": "LCCINFOTEC.NS",
+      "yahooSymbol": "LCCINFOTEC.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "02-MAR-2000"
+      "listingDate": null
     },
     {
       "symbol": "LCCPROJECT",
@@ -25207,7 +26047,7 @@
       "name": "LGB Forge Ltd",
       "exchange": "BSE",
       "isin": "INE201J01017",
-      "series": "XT",
+      "series": "X",
       "bseCode": "533007",
       "yahooSymbol": "LGBFORGE.BO",
       "sector": "Unknown",
@@ -25519,7 +26359,7 @@
       "name": "Looks Health Services Ltd",
       "exchange": "BSE",
       "isin": "INE204N01013",
-      "series": "XT",
+      "series": "X",
       "bseCode": "534422",
       "yahooSymbol": "LOOKS.BO",
       "sector": "Unknown",
@@ -25815,13 +26655,13 @@
       "listingDate": null
     },
     {
-      "symbol": "LYKISLTD",
-      "name": "Lykis Ltd",
+      "symbol": "LYNMC",
+      "name": "Lynx Machinery & Commercials Ltd",
       "exchange": "BSE",
-      "isin": "INE624M01014",
-      "series": "X",
-      "bseCode": "530689",
-      "yahooSymbol": "LYKISLTD.BO",
+      "isin": "INE732D01014",
+      "series": "XT",
+      "bseCode": "505320",
+      "yahooSymbol": "LYNMC.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -25948,15 +26788,15 @@
     },
     {
       "symbol": "MADHUCON",
-      "name": "Madhucon Projects Ltd-$",
-      "exchange": "BSE",
+      "name": "Madhucon Projects Limited",
+      "exchange": "NSE",
       "isin": "INE378D01032",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "531497",
-      "yahooSymbol": "MADHUCON.BO",
+      "yahooSymbol": "MADHUCON.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "05-OCT-2006"
     },
     {
       "symbol": "MADHUDIN",
@@ -25975,7 +26815,7 @@
       "name": "Madhur Industries Ltd",
       "exchange": "BSE",
       "isin": "INE110C01015",
-      "series": "X",
+      "series": "XT",
       "bseCode": "519279",
       "yahooSymbol": "MADHURIND.BO",
       "sector": "Unknown",
@@ -26059,7 +26899,7 @@
       "name": "Magnus Steel and Infra Ltd",
       "exchange": "BSE",
       "isin": "INE898E01011",
-      "series": "X",
+      "series": "XT",
       "bseCode": "517320",
       "yahooSymbol": "MAGNUS.BO",
       "sector": "Unknown",
@@ -26107,7 +26947,7 @@
       "name": "Mahan Industries Ltd",
       "exchange": "BSE",
       "isin": "INE735D01041",
-      "series": "X",
+      "series": "XT",
       "bseCode": "531515",
       "yahooSymbol": "MAHANIN.BO",
       "sector": "Unknown",
@@ -26263,7 +27103,7 @@
       "name": "Maitri Enterprises Ltd",
       "exchange": "BSE",
       "isin": "INE501L01024",
-      "series": "XT",
+      "series": "X",
       "bseCode": "513430",
       "yahooSymbol": "MAITRI.BO",
       "sector": "Unknown",
@@ -26467,7 +27307,7 @@
       "name": "Mangalam Industrial Finance Ltd",
       "exchange": "BSE",
       "isin": "INE717C01025",
-      "series": "X",
+      "series": "Z",
       "bseCode": "537800",
       "yahooSymbol": "MANGIND.BO",
       "sector": "Unknown",
@@ -26497,6 +27337,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "03-JAN-1996"
+    },
+    {
+      "symbol": "MANIKA",
+      "name": "Manika Plastech Limited",
+      "exchange": "NSE",
+      "isin": "INE0KWF01020",
+      "series": "EQ",
+      "bseCode": "544929",
+      "yahooSymbol": "MANIKA.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "21-SEP-2026"
     },
     {
       "symbol": "MANINDS",
@@ -26620,15 +27472,15 @@
     },
     {
       "symbol": "MANUGRAPH",
-      "name": "Manugraph India Limited",
-      "exchange": "NSE",
+      "name": "Manugraph India Ltd-$",
+      "exchange": "BSE",
       "isin": "INE867A01022",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "505324",
-      "yahooSymbol": "MANUGRAPH.NS",
+      "yahooSymbol": "MANUGRAPH.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "14-SEP-2006"
+      "listingDate": null
     },
     {
       "symbol": "MANYAVAR",
@@ -26859,6 +27711,18 @@
       "listingDate": "12-NOV-2024"
     },
     {
+      "symbol": "MATHEWE",
+      "name": "Mathew Easow Research Securities Ltd",
+      "exchange": "BSE",
+      "isin": "INE963B01019",
+      "series": "XT",
+      "bseCode": "511688",
+      "yahooSymbol": "MATHEWE.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "MATRIMONY",
       "name": "Matrimony.Com Limited",
       "exchange": "NSE",
@@ -26872,15 +27736,15 @@
     },
     {
       "symbol": "MAWANASUG",
-      "name": "Mawana Sugars Limited",
-      "exchange": "NSE",
+      "name": "Mawana Sugars Ltd",
+      "exchange": "BSE",
       "isin": "INE636A01039",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "523371",
-      "yahooSymbol": "MAWANASUG.NS",
+      "yahooSymbol": "MAWANASUG.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "20-MAR-2009"
+      "listingDate": null
     },
     {
       "symbol": "MAXESTATES",
@@ -26992,15 +27856,15 @@
     },
     {
       "symbol": "MAZDA",
-      "name": "Mazda Ltd-$",
-      "exchange": "BSE",
+      "name": "Mazda Limited",
+      "exchange": "NSE",
       "isin": "INE885E01042",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "523792",
-      "yahooSymbol": "MAZDA.BO",
+      "yahooSymbol": "MAZDA.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "01-NOV-2016"
     },
     {
       "symbol": "MAZDOCK",
@@ -27319,7 +28183,7 @@
       "name": "Megamont Ltd",
       "exchange": "BSE",
       "isin": "INE317D01014",
-      "series": "X",
+      "series": "XT",
       "bseCode": "523888",
       "yahooSymbol": "MEGAMONT.BO",
       "sector": "Unknown",
@@ -27424,15 +28288,15 @@
     },
     {
       "symbol": "MENONBE",
-      "name": "Menon Bearings Ltd-$",
-      "exchange": "BSE",
+      "name": "Menon Bearings Limited",
+      "exchange": "NSE",
       "isin": "INE071D01033",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "523828",
-      "yahooSymbol": "MENONBE.BO",
+      "yahooSymbol": "MENONBE.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "09-MAR-2015"
     },
     {
       "symbol": "MEP",
@@ -27463,7 +28327,7 @@
       "name": "Mercury Trade Links Ltd",
       "exchange": "BSE",
       "isin": "INE319T01016",
-      "series": "X",
+      "series": "Z",
       "bseCode": "512415",
       "yahooSymbol": "MERCTRD.BO",
       "sector": "Unknown",
@@ -27559,7 +28423,7 @@
       "name": "Maestros Electronics & Telecommunications Systems Ltd",
       "exchange": "BSE",
       "isin": "INE318N01011",
-      "series": "X",
+      "series": "XT",
       "bseCode": "538401",
       "yahooSymbol": "METSL.BO",
       "sector": "Unknown",
@@ -27711,11 +28575,23 @@
       "listingDate": null
     },
     {
+      "symbol": "MIDAAS",
+      "name": "Midaas Fashions Limited",
+      "exchange": "BSE",
+      "isin": "INE0OUS01011",
+      "series": "XT",
+      "bseCode": "530757",
+      "yahooSymbol": "MIDAAS.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "MIDEASTP",
       "name": "Mid East Portfolio Management Ltd",
       "exchange": "BSE",
       "isin": "INE033E01015",
-      "series": "XT",
+      "series": "X",
       "bseCode": "526251",
       "yahooSymbol": "MIDEASTP.BO",
       "sector": "Unknown",
@@ -27820,15 +28696,15 @@
     },
     {
       "symbol": "MILKYMIST",
-      "name": "Milky Mist Dairy Food Limited",
-      "exchange": "NSE",
+      "name": "Milky Mist Dairy Food Ltd",
+      "exchange": "BSE",
       "isin": "INE00IT01020",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "544868",
-      "yahooSymbol": "MILKYMIST.NS",
+      "yahooSymbol": "MILKYMIST.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "18-AUG-2026"
+      "listingDate": null
     },
     {
       "symbol": "MILLENNIUM",
@@ -27898,6 +28774,18 @@
       "series": "X",
       "bseCode": "523373",
       "yahooSymbol": "MINID.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "MINOLTAF",
+      "name": "Minolta Finance Ltd",
+      "exchange": "BSE",
+      "isin": "INE514C01026",
+      "series": "XT",
+      "bseCode": "532164",
+      "yahooSymbol": "MINOLTAF.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -28039,7 +28927,7 @@
       "name": "MKP Mobility Ltd",
       "exchange": "BSE",
       "isin": "INE676G01024",
-      "series": "X",
+      "series": "XT",
       "bseCode": "521244",
       "yahooSymbol": "MKPMOB.BO",
       "sector": "Unknown",
@@ -28171,7 +29059,7 @@
       "name": "Mega Nirman and Industries Ltd",
       "exchange": "BSE",
       "isin": "INE216Q01010",
-      "series": "X",
+      "series": "XT",
       "bseCode": "539767",
       "yahooSymbol": "MNIL.BO",
       "sector": "Unknown",
@@ -28207,7 +29095,7 @@
       "name": "Modern Dairies Ltd",
       "exchange": "BSE",
       "isin": "INE617B01011",
-      "series": "X",
+      "series": "XT",
       "bseCode": "519287",
       "yahooSymbol": "MODAIRY.BO",
       "sector": "Unknown",
@@ -28231,7 +29119,7 @@
       "name": "Modern Insulators Ltd",
       "exchange": "BSE",
       "isin": "INE219W01012",
-      "series": "XT",
+      "series": "T",
       "bseCode": "515008",
       "yahooSymbol": "MODINSU.BO",
       "sector": "Unknown",
@@ -28444,15 +29332,15 @@
     },
     {
       "symbol": "MOMSBELIEF",
-      "name": "Rays of Belief Ltd",
-      "exchange": "BSE",
+      "name": "Rays of Belief Limited",
+      "exchange": "NSE",
       "isin": "INE1FCO01014",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "544906",
-      "yahooSymbol": "MOMSBELIEF.BO",
+      "yahooSymbol": "MOMSBELIEF.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "08-SEP-2026"
     },
     {
       "symbol": "MONARCH",
@@ -28468,15 +29356,27 @@
     },
     {
       "symbol": "MONEYBOXX",
-      "name": "Moneyboxx Finance Limited",
-      "exchange": "NSE",
+      "name": "Moneyboxx Finance Ltd",
+      "exchange": "BSE",
       "isin": "INE296Q01012",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "538446",
-      "yahooSymbol": "MONEYBOXX.NS",
+      "yahooSymbol": "MONEYBOXX.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "15-OCT-2025"
+      "listingDate": null
+    },
+    {
+      "symbol": "MONEYVIEW",
+      "name": "Moneyview Limited",
+      "exchange": "NSE",
+      "isin": "INE0PTN01011",
+      "series": "EQ",
+      "bseCode": "544953",
+      "yahooSymbol": "MONEYVIEW.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "01-OCT-2026"
     },
     {
       "symbol": "MONGIPA",
@@ -28527,6 +29427,18 @@
       "listingDate": "19-DEC-2014"
     },
     {
+      "symbol": "MORARJEE",
+      "name": "Morarjee Textiles Ltd",
+      "exchange": "BSE",
+      "isin": "INE161G01027",
+      "series": "Z",
+      "bseCode": "532621",
+      "yahooSymbol": "MORARJEE.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "MORARKFI",
       "name": "Morarka Finance Ltd",
       "exchange": "BSE",
@@ -28540,15 +29452,15 @@
     },
     {
       "symbol": "MOREPENLAB",
-      "name": "Morepen Laboratories Limited",
-      "exchange": "NSE",
+      "name": "Morepen Laboratories Ltd",
+      "exchange": "BSE",
       "isin": "INE083A01026",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "500288",
-      "yahooSymbol": "MOREPENLAB.NS",
+      "yahooSymbol": "MOREPENLAB.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "24-NOV-1999"
+      "listingDate": null
     },
     {
       "symbol": "MORGAN",
@@ -28651,7 +29563,7 @@
       "name": "Mipco Seamless Rings Gujarat Ltd",
       "exchange": "BSE",
       "isin": "INE860N01012",
-      "series": "X",
+      "series": "XT",
       "bseCode": "505797",
       "yahooSymbol": "MPCOSEMB.BO",
       "sector": "Unknown",
@@ -28699,7 +29611,7 @@
       "name": "MPIL Corporation Ltd",
       "exchange": "BSE",
       "isin": "INE844C01027",
-      "series": "XT",
+      "series": "X",
       "bseCode": "500450",
       "yahooSymbol": "MPILCORPL.BO",
       "sector": "Unknown",
@@ -28839,6 +29751,18 @@
       "listingDate": "18-JUL-2005"
     },
     {
+      "symbol": "MSRINDIA",
+      "name": "MSR India Ltd",
+      "exchange": "BSE",
+      "isin": "INE331L01026",
+      "series": "Z",
+      "bseCode": "508922",
+      "yahooSymbol": "MSRINDIA.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "MSTCLTD",
       "name": "Mstc Limited",
       "exchange": "NSE",
@@ -28864,15 +29788,15 @@
     },
     {
       "symbol": "MTARTECH",
-      "name": "MTAR Technologies Ltd",
-      "exchange": "BSE",
+      "name": "Mtar Technologies Limited",
+      "exchange": "NSE",
       "isin": "INE864I01014",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "543270",
-      "yahooSymbol": "MTARTECH.BO",
+      "yahooSymbol": "MTARTECH.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "15-MAR-2021"
     },
     {
       "symbol": "MTEDUCARE",
@@ -28927,7 +29851,7 @@
       "name": "Mudunuru Ltd",
       "exchange": "BSE",
       "isin": "INE491C01027",
-      "series": "XT",
+      "series": "X",
       "bseCode": "538743",
       "yahooSymbol": "MUDUNURU.BO",
       "sector": "Unknown",
@@ -29020,15 +29944,15 @@
     },
     {
       "symbol": "MUKTAARTS",
-      "name": "Mukta Arts Ltd",
-      "exchange": "BSE",
+      "name": "Mukta Arts Limited",
+      "exchange": "NSE",
       "isin": "INE374B01019",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "532357",
-      "yahooSymbol": "MUKTAARTS.BO",
+      "yahooSymbol": "MUKTAARTS.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "12-SEP-2000"
     },
     {
       "symbol": "MUL",
@@ -29175,6 +30099,18 @@
       "listingDate": "26-DEC-2023"
     },
     {
+      "symbol": "MUZALI",
+      "name": "Muzali Arts Ltd",
+      "exchange": "BSE",
+      "isin": "INE873S01022",
+      "series": "XT",
+      "bseCode": "539410",
+      "yahooSymbol": "MUZALI.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "MVELECTRO",
       "name": "MV Electrosystems Limited",
       "exchange": "NSE",
@@ -29257,6 +30193,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "07-APR-2017"
+    },
+    {
+      "symbol": "NAGAFERT",
+      "name": "Nagarjuna Fertilizers and Chemicals Ltd",
+      "exchange": "BSE",
+      "isin": "INE454M01024",
+      "series": "Z",
+      "bseCode": "539917",
+      "yahooSymbol": "NAGAFERT.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "NAGPI",
@@ -29406,7 +30354,7 @@
       "symbol": "NAPL",
       "name": "Naturite Agro Products Ltd",
       "exchange": "BSE",
-      "isin": "INE223R01014",
+      "isin": "INE223R01022",
       "series": "X",
       "bseCode": "538926",
       "yahooSymbol": "NAPL.BO",
@@ -29431,7 +30379,7 @@
       "name": "Narmada Macplast Drip Irrigation Systems Ltd",
       "exchange": "BSE",
       "isin": "INE060D01028",
-      "series": "X",
+      "series": "XT",
       "bseCode": "517431",
       "yahooSymbol": "NARMP.BO",
       "sector": "Unknown",
@@ -29668,15 +30616,15 @@
     },
     {
       "symbol": "NAVKARURB",
-      "name": "Navkar Urbanstructure Ltd",
-      "exchange": "BSE",
+      "name": "Navkar Urbanstructure Limited",
+      "exchange": "NSE",
       "isin": "INE268H01044",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "531494",
-      "yahooSymbol": "NAVKARURB.BO",
+      "yahooSymbol": "NAVKARURB.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "17-JAN-2025"
     },
     {
       "symbol": "NAVNETEDUL",
@@ -29811,6 +30759,18 @@
       "listingDate": "24-APR-2007"
     },
     {
+      "symbol": "NDMETAL",
+      "name": "ND Metal Industries Ltd",
+      "exchange": "BSE",
+      "isin": "INE643D01013",
+      "series": "XT",
+      "bseCode": "512024",
+      "yahooSymbol": "NDMETAL.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "NDRAUTO",
       "name": "Ndr Auto Components Limited",
       "exchange": "NSE",
@@ -29848,15 +30808,15 @@
     },
     {
       "symbol": "NECCLTD",
-      "name": "North Eastern Carrying Corporation Ltd",
-      "exchange": "BSE",
+      "name": "North Eastern Carrying Corporation Limited",
+      "exchange": "NSE",
       "isin": "INE553C01016",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "534615",
-      "yahooSymbol": "NECCLTD.BO",
+      "yahooSymbol": "NECCLTD.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "02-MAR-2016"
     },
     {
       "symbol": "NECLIFE",
@@ -30139,7 +31099,7 @@
       "name": "Nexome Capital Markets Ltd",
       "exchange": "BSE",
       "isin": "INE641A01013",
-      "series": "XT",
+      "series": "X",
       "bseCode": "508905",
       "yahooSymbol": "NEXOME.BO",
       "sector": "Unknown",
@@ -30567,6 +31527,18 @@
       "listingDate": "20-APR-2026"
     },
     {
+      "symbol": "NITYAS",
+      "name": "Nityas Gems and Jewellery Ltd",
+      "exchange": "BSE",
+      "isin": "INE211501023",
+      "series": "T",
+      "bseCode": "544974",
+      "yahooSymbol": "NITYAS.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "NIVABUPA",
       "name": "Niva Bupa Health Insurance Company Limited",
       "exchange": "NSE",
@@ -30663,13 +31635,13 @@
       "listingDate": null
     },
     {
-      "symbol": "NOBPOL",
-      "name": "Noble Polymers Ltd",
+      "symbol": "NNTL",
+      "name": "N2N Technologies Ltd",
       "exchange": "BSE",
-      "isin": "INE203Q01026",
-      "series": "XT",
-      "bseCode": "539200",
-      "yahooSymbol": "NOBPOL.BO",
+      "isin": "INE043F01011",
+      "series": "Z",
+      "bseCode": "512279",
+      "yahooSymbol": "NNTL.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -30783,6 +31755,18 @@
       "listingDate": "31-JAN-2024"
     },
     {
+      "symbol": "NOVAMAT",
+      "name": "Novalum Materials Ltd",
+      "exchange": "BSE",
+      "isin": "INE364S01022",
+      "series": "XT",
+      "bseCode": "539922",
+      "yahooSymbol": "NOVAMAT.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "NOVARTIND",
       "name": "Novartis India Limited",
       "exchange": "NSE",
@@ -30799,7 +31783,7 @@
       "name": "Novelix Pharmaceuticals Ltd",
       "exchange": "BSE",
       "isin": "INE314I01036",
-      "series": "XT",
+      "series": "X",
       "bseCode": "536565",
       "yahooSymbol": "NOVELIX.BO",
       "sector": "Unknown",
@@ -30835,7 +31819,7 @@
       "name": "National Peroxide Ltd",
       "exchange": "BSE",
       "isin": "INE0PO601011",
-      "series": "XT",
+      "series": "X",
       "bseCode": "544205",
       "yahooSymbol": "NPL.BO",
       "sector": "Unknown",
@@ -30898,6 +31882,18 @@
       "series": "A",
       "bseCode": "544467",
       "yahooSymbol": "NSDL.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "NSE",
+      "name": "National Stock Exchange of India Ltd",
+      "exchange": "BSE",
+      "isin": "INE721I01024",
+      "series": "A",
+      "bseCode": "544937",
+      "yahooSymbol": "NSE.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -31003,7 +31999,7 @@
       "name": "Nutech Global Ltd",
       "exchange": "BSE",
       "isin": "INE960H01012",
-      "series": "X",
+      "series": "XT",
       "bseCode": "531304",
       "yahooSymbol": "NUTECGLOB.BO",
       "sector": "Unknown",
@@ -31132,15 +32128,15 @@
     },
     {
       "symbol": "OCCLLTD",
-      "name": "OCCL Ltd",
-      "exchange": "BSE",
+      "name": "OCCL Limited",
+      "exchange": "NSE",
       "isin": "INE0PK601023",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "544278",
-      "yahooSymbol": "OCCLLTD.BO",
+      "yahooSymbol": "OCCLLTD.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "29-OCT-2024"
     },
     {
       "symbol": "OCEANIC",
@@ -31335,6 +32331,18 @@
       "listingDate": null
     },
     {
+      "symbol": "OLYMTFI",
+      "name": "Olympic Management & Financial Services Ltd",
+      "exchange": "BSE",
+      "isin": "INE091N01014",
+      "series": "XT",
+      "bseCode": "511632",
+      "yahooSymbol": "OLYMTFI.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "OLYOI",
       "name": "Olympic Oil Industries Ltd",
       "exchange": "BSE",
@@ -31396,15 +32404,15 @@
     },
     {
       "symbol": "OMFREIGHT",
-      "name": "Om Freight Forwarders Ltd",
-      "exchange": "BSE",
+      "name": "Om Freight Forwarders Limited",
+      "exchange": "NSE",
       "isin": "INE1BZC01019",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "544564",
-      "yahooSymbol": "OMFREIGHT.BO",
+      "yahooSymbol": "OMFREIGHT.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "08-OCT-2025"
     },
     {
       "symbol": "OMINFRAL",
@@ -31419,11 +32427,23 @@
       "listingDate": "17-JUN-2011"
     },
     {
+      "symbol": "OMKAR",
+      "name": "Omkar Overseas Ltd",
+      "exchange": "BSE",
+      "isin": "INE680D01015",
+      "series": "XT",
+      "bseCode": "531496",
+      "yahooSymbol": "OMKAR.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "OMKARPH",
       "name": "Omkar Pharmachem Ltd",
       "exchange": "BSE",
       "isin": "INE501C01015",
-      "series": "X",
+      "series": "XT",
       "bseCode": "532167",
       "yahooSymbol": "OMKARPH.BO",
       "sector": "Unknown",
@@ -31564,15 +32584,15 @@
     },
     {
       "symbol": "ONMOBILE",
-      "name": "OnMobile Global Ltd",
-      "exchange": "BSE",
+      "name": "OnMobile Global Limited",
+      "exchange": "NSE",
       "isin": "INE809I01019",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "532944",
-      "yahooSymbol": "ONMOBILE.BO",
+      "yahooSymbol": "ONMOBILE.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "19-FEB-2008"
     },
     {
       "symbol": "ONTIC",
@@ -31636,15 +32656,15 @@
     },
     {
       "symbol": "ORBTEXP",
-      "name": "Orbit Exports Ltd",
-      "exchange": "BSE",
+      "name": "Orbit Exports Limited",
+      "exchange": "NSE",
       "isin": "INE231G01010",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "512626",
-      "yahooSymbol": "ORBTEXP.BO",
+      "yahooSymbol": "ORBTEXP.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "05-NOV-2013"
     },
     {
       "symbol": "ORCHASP",
@@ -31675,7 +32695,7 @@
       "name": "Organic Coatings Ltd",
       "exchange": "BSE",
       "isin": "INE412E01011",
-      "series": "X",
+      "series": "XT",
       "bseCode": "531157",
       "yahooSymbol": "ORGCOAT.BO",
       "sector": "Unknown",
@@ -31729,6 +32749,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "14-FEB-2007"
+    },
+    {
+      "symbol": "ORIENTCABL",
+      "name": "Orient Cables (India) Limited",
+      "exchange": "NSE",
+      "isin": "INE0J1N01028",
+      "series": "EQ",
+      "bseCode": "544960",
+      "yahooSymbol": "ORIENTCABL.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "05-OCT-2026"
     },
     {
       "symbol": "ORIENTCEM",
@@ -31867,9 +32899,21 @@
       "name": "Orosil Smiths India Ltd-$",
       "exchange": "BSE",
       "isin": "INE628B01034",
-      "series": "XT",
+      "series": "X",
       "bseCode": "531626",
       "yahooSymbol": "OROSMITHS.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "ORTEL",
+      "name": "Ortel Communications Ltd",
+      "exchange": "BSE",
+      "isin": "INE849L01019",
+      "series": "Z",
+      "bseCode": "539015",
+      "yahooSymbol": "ORTEL.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -31885,6 +32929,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "30-MAR-2021"
+    },
+    {
+      "symbol": "OSCARGLO",
+      "name": "Oscar Global Ltd",
+      "exchange": "BSE",
+      "isin": "INE473F01010",
+      "series": "XT",
+      "bseCode": "530173",
+      "yahooSymbol": "OSCARGLO.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "OSEASPR",
@@ -31935,6 +32991,18 @@
       "listingDate": "28-AUG-1996"
     },
     {
+      "symbol": "OSWALOR",
+      "name": "Oswal Overseas Ltd",
+      "exchange": "BSE",
+      "isin": "INE906K01027",
+      "series": "XT",
+      "bseCode": "531065",
+      "yahooSymbol": "OSWALOR.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "OSWALPUMPS",
       "name": "Oswal Pumps Limited",
       "exchange": "NSE",
@@ -31959,11 +33027,35 @@
       "listingDate": "28-FEB-2023"
     },
     {
+      "symbol": "OSWAYRN",
+      "name": "Oswal Yarns Ltd",
+      "exchange": "BSE",
+      "isin": "INE670H01017",
+      "series": "XT",
+      "bseCode": "514460",
+      "yahooSymbol": "OSWAYRN.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "OTCO",
+      "name": "OTCO International Ltd",
+      "exchange": "BSE",
+      "isin": "INE910B01028",
+      "series": "XT",
+      "bseCode": "523151",
+      "yahooSymbol": "OTCO.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "OVOBELE",
       "name": "Ovobel Foods Ltd",
       "exchange": "BSE",
       "isin": "INE812S01012",
-      "series": "XT",
+      "series": "X",
       "bseCode": "530741",
       "yahooSymbol": "OVOBELE.BO",
       "sector": "Unknown",
@@ -32119,7 +33211,7 @@
       "name": "Palco Metals Ltd",
       "exchange": "BSE",
       "isin": "INE239L01013",
-      "series": "X",
+      "series": "XT",
       "bseCode": "539121",
       "yahooSymbol": "PALCO.BO",
       "sector": "Unknown",
@@ -32439,6 +33531,18 @@
       "listingDate": "14-FEB-1996"
     },
     {
+      "symbol": "PARIN",
+      "name": "Parin Enterprises Limited",
+      "exchange": "NSE",
+      "isin": "INE00U801010",
+      "series": "EQ",
+      "bseCode": null,
+      "yahooSymbol": "PARIN.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "25-SEP-2026"
+    },
+    {
       "symbol": "PARKERAC",
       "name": "Parker Agrochem Exports Ltd-$",
       "exchange": "BSE",
@@ -32479,9 +33583,21 @@
       "name": "Parle Industries Ltd",
       "exchange": "BSE",
       "isin": "INE272G01014",
-      "series": "XT",
+      "series": "X",
       "bseCode": "532911",
       "yahooSymbol": "PARLEIND.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "PARMAX",
+      "name": "Parmax Pharma Ltd",
+      "exchange": "BSE",
+      "isin": "INE240T01014",
+      "series": "XT",
+      "bseCode": "540359",
+      "yahooSymbol": "PARMAX.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -32599,7 +33715,7 @@
       "name": "Pasupati Fincap Ltd",
       "exchange": "BSE",
       "isin": "INE527C01010",
-      "series": "X",
+      "series": "XT",
       "bseCode": "511734",
       "yahooSymbol": "PASUFIN.BO",
       "sector": "Unknown",
@@ -32671,7 +33787,7 @@
       "name": "Patels Airtemp India Ltd",
       "exchange": "BSE",
       "isin": "INE082C01024",
-      "series": "X",
+      "series": "XT",
       "bseCode": "517417",
       "yahooSymbol": "PATELSAI.BO",
       "sector": "Unknown",
@@ -32692,15 +33808,15 @@
     },
     {
       "symbol": "PATINTLOG",
-      "name": "Patel Integrated Logistics Ltd-$",
-      "exchange": "BSE",
+      "name": "Patel Integrated Logistics Limited",
+      "exchange": "NSE",
       "isin": "INE529D01014",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "526381",
-      "yahooSymbol": "PATINTLOG.BO",
+      "yahooSymbol": "PATINTLOG.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "11-JAN-2008"
     },
     {
       "symbol": "PATSPINLTD",
@@ -32917,6 +34033,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "08-FEB-1995"
+    },
+    {
+      "symbol": "PEOPLIN",
+      "name": "Peoples Investments Ltd",
+      "exchange": "BSE",
+      "isin": "INE644U01015",
+      "series": "XT",
+      "bseCode": "501144",
+      "yahooSymbol": "PEOPLIN.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "PERFEPA",
@@ -33183,6 +34311,18 @@
       "listingDate": null
     },
     {
+      "symbol": "PHOTON",
+      "name": "Photon Capital Advisors Ltd",
+      "exchange": "BSE",
+      "isin": "INE107J01016",
+      "series": "XT",
+      "bseCode": "509084",
+      "yahooSymbol": "PHOTON.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "PHOTOQUP",
       "name": "Photoquip India Ltd",
       "exchange": "BSE",
@@ -33331,7 +34471,7 @@
       "name": "Pioneer Agro Extracts Ltd",
       "exchange": "BSE",
       "isin": "INE062E01014",
-      "series": "XT",
+      "series": "X",
       "bseCode": "519439",
       "yahooSymbol": "PIONAGR.BO",
       "sector": "Unknown",
@@ -33363,6 +34503,18 @@
       "listingDate": null
     },
     {
+      "symbol": "PIPAN",
+      "name": "Pipan Oils Ltd",
+      "exchange": "BSE",
+      "isin": "INE378P01036",
+      "series": "XT",
+      "bseCode": "538537",
+      "yahooSymbol": "PIPAN.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "PIRAMALFIN",
       "name": "Piramal Finance Limited",
       "exchange": "NSE",
@@ -33373,6 +34525,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "07-NOV-2025"
+    },
+    {
+      "symbol": "PITHP",
+      "name": "Pithampur Poly Products Ltd",
+      "exchange": "BSE",
+      "isin": "INE747D01012",
+      "series": "ZP",
+      "bseCode": "530683",
+      "yahooSymbol": "PITHP.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "PITTIENG",
@@ -33457,6 +34621,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "20-APR-2026"
+    },
+    {
+      "symbol": "PMTELELIN",
+      "name": "P.M. Telelinnks Ltd",
+      "exchange": "BSE",
+      "isin": "INE092C01015",
+      "series": "XT",
+      "bseCode": "513403",
+      "yahooSymbol": "PMTELELIN.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "PNB",
@@ -33723,6 +34899,18 @@
       "listingDate": "17-AUG-2026"
     },
     {
+      "symbol": "POLYTEX",
+      "name": "Polytex India Ltd",
+      "exchange": "BSE",
+      "isin": "INE012F01016",
+      "series": "XT",
+      "bseCode": "512481",
+      "yahooSymbol": "POLYTEX.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "PONNIERODE",
       "name": "Ponni Sugars (Erode) Limited",
       "exchange": "NSE",
@@ -33868,27 +35056,27 @@
     },
     {
       "symbol": "PPAP",
-      "name": "PPAP Automotive Ltd",
-      "exchange": "BSE",
+      "name": "PPAP Automotive Limited",
+      "exchange": "NSE",
       "isin": "INE095I01015",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "532934",
-      "yahooSymbol": "PPAP.BO",
+      "yahooSymbol": "PPAP.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "11-JAN-2008"
     },
     {
       "symbol": "PPL",
-      "name": "Prakash Pipes Ltd",
-      "exchange": "BSE",
+      "name": "Prakash Pipes Limited",
+      "exchange": "NSE",
       "isin": "INE050001010",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "542684",
-      "yahooSymbol": "PPL.BO",
+      "yahooSymbol": "PPL.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "14-JUN-2019"
     },
     {
       "symbol": "PPLPHARMA",
@@ -33927,6 +35115,18 @@
       "listingDate": "19-MAR-2025"
     },
     {
+      "symbol": "PRABHATAM",
+      "name": "Prabhatam Infra Venture Ltd",
+      "exchange": "BSE",
+      "isin": "INE265C01025",
+      "series": "XT",
+      "bseCode": "531647",
+      "yahooSymbol": "PRABHATAM.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "PRABHHANS",
       "name": "Prabhhans Industries Ltd",
       "exchange": "BSE",
@@ -33940,15 +35140,15 @@
     },
     {
       "symbol": "PRADPME",
-      "name": "Pradeep Metals Ltd",
-      "exchange": "BSE",
+      "name": "Pradeep Metals Limited",
+      "exchange": "NSE",
       "isin": "INE770A01010",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "513532",
-      "yahooSymbol": "PRADPME.BO",
+      "yahooSymbol": "PRADPME.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "20-APR-2026"
     },
     {
       "symbol": "PRAENG",
@@ -34131,6 +35331,18 @@
       "listingDate": null
     },
     {
+      "symbol": "PREMCAPM",
+      "name": "Premium Capital Market & Investments Ltd",
+      "exchange": "BSE",
+      "isin": "INE555D01019",
+      "series": "XT",
+      "bseCode": "511660",
+      "yahooSymbol": "PREMCAPM.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "PREMCO",
       "name": "Premco Global Limited",
       "exchange": "NSE",
@@ -34291,7 +35503,7 @@
       "name": "Prime Capital Market Ltd",
       "exchange": "BSE",
       "isin": "INE748D01010",
-      "series": "XT",
+      "series": "X",
       "bseCode": "535514",
       "yahooSymbol": "PRIMECAPM.BO",
       "sector": "Unknown",
@@ -34351,7 +35563,7 @@
       "name": "Prime Industries Ltd",
       "exchange": "BSE",
       "isin": "INE543F01028",
-      "series": "X",
+      "series": "XT",
       "bseCode": "519299",
       "yahooSymbol": "PRIMIND.BO",
       "sector": "Unknown",
@@ -34384,15 +35596,15 @@
     },
     {
       "symbol": "PRIORITY",
-      "name": "Priority Jewels Ltd",
-      "exchange": "BSE",
+      "name": "Priority Jewels Limited",
+      "exchange": "NSE",
       "isin": "INE15EH01014",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "544899",
-      "yahooSymbol": "PRIORITY.BO",
+      "yahooSymbol": "PRIORITY.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "04-SEP-2026"
     },
     {
       "symbol": "PRISMMEDI",
@@ -34444,15 +35656,15 @@
     },
     {
       "symbol": "PRITIKAUTO",
-      "name": "Pritika Auto Industries Ltd",
-      "exchange": "BSE",
+      "name": "Pritika Auto Industries Limited",
+      "exchange": "NSE",
       "isin": "INE583R01029",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "539359",
-      "yahooSymbol": "PRITIKAUTO.BO",
+      "yahooSymbol": "PRITIKAUTO.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "10-AUG-2021"
     },
     {
       "symbol": "PRIVISCL",
@@ -34483,7 +35695,7 @@
       "name": "Pro Clb Global Ltd",
       "exchange": "BSE",
       "isin": "INE438C01010",
-      "series": "X",
+      "series": "XT",
       "bseCode": "540703",
       "yahooSymbol": "PROCLB.BO",
       "sector": "Unknown",
@@ -34503,11 +35715,23 @@
       "listingDate": null
     },
     {
+      "symbol": "PROGREXV",
+      "name": "Progrex Ventures Ltd",
+      "exchange": "BSE",
+      "isin": "INE421E01012",
+      "series": "XT",
+      "bseCode": "531265",
+      "yahooSymbol": "PROGREXV.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "PROMACT",
       "name": "Promact Plastics Ltd",
       "exchange": "BSE",
       "isin": "INE818D01011",
-      "series": "X",
+      "series": "XT",
       "bseCode": "526494",
       "yahooSymbol": "PROMACT.BO",
       "sector": "Unknown",
@@ -34588,15 +35812,15 @@
     },
     {
       "symbol": "PRUDMOULI",
-      "name": "Prudential Sugar Corporation Ltd",
-      "exchange": "BSE",
+      "name": "Prudential Sugar Corporation Limited",
+      "exchange": "NSE",
       "isin": "INE024D01016",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "500342",
-      "yahooSymbol": "PRUDMOULI.BO",
+      "yahooSymbol": "PRUDMOULI.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "10-MAY-1995"
     },
     {
       "symbol": "PSB",
@@ -34735,7 +35959,7 @@
       "name": "Purohit Construction Ltd",
       "exchange": "BSE",
       "isin": "INE147J01012",
-      "series": "XT",
+      "series": "X",
       "bseCode": "538993",
       "yahooSymbol": "PUROHITCON.BO",
       "sector": "Unknown",
@@ -34747,7 +35971,7 @@
       "name": "Purple Agrotech Industries Ltd",
       "exchange": "BSE",
       "isin": "INE905R01016",
-      "series": "X",
+      "series": "XT",
       "bseCode": "540159",
       "yahooSymbol": "PURPLE.BO",
       "sector": "Unknown",
@@ -34972,15 +36196,27 @@
     },
     {
       "symbol": "QUINT",
-      "name": "Quint Digital Limited",
-      "exchange": "NSE",
+      "name": "Quint Digital Ltd",
+      "exchange": "BSE",
       "isin": "INE641R01017",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "539515",
-      "yahooSymbol": "QUINT.NS",
+      "yahooSymbol": "QUINT.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "20-APR-2026"
+      "listingDate": null
+    },
+    {
+      "symbol": "QUINTEGRA",
+      "name": "Quintegra Solutions Ltd",
+      "exchange": "BSE",
+      "isin": "INE033B01011",
+      "series": "T",
+      "bseCode": "532866",
+      "yahooSymbol": "QUINTEGRA.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "RAAJMEDI",
@@ -34999,7 +36235,7 @@
       "name": "Raama Finance Ltd",
       "exchange": "BSE",
       "isin": "INE516P01015",
-      "series": "XT",
+      "series": "X",
       "bseCode": "538540",
       "yahooSymbol": "RAAMA.BO",
       "sector": "Unknown",
@@ -35235,18 +36471,6 @@
       "listingDate": null
     },
     {
-      "symbol": "RAJINFRA",
-      "name": "Rajeswari Infrastructure Ltd",
-      "exchange": "BSE",
-      "isin": "INE016C01014",
-      "series": "Z",
-      "bseCode": "526823",
-      "yahooSymbol": "RAJINFRA.BO",
-      "sector": "Unknown",
-      "indices": [],
-      "listingDate": null
-    },
-    {
       "symbol": "RAJKOTINV",
       "name": "Rajkot Investment Trust Ltd",
       "exchange": "BSE",
@@ -35296,15 +36520,15 @@
     },
     {
       "symbol": "RAJOOENG",
-      "name": "Rajoo Engineers Ltd-$",
-      "exchange": "BSE",
+      "name": "Rajoo Engineers Limited",
+      "exchange": "NSE",
       "isin": "INE535F01024",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "522257",
-      "yahooSymbol": "RAJOOENG.BO",
+      "yahooSymbol": "RAJOOENG.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "29-MAY-2025"
     },
     {
       "symbol": "RAJPACK",
@@ -35395,7 +36619,7 @@
       "name": "Rajasthan Tube Manufacturing Company Ltd",
       "exchange": "BSE",
       "isin": "INE497E01020",
-      "series": "XT",
+      "series": "X",
       "bseCode": "530253",
       "yahooSymbol": "RAJTUBE.BO",
       "sector": "Unknown",
@@ -35404,24 +36628,36 @@
     },
     {
       "symbol": "RAJTV",
-      "name": "Raj Television Network Limited",
-      "exchange": "NSE",
+      "name": "Raj Television Network Ltd",
+      "exchange": "BSE",
       "isin": "INE952H01027",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "532826",
-      "yahooSymbol": "RAJTV.NS",
+      "yahooSymbol": "RAJTV.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "16-MAR-2007"
+      "listingDate": null
     },
     {
       "symbol": "RAJVI",
       "name": "Rajvi Logitrade Ltd",
       "exchange": "BSE",
       "isin": "INE381N01019",
-      "series": "X",
+      "series": "XT",
       "bseCode": "511185",
       "yahooSymbol": "RAJVI.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "RAJVIR",
+      "name": "Rajvir Industries Ltd",
+      "exchange": "BSE",
+      "isin": "INE011H01014",
+      "series": "Z",
+      "bseCode": "532665",
+      "yahooSymbol": "RAJVIR.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -35461,6 +36697,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "20-SEP-2006"
+    },
+    {
+      "symbol": "RAMAPETRO",
+      "name": "Rama Petrochemicals Ltd",
+      "exchange": "BSE",
+      "isin": "INE783A01013",
+      "series": "XT",
+      "bseCode": "500358",
+      "yahooSymbol": "RAMAPETRO.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "RAMAPHO",
@@ -35683,7 +36931,7 @@
       "name": "Rapicut Carbides Ltd",
       "exchange": "BSE",
       "isin": "INE350D01015",
-      "series": "XT",
+      "series": "X",
       "bseCode": "500360",
       "yahooSymbol": "RAPICUT.BO",
       "sector": "Unknown",
@@ -35734,6 +36982,18 @@
       "series": "X",
       "bseCode": "507966",
       "yahooSymbol": "RASRESOR.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "RASSIREF",
+      "name": "Raasi Refractories Ltd-$",
+      "exchange": "BSE",
+      "isin": "INE858D01017",
+      "series": "XT",
+      "bseCode": "502271",
+      "yahooSymbol": "RASSIREF.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -35809,6 +37069,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "11-SEP-2023"
+    },
+    {
+      "symbol": "RAUNAQ",
+      "name": "Raunaq International Ltd",
+      "exchange": "BSE",
+      "isin": "INE523K01012",
+      "series": "XT",
+      "bseCode": "537840",
+      "yahooSymbol": "RAUNAQ.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "RAVALSUGAR",
@@ -35919,6 +37191,18 @@
       "listingDate": null
     },
     {
+      "symbol": "RCCEMEN",
+      "name": "RCC Cements Ltd",
+      "exchange": "BSE",
+      "isin": "INE335N01015",
+      "series": "X",
+      "bseCode": "531825",
+      "yahooSymbol": "RCCEMEN.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "RCCL",
       "name": "Rajasthan Cylinders & Containers Ltd",
       "exchange": "BSE",
@@ -35971,7 +37255,7 @@
       "name": "RDB Infrastructure And Power Ltd",
       "exchange": "BSE",
       "isin": "INE245L01028",
-      "series": "B",
+      "series": "X",
       "bseCode": "533285",
       "yahooSymbol": "RDBIPL.BO",
       "sector": "Unknown",
@@ -36051,6 +37335,18 @@
       "listingDate": "03-DEC-2009"
     },
     {
+      "symbol": "REFEXRENEW",
+      "name": "Refex Renewables & Infrastructure Ltd",
+      "exchange": "BSE",
+      "isin": "INE332F01018",
+      "series": "X",
+      "bseCode": "531260",
+      "yahooSymbol": "REFEXRENEW.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "REGAAL",
       "name": "Regaal Resources Limited",
       "exchange": "NSE",
@@ -36103,7 +37399,7 @@
       "name": "Regency Fincorp Ltd",
       "exchange": "BSE",
       "isin": "INE964R01013",
-      "series": "XT",
+      "series": "X",
       "bseCode": "540175",
       "yahooSymbol": "REGENCY.BO",
       "sector": "Unknown",
@@ -36175,7 +37471,7 @@
       "name": "Reliable Ventures India Ltd",
       "exchange": "BSE",
       "isin": "INE419H01019",
-      "series": "XT",
+      "series": "X",
       "bseCode": "532124",
       "yahooSymbol": "RELIABVEN.BO",
       "sector": "Unknown",
@@ -36258,7 +37554,7 @@
       "symbol": "REMAGNET",
       "name": "Midwest Energy Ltd",
       "exchange": "BSE",
-      "isin": "INE519N01014",
+      "isin": "INE519N01022",
       "series": "B",
       "bseCode": "526570",
       "yahooSymbol": "REMAGNET.BO",
@@ -36327,6 +37623,18 @@
       "listingDate": "01-APR-2013"
     },
     {
+      "symbol": "REPL",
+      "name": "Rudrabhishek Enterprises Limited",
+      "exchange": "NSE",
+      "isin": "INE364Z01019",
+      "series": "EQ",
+      "bseCode": null,
+      "yahooSymbol": "REPL.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "14-DEC-2020"
+    },
+    {
       "symbol": "REPRO",
       "name": "Repro India Limited",
       "exchange": "NSE",
@@ -36343,7 +37651,7 @@
       "name": "Resonance Specialties Ltd-$",
       "exchange": "BSE",
       "isin": "INE486D01017",
-      "series": "XT",
+      "series": "X",
       "bseCode": "524218",
       "yahooSymbol": "RESONANCE.BO",
       "sector": "Unknown",
@@ -36388,15 +37696,27 @@
     },
     {
       "symbol": "RETAIL",
-      "name": "JHS Svendgaard Retail Ventures Limited",
-      "exchange": "NSE",
+      "name": "JHS Svendgaard Retail Ventures Ltd",
+      "exchange": "BSE",
       "isin": "INE03DD01011",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "544197",
-      "yahooSymbol": "RETAIL.NS",
+      "yahooSymbol": "RETAIL.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "26-JUN-2024"
+      "listingDate": null
+    },
+    {
+      "symbol": "REVAMEDIA",
+      "name": "Revati Media Ltd",
+      "exchange": "BSE",
+      "isin": "INE270D01015",
+      "series": "XT",
+      "bseCode": "524504",
+      "yahooSymbol": "REVAMEDIA.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "REXNORD",
@@ -36463,21 +37783,9 @@
       "name": "RGF Capital Markets Ltd",
       "exchange": "BSE",
       "isin": "INE684D01025",
-      "series": "X",
+      "series": "XT",
       "bseCode": "539669",
       "yahooSymbol": "RGF.BO",
-      "sector": "Unknown",
-      "indices": [],
-      "listingDate": null
-    },
-    {
-      "symbol": "RGIL",
-      "name": "Rotographics (India) Ltd",
-      "exchange": "BSE",
-      "isin": "INE364S01022",
-      "series": "XT",
-      "bseCode": "539922",
-      "yahooSymbol": "RGIL.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -36559,7 +37867,7 @@
       "name": "Riba Textiles Ltd",
       "exchange": "BSE",
       "isin": "INE811H01017",
-      "series": "XT",
+      "series": "X",
       "bseCode": "531952",
       "yahooSymbol": "RIBATEX.BO",
       "sector": "Unknown",
@@ -36781,18 +38089,6 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "27-DEC-2010"
-    },
-    {
-      "symbol": "RKEC",
-      "name": "RKEC Projects Limited",
-      "exchange": "NSE",
-      "isin": "INE786W01010",
-      "series": "EQ",
-      "bseCode": null,
-      "yahooSymbol": "RKEC.NS",
-      "sector": "Unknown",
-      "indices": [],
-      "listingDate": "18-DEC-2020"
     },
     {
       "symbol": "RKFORGE",
@@ -37183,7 +38479,7 @@
       "name": "RR Financial Consultants Ltd",
       "exchange": "BSE",
       "isin": "INE229D01011",
-      "series": "XT",
+      "series": "X",
       "bseCode": "511626",
       "yahooSymbol": "RRFIN.BO",
       "sector": "Unknown",
@@ -37222,6 +38518,30 @@
       "series": "XT",
       "bseCode": "531667",
       "yahooSymbol": "RRMETAL.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "RRP",
+      "name": "RRP Semiconductor Ltd",
+      "exchange": "BSE",
+      "isin": "INE713N01013",
+      "series": "X",
+      "bseCode": "504346",
+      "yahooSymbol": "RRP.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "RRPDEFENSE",
+      "name": "RRP Defense Ltd",
+      "exchange": "BSE",
+      "isin": "INE535P01015",
+      "series": "X",
+      "bseCode": "530929",
+      "yahooSymbol": "RRPDEFENSE.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -37276,15 +38596,15 @@
     },
     {
       "symbol": "RSWM",
-      "name": "RSWM Ltd",
-      "exchange": "BSE",
+      "name": "RSWM Limited",
+      "exchange": "NSE",
       "isin": "INE611A01016",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "500350",
-      "yahooSymbol": "RSWM.BO",
+      "yahooSymbol": "RSWM.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "15-FEB-1995"
     },
     {
       "symbol": "RSYSTEMS",
@@ -37336,15 +38656,15 @@
     },
     {
       "symbol": "RTSPOWR",
-      "name": "RTS Power Corporation Limited",
-      "exchange": "NSE",
+      "name": "RTS Power Corporation Ltd",
+      "exchange": "BSE",
       "isin": "INE005C01017",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "531215",
-      "yahooSymbol": "RTSPOWR.NS",
+      "yahooSymbol": "RTSPOWR.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "17-AUG-2026"
+      "listingDate": null
     },
     {
       "symbol": "RUBFILA",
@@ -37441,6 +38761,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
+    },
+    {
+      "symbol": "RUNWALENTR",
+      "name": "Runwal Enterprises Limited",
+      "exchange": "NSE",
+      "isin": "INE804W01029",
+      "series": "EQ",
+      "bseCode": "544959",
+      "yahooSymbol": "RUNWALENTR.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "05-OCT-2026"
     },
     {
       "symbol": "RUPA",
@@ -37600,12 +38932,24 @@
     },
     {
       "symbol": "SADHNANIQ",
-      "name": "Sadhana Nitro Chem Ltd",
-      "exchange": "BSE",
+      "name": "Sadhana Nitrochem Limited",
+      "exchange": "NSE",
       "isin": "INE888C01040",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "506642",
-      "yahooSymbol": "SADHNANIQ.BO",
+      "yahooSymbol": "SADHNANIQ.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "05-MAY-2023"
+    },
+    {
+      "symbol": "SAENTER",
+      "name": "South Asian Enterprises Ltd",
+      "exchange": "BSE",
+      "isin": "INE118B01010",
+      "series": "XT",
+      "bseCode": "526477",
+      "yahooSymbol": "SAENTER.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -38058,7 +39402,7 @@
       "symbol": "SAMOR",
       "name": "Samor Reality Ltd",
       "exchange": "BSE",
-      "isin": "INE0GD201014",
+      "isin": "INE0GD201022",
       "series": "B",
       "bseCode": "543376",
       "yahooSymbol": "SAMOR.BO",
@@ -38299,7 +39643,7 @@
       "name": "Sanmit Infra Ltd",
       "exchange": "BSE",
       "isin": "INE799C01049",
-      "series": "XT",
+      "series": "X",
       "bseCode": "532435",
       "yahooSymbol": "SANINFRA.BO",
       "sector": "Unknown",
@@ -38386,6 +39730,18 @@
       "series": "X",
       "bseCode": "514280",
       "yahooSymbol": "SANTETX.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "SANTOSHF",
+      "name": "Santosh Fine Fab Ltd",
+      "exchange": "BSE",
+      "isin": "INE612D01018",
+      "series": "XT",
+      "bseCode": "530035",
+      "yahooSymbol": "SANTOSHF.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -38479,7 +39835,7 @@
       "name": "Sarthak Global Ltd",
       "exchange": "BSE",
       "isin": "INE075H01019",
-      "series": "X",
+      "series": "XT",
       "bseCode": "530993",
       "yahooSymbol": "SARTHAKGL.BO",
       "sector": "Unknown",
@@ -38494,6 +39850,18 @@
       "series": "X",
       "bseCode": "531930",
       "yahooSymbol": "SARTHAKIND.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "SARUPINDUS",
+      "name": "Sarup Industries Ltd-$",
+      "exchange": "BSE",
+      "isin": "INE305D01019",
+      "series": "XT",
+      "bseCode": "514412",
+      "yahooSymbol": "SARUPINDUS.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -38533,6 +39901,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "09-SEP-2005"
+    },
+    {
+      "symbol": "SATANIBRG",
+      "name": "Satani Bearings Ltd",
+      "exchange": "BSE",
+      "isin": "INE498D01012",
+      "series": "X",
+      "bseCode": "505703",
+      "yahooSymbol": "SATANIBRG.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "SATCH",
@@ -38827,7 +40207,7 @@
       "name": "Saptak Chem And Business Ltd",
       "exchange": "BSE",
       "isin": "INE467X01023",
-      "series": "XT",
+      "series": "X",
       "bseCode": "506906",
       "yahooSymbol": "SCBL.BO",
       "sector": "Unknown",
@@ -39111,6 +40491,18 @@
       "listingDate": null
     },
     {
+      "symbol": "SELMC",
+      "name": "SEL Manufacturing Company Ltd",
+      "exchange": "BSE",
+      "isin": "INE105I01020",
+      "series": "T",
+      "bseCode": "532886",
+      "yahooSymbol": "SELMC.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "SEMAC",
       "name": "Semac Construction Limited",
       "exchange": "NSE",
@@ -39133,6 +40525,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "14-JUL-2023"
+    },
+    {
+      "symbol": "SENINFO",
+      "name": "Senthil Infotek Ltd",
+      "exchange": "BSE",
+      "isin": "INE564B01015",
+      "series": "XT",
+      "bseCode": "531980",
+      "yahooSymbol": "SENINFO.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "SENORES",
@@ -39183,6 +40587,18 @@
       "listingDate": "02-SEP-2021"
     },
     {
+      "symbol": "SESHACHAL",
+      "name": "Seshachal Technologies Ltd",
+      "exchange": "BSE",
+      "isin": "INE331F01028",
+      "series": "XT",
+      "bseCode": "531794",
+      "yahooSymbol": "SESHACHAL.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "SESHAPAPER",
       "name": "Seshasayee Paper and Boards Limited",
       "exchange": "NSE",
@@ -39196,15 +40612,15 @@
     },
     {
       "symbol": "SETCO",
-      "name": "Setco Automotive Ltd",
-      "exchange": "BSE",
+      "name": "Setco Automotive Limited",
+      "exchange": "NSE",
       "isin": "INE878E01021",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "505075",
-      "yahooSymbol": "SETCO.BO",
+      "yahooSymbol": "SETCO.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "01-JUL-2016"
     },
     {
       "symbol": "SETL",
@@ -39411,6 +40827,18 @@
       "listingDate": null
     },
     {
+      "symbol": "SHAHINVEST",
+      "name": "Shah Investors Home Ltd",
+      "exchange": "BSE",
+      "isin": "INE029N01014",
+      "series": "T",
+      "bseCode": "544963",
+      "yahooSymbol": "SHAHINVEST.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "SHAHISHIP",
       "name": "Shahi Shipping Ltd-$",
       "exchange": "BSE",
@@ -39519,6 +40947,18 @@
       "listingDate": null
     },
     {
+      "symbol": "SHAMROIN",
+      "name": "Shamrock Industrial Company Ltd",
+      "exchange": "BSE",
+      "isin": "INE022F01015",
+      "series": "XT",
+      "bseCode": "531240",
+      "yahooSymbol": "SHAMROIN.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "SHANGAR",
       "name": "Shangar Decor Ltd",
       "exchange": "BSE",
@@ -39553,6 +40993,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "25-AUG-2026"
+    },
+    {
+      "symbol": "SHANTAI",
+      "name": "Shantai Industries Ltd",
+      "exchange": "BSE",
+      "isin": "INE408F01024",
+      "series": "XT",
+      "bseCode": "512297",
+      "yahooSymbol": "SHANTAI.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "SHANTI",
@@ -39655,7 +41107,7 @@
       "name": "Sharika Enterprises Ltd",
       "exchange": "BSE",
       "isin": "INE669Y01022",
-      "series": "T",
+      "series": "B",
       "bseCode": "540786",
       "yahooSymbol": "SHARIKA.BO",
       "sector": "Unknown",
@@ -39679,7 +41131,7 @@
       "name": "Sharp Investments Ltd",
       "exchange": "BSE",
       "isin": "INE909D01026",
-      "series": "XT",
+      "series": "X",
       "bseCode": "538212",
       "yahooSymbol": "SHARPINV.BO",
       "sector": "Unknown",
@@ -39760,27 +41212,15 @@
     },
     {
       "symbol": "SHEMAROO",
-      "name": "Shemaroo Entertainment Ltd",
-      "exchange": "BSE",
+      "name": "Shemaroo Entertainment Limited",
+      "exchange": "NSE",
       "isin": "INE363M01019",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "538685",
-      "yahooSymbol": "SHEMAROO.BO",
+      "yahooSymbol": "SHEMAROO.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
-    },
-    {
-      "symbol": "SHENTRA",
-      "name": "Shentracon Chemicals Ltd",
-      "exchange": "BSE",
-      "isin": "INE0OUS01011",
-      "series": "XT",
-      "bseCode": "530757",
-      "yahooSymbol": "SHENTRA.BO",
-      "sector": "Unknown",
-      "indices": [],
-      "listingDate": null
+      "listingDate": "01-OCT-2014"
     },
     {
       "symbol": "SHERVANI",
@@ -39838,6 +41278,18 @@
       "series": "XT",
       "bseCode": "524336",
       "yahooSymbol": "SHHARICH.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "SHIKHAR",
+      "name": "Shikhar Consultants Ltd",
+      "exchange": "BSE",
+      "isin": "INE641B01011",
+      "series": "XT",
+      "bseCode": "526883",
+      "yahooSymbol": "SHIKHAR.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -40040,7 +41492,7 @@
       "exchange": "NSE",
       "isin": "INE719F01016",
       "series": "EQ",
-      "bseCode": null,
+      "bseCode": "544969",
       "yahooSymbol": "SHIVAUM.NS",
       "sector": "Unknown",
       "indices": [],
@@ -40087,7 +41539,7 @@
       "name": "Shree Karthik Papers Ltd",
       "exchange": "BSE",
       "isin": "INE538D01015",
-      "series": "X",
+      "series": "XT",
       "bseCode": "516106",
       "yahooSymbol": "SHKARTP.BO",
       "sector": "Unknown",
@@ -40351,7 +41803,7 @@
       "name": "Shri Dinesh Mills Ltd-$",
       "exchange": "BSE",
       "isin": "INE204C01024",
-      "series": "XT",
+      "series": "X",
       "bseCode": "503804",
       "yahooSymbol": "SHRIDINE.BO",
       "sector": "Unknown",
@@ -40528,15 +41980,15 @@
     },
     {
       "symbol": "SHYAMCENT",
-      "name": "Shyam Century Ferrous Ltd",
-      "exchange": "BSE",
+      "name": "Shyam Century Ferrous Limited",
+      "exchange": "NSE",
       "isin": "INE979R01011",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "539252",
-      "yahooSymbol": "SHYAMCENT.BO",
+      "yahooSymbol": "SHYAMCENT.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "28-JUL-2015"
     },
     {
       "symbol": "SHYAMMETL",
@@ -40923,6 +42375,18 @@
       "listingDate": "09-MAR-2004"
     },
     {
+      "symbol": "SIMPLXMIL",
+      "name": "Simplex Mills Company Ltd",
+      "exchange": "BSE",
+      "isin": "INE457H01027",
+      "series": "XT",
+      "bseCode": "533018",
+      "yahooSymbol": "SIMPLXMIL.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "SIMPLXPAP",
       "name": "Simplex Papers Ltd",
       "exchange": "BSE",
@@ -41103,6 +42567,18 @@
       "listingDate": null
     },
     {
+      "symbol": "SJCORP",
+      "name": "SJ Corporation Ltd",
+      "exchange": "BSE",
+      "isin": "INE312B01027",
+      "series": "XT",
+      "bseCode": "504398",
+      "yahooSymbol": "SJCORP.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "SJS",
       "name": "S.J.S. Enterprises Limited",
       "exchange": "NSE",
@@ -41163,6 +42639,30 @@
       "listingDate": "05-DEC-2025"
     },
     {
+      "symbol": "SKIL",
+      "name": "SKIL Infrastructure Ltd",
+      "exchange": "BSE",
+      "isin": "INE429F01012",
+      "series": "Z",
+      "bseCode": "539861",
+      "yahooSymbol": "SKIL.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "SKILVEN",
+      "name": "Skyline Ventures India Ltd",
+      "exchange": "BSE",
+      "isin": "INE055Q01012",
+      "series": "Z",
+      "bseCode": "538919",
+      "yahooSymbol": "SKILVEN.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "SKIPPER",
       "name": "Skipper Limited",
       "exchange": "NSE",
@@ -41191,7 +42691,7 @@
       "name": "Shree Krishna Paper Mills & Industries Ltd",
       "exchange": "BSE",
       "isin": "INE970C01012",
-      "series": "XT",
+      "series": "X",
       "bseCode": "500388",
       "yahooSymbol": "SKPMIL.BO",
       "sector": "Unknown",
@@ -41215,7 +42715,7 @@
       "name": "Shukra Bullions Ltd",
       "exchange": "BSE",
       "isin": "INE561E01015",
-      "series": "X",
+      "series": "XT",
       "bseCode": "531506",
       "yahooSymbol": "SKRABUL.BO",
       "sector": "Unknown",
@@ -41295,6 +42795,18 @@
       "listingDate": null
     },
     {
+      "symbol": "SMAART",
+      "name": "Smaart Tech Services Ltd",
+      "exchange": "BSE",
+      "isin": "INE207B01011",
+      "series": "XT",
+      "bseCode": "523449",
+      "yahooSymbol": "SMAART.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "SMARTFIN",
       "name": "Smart Finsec Ltd",
       "exchange": "BSE",
@@ -41308,15 +42820,15 @@
     },
     {
       "symbol": "SMARTLINK",
-      "name": "Smartlink Holdings Ltd",
-      "exchange": "BSE",
+      "name": "Smartlink Holdings Limited",
+      "exchange": "NSE",
       "isin": "INE178C01020",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "532419",
-      "yahooSymbol": "SMARTLINK.BO",
+      "yahooSymbol": "SMARTLINK.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "11-APR-2001"
     },
     {
       "symbol": "SMARTWORKS",
@@ -41374,6 +42886,18 @@
       "series": "B",
       "bseCode": "542034",
       "yahooSymbol": "SMGOLD.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "SML",
+      "name": "Soni Medicare Ltd",
+      "exchange": "BSE",
+      "isin": "INE848R01018",
+      "series": "XT",
+      "bseCode": "539378",
+      "yahooSymbol": "SML.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -41641,6 +43165,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "18-JUL-2016"
+    },
+    {
+      "symbol": "SONA",
+      "name": "Sonaselection India Limited",
+      "exchange": "NSE",
+      "isin": "INE0LLZ01011",
+      "series": "EQ",
+      "bseCode": "544938",
+      "yahooSymbol": "SONA.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "24-SEP-2026"
     },
     {
       "symbol": "SONACOMS",
@@ -41911,7 +43447,7 @@
       "name": "Spectrum Foods Ltd",
       "exchange": "BSE",
       "isin": "INE547C01018",
-      "series": "X",
+      "series": "XT",
       "bseCode": "531982",
       "yahooSymbol": "SPECFOOD.BO",
       "sector": "Unknown",
@@ -41950,6 +43486,18 @@
       "series": "T",
       "bseCode": "544386",
       "yahooSymbol": "SPECTRUM.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "SPELS",
+      "name": "SPEL Semiconductor Ltd",
+      "exchange": "BSE",
+      "isin": "INE252A01019",
+      "series": "T",
+      "bseCode": "517166",
+      "yahooSymbol": "SPELS.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -42091,7 +43639,7 @@
       "name": "Spright Agro Ltd",
       "exchange": "BSE",
       "isin": "INE179O01031",
-      "series": "X",
+      "series": "XT",
       "bseCode": "531205",
       "yahooSymbol": "SPRIGHT.BO",
       "sector": "Unknown",
@@ -42157,18 +43705,6 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "09-OCT-2024"
-    },
-    {
-      "symbol": "SRDAPRT",
-      "name": "Sarda Proteins Ltd",
-      "exchange": "BSE",
-      "isin": "INE995U01011",
-      "series": "X",
-      "bseCode": "519242",
-      "yahooSymbol": "SRDAPRT.BO",
-      "sector": "Unknown",
-      "indices": [],
-      "listingDate": null
     },
     {
       "symbol": "SREEL",
@@ -42267,6 +43803,18 @@
       "listingDate": null
     },
     {
+      "symbol": "SRIT",
+      "name": "Srit India Ltd",
+      "exchange": "BSE",
+      "isin": "INE307K01028",
+      "series": "T",
+      "bseCode": "544965",
+      "yahooSymbol": "SRIT.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "SRM",
       "name": "SRM Contractors Limited",
       "exchange": "NSE",
@@ -42349,6 +43897,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
+    },
+    {
+      "symbol": "SSRETAIL",
+      "name": "SS Retail Limited",
+      "exchange": "NSE",
+      "isin": "INE1EQW01028",
+      "series": "EQ",
+      "bseCode": "544934",
+      "yahooSymbol": "SSRETAIL.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "23-SEP-2026"
     },
     {
       "symbol": "SSWL",
@@ -42447,6 +44007,18 @@
       "listingDate": "02-FEB-2000"
     },
     {
+      "symbol": "STARBEAM",
+      "name": "Starbeam Ventures Ltd",
+      "exchange": "BSE",
+      "isin": "INE924N01024",
+      "series": "XT",
+      "bseCode": "539175",
+      "yahooSymbol": "STARBEAM.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "STARCEMENT",
       "name": "Star Cement Limited",
       "exchange": "NSE",
@@ -42457,6 +44029,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "16-JUN-2017"
+    },
+    {
+      "symbol": "STARCOM",
+      "name": "Starcom Information Technology Ltd",
+      "exchange": "BSE",
+      "isin": "INE347I01010",
+      "series": "XT",
+      "bseCode": "531616",
+      "yahooSymbol": "STARCOM.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "STARDELTA",
@@ -42535,7 +44119,7 @@
       "name": "Star Source Multi Trade Ltd",
       "exchange": "BSE",
       "isin": "INE320M01019",
-      "series": "X",
+      "series": "XT",
       "bseCode": "506365",
       "yahooSymbol": "STARSOURCE.BO",
       "sector": "Unknown",
@@ -42712,15 +44296,15 @@
     },
     {
       "symbol": "STERTOOLS",
-      "name": "Sterling Tools Ltd-$",
-      "exchange": "BSE",
+      "name": "Sterling Tools Limited",
+      "exchange": "NSE",
       "isin": "INE334A01023",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "530759",
-      "yahooSymbol": "STERTOOLS.BO",
+      "yahooSymbol": "STERTOOLS.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "02-FEB-2006"
     },
     {
       "symbol": "STHINPA",
@@ -42760,15 +44344,15 @@
     },
     {
       "symbol": "STLSTRINF",
-      "name": "Steel Strips Infrastructures Limited",
-      "exchange": "NSE",
+      "name": "Steel Strips Infrastructures Ltd",
+      "exchange": "BSE",
       "isin": "INE205F01016",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "513173",
-      "yahooSymbol": "STLSTRINF.NS",
+      "yahooSymbol": "STLSTRINF.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "17-AUG-2026"
+      "listingDate": null
     },
     {
       "symbol": "STLTECH",
@@ -42853,6 +44437,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "07-NOV-2025"
+    },
+    {
+      "symbol": "STURDY",
+      "name": "Sturdy Industries Ltd",
+      "exchange": "BSE",
+      "isin": "INE134F01026",
+      "series": "Z",
+      "bseCode": "530611",
+      "yahooSymbol": "STURDY.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "STYL",
@@ -42955,7 +44551,7 @@
       "name": "Sudal Industries Ltd",
       "exchange": "BSE",
       "isin": "INE618D01015",
-      "series": "X",
+      "series": "XT",
       "bseCode": "506003",
       "yahooSymbol": "SUDAI.BO",
       "sector": "Unknown",
@@ -43204,15 +44800,15 @@
     },
     {
       "symbol": "SUNDRMBRAK",
-      "name": "Sundaram Brake Linings Ltd",
-      "exchange": "BSE",
+      "name": "Sundaram Brake Linings Limited",
+      "exchange": "NSE",
       "isin": "INE073D01013",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "590072",
-      "yahooSymbol": "SUNDRMBRAK.BO",
+      "yahooSymbol": "SUNDRMBRAK.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "17-JUL-1996"
     },
     {
       "symbol": "SUNDRMFAST",
@@ -43303,7 +44899,7 @@
       "name": "Sunraj Diamond Exports Ltd",
       "exchange": "BSE",
       "isin": "INE459D01014",
-      "series": "X",
+      "series": "XT",
       "bseCode": "523425",
       "yahooSymbol": "SUNRAJDI.BO",
       "sector": "Unknown",
@@ -43567,7 +45163,7 @@
       "name": "Suraj Products Ltd",
       "exchange": "BSE",
       "isin": "INE069E01019",
-      "series": "Z",
+      "series": "X",
       "bseCode": "518075",
       "yahooSymbol": "SURAJ.BO",
       "sector": "Unknown",
@@ -43755,16 +45351,28 @@
       "listingDate": "26-MAR-2021"
     },
     {
-      "symbol": "SUTLEJTEX",
-      "name": "Sutlej Textiles and Industries Ltd",
+      "symbol": "SURYVANSP",
+      "name": "Suryavanshi Spinning Mills Ltd-$",
       "exchange": "BSE",
-      "isin": "INE645H01027",
-      "series": "T",
-      "bseCode": "532782",
-      "yahooSymbol": "SUTLEJTEX.BO",
+      "isin": "INE431C01023",
+      "series": "XT",
+      "bseCode": "514140",
+      "yahooSymbol": "SURYVANSP.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
+    },
+    {
+      "symbol": "SUTLEJTEX",
+      "name": "Sutlej Textiles and Industries Limited",
+      "exchange": "NSE",
+      "isin": "INE645H01027",
+      "series": "EQ",
+      "bseCode": "532782",
+      "yahooSymbol": "SUTLEJTEX.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "14-DEC-2006"
     },
     {
       "symbol": "SUVEN",
@@ -43819,7 +45427,7 @@
       "name": "Svam Software Ltd",
       "exchange": "BSE",
       "isin": "INE119B01018",
-      "series": "X",
+      "series": "XT",
       "bseCode": "523722",
       "yahooSymbol": "SVAMSOF.BO",
       "sector": "Unknown",
@@ -43843,7 +45451,7 @@
       "name": "SVC INDUSTRIES Ltd",
       "exchange": "BSE",
       "isin": "INE038B01010",
-      "series": "X",
+      "series": "XT",
       "bseCode": "524488",
       "yahooSymbol": "SVCIND.BO",
       "sector": "Unknown",
@@ -43927,7 +45535,7 @@
       "name": "Swadha Nature Ltd",
       "exchange": "BSE",
       "isin": "INE0P4R01017",
-      "series": "X",
+      "series": "XT",
       "bseCode": "531039",
       "yahooSymbol": "SWADHATURE.BO",
       "sector": "Unknown",
@@ -44031,6 +45639,18 @@
       "listingDate": null
     },
     {
+      "symbol": "SWASTIKAIN",
+      "name": "Swastika Infra Limited",
+      "exchange": "NSE",
+      "isin": "INE1QJA01015",
+      "series": "EQ",
+      "bseCode": "544949",
+      "yahooSymbol": "SWASTIKAIN.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "30-SEP-2026"
+    },
+    {
       "symbol": "SWASTIVI",
       "name": "Swasti Vinayaka Synthetics Ltd",
       "exchange": "BSE",
@@ -44095,7 +45715,7 @@
       "name": "Switching Technologies Gunther Ltd",
       "exchange": "BSE",
       "isin": "INE311D01017",
-      "series": "XT",
+      "series": "X",
       "bseCode": "517201",
       "yahooSymbol": "SWITCHTE.BO",
       "sector": "Unknown",
@@ -44119,7 +45739,7 @@
       "name": "Sword-Edge Commercials Ltd",
       "exchange": "BSE",
       "isin": "INE093G01022",
-      "series": "X",
+      "series": "XT",
       "bseCode": "512359",
       "yahooSymbol": "SWORDEDGE.BO",
       "sector": "Unknown",
@@ -44149,6 +45769,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "20-AUG-2019"
+    },
+    {
+      "symbol": "SYBLY",
+      "name": "Sybly Industries Ltd-$",
+      "exchange": "BSE",
+      "isin": "INE080D01042",
+      "series": "Z",
+      "bseCode": "531499",
+      "yahooSymbol": "SYBLY.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "SYLPH",
@@ -44274,13 +45906,25 @@
       "symbol": "TAALTECH",
       "name": "Taal Tech Limited",
       "exchange": "NSE",
-      "isin": "INE524T01011",
+      "isin": "INE524T01029",
       "series": "EQ",
       "bseCode": "539956",
       "yahooSymbol": "TAALTECH.NS",
       "sector": "Unknown",
       "indices": [],
       "listingDate": "20-APR-2026"
+    },
+    {
+      "symbol": "TACENT",
+      "name": "Tacent Projects Ltd",
+      "exchange": "BSE",
+      "isin": "INE149D01011",
+      "series": "XT",
+      "bseCode": "531887",
+      "yahooSymbol": "TACENT.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "TAHMARENT",
@@ -44368,15 +46012,15 @@
     },
     {
       "symbol": "TAMBOLIIN",
-      "name": "Tamboli Industries Ltd",
-      "exchange": "BSE",
+      "name": "Tamboli Industries Limited",
+      "exchange": "NSE",
       "isin": "INE864J01012",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "533170",
-      "yahooSymbol": "TAMBOLIIN.BO",
+      "yahooSymbol": "TAMBOLIIN.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "20-APR-2026"
     },
     {
       "symbol": "TANAA",
@@ -44464,15 +46108,15 @@
     },
     {
       "symbol": "TARAPUR",
-      "name": "Tarapur Transformers Limited",
-      "exchange": "NSE",
+      "name": "Tarapur Transformers Ltd",
+      "exchange": "BSE",
       "isin": "INE747K01017",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "533203",
-      "yahooSymbol": "TARAPUR.NS",
+      "yahooSymbol": "TARAPUR.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "18-MAY-2010"
+      "listingDate": null
     },
     {
       "symbol": "TARC",
@@ -44704,15 +46348,15 @@
     },
     {
       "symbol": "TBZ",
-      "name": "Tribhovandas Bhimji Zaveri Limited",
-      "exchange": "NSE",
+      "name": "Tribhovandas Bhimji Zaveri Ltd",
+      "exchange": "BSE",
       "isin": "INE760L01018",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "534369",
-      "yahooSymbol": "TBZ.NS",
+      "yahooSymbol": "TBZ.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "09-MAY-2012"
+      "listingDate": null
     },
     {
       "symbol": "TCC",
@@ -45044,7 +46688,7 @@
       "exchange": "NSE",
       "isin": "INE869Y01028",
       "series": "EQ",
-      "bseCode": null,
+      "bseCode": "544987",
       "yahooSymbol": "TEMBO.NS",
       "sector": "Unknown",
       "indices": [],
@@ -45187,7 +46831,7 @@
       "name": "Typhoon Financial Services Ltd",
       "exchange": "BSE",
       "isin": "INE761R01013",
-      "series": "X",
+      "series": "XT",
       "bseCode": "539468",
       "yahooSymbol": "TFSL.BO",
       "sector": "Unknown",
@@ -45412,15 +47056,15 @@
     },
     {
       "symbol": "TICL",
-      "name": "Twamev Construction And Infrastructure Ltd",
-      "exchange": "BSE",
+      "name": "Twamev Construction and Infrastructure Limited",
+      "exchange": "NSE",
       "isin": "INE388G01026",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "532738",
-      "yahooSymbol": "TICL.BO",
+      "yahooSymbol": "TICL.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "16-OCT-2023"
     },
     {
       "symbol": "TIERRA",
@@ -45463,7 +47107,7 @@
       "name": "Trans India House Impex Ltd",
       "exchange": "BSE",
       "isin": "INE502D01011",
-      "series": "XT",
+      "series": "X",
       "bseCode": "523752",
       "yahooSymbol": "TIHIL.BO",
       "sector": "Unknown",
@@ -45502,6 +47146,18 @@
       "series": "T",
       "bseCode": "533629",
       "yahooSymbol": "TIJARIA.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "TIKONA",
+      "name": "Tikona Communication Ltd",
+      "exchange": "BSE",
+      "isin": "INE534A01028",
+      "series": "T",
+      "bseCode": "513343",
+      "yahooSymbol": "TIKONA.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -45703,7 +47359,7 @@
       "name": "Titan Biotech Ltd",
       "exchange": "BSE",
       "isin": "INE150C01029",
-      "series": "X",
+      "series": "B",
       "bseCode": "524717",
       "yahooSymbol": "TITANBIO.BO",
       "sector": "Unknown",
@@ -45771,6 +47427,18 @@
       "listingDate": "22-JUL-1998"
     },
     {
+      "symbol": "TMTIND-B1",
+      "name": "TMT India Ltd",
+      "exchange": "BSE",
+      "isin": "INE182E01010",
+      "series": "XT",
+      "bseCode": "522171",
+      "yahooSymbol": "TMTIND-B1.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "TNPETRO",
       "name": "Tamilnadu PetroProducts Limited",
       "exchange": "NSE",
@@ -45796,15 +47464,15 @@
     },
     {
       "symbol": "TNTELE",
-      "name": "Tamilnadu Telecommunication Limited",
-      "exchange": "NSE",
+      "name": "Tamilnadu Telecommunications Ltd",
+      "exchange": "BSE",
       "isin": "INE141D01018",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "523419",
-      "yahooSymbol": "TNTELE.NS",
+      "yahooSymbol": "TNTELE.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "04-FEB-2003"
+      "listingDate": null
     },
     {
       "symbol": "TOKYOFIN",
@@ -46084,15 +47752,15 @@
     },
     {
       "symbol": "TRANSWORLD",
-      "name": "Transworld Shipping Lines Ltd",
-      "exchange": "BSE",
+      "name": "TRANSWORLD SHIPPING LINES LIMITED",
+      "exchange": "NSE",
       "isin": "INE757B01015",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "520151",
-      "yahooSymbol": "TRANSWORLD.BO",
+      "yahooSymbol": "TRANSWORLD.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "01-MAR-1995"
     },
     {
       "symbol": "TRAVELFOOD",
@@ -46347,6 +48015,18 @@
       "listingDate": null
     },
     {
+      "symbol": "TRIVENIPT",
+      "name": "Triveni Power Transmission Ltd",
+      "exchange": "BSE",
+      "isin": "INE2WKE01011",
+      "series": "T",
+      "bseCode": "544824",
+      "yahooSymbol": "TRIVENIPT.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "TRL",
       "name": "Taylormade Renewables Ltd",
       "exchange": "BSE",
@@ -46387,7 +48067,7 @@
       "name": "True Green Bio Energy Ltd",
       "exchange": "BSE",
       "isin": "INE672K01025",
-      "series": "XT",
+      "series": "B",
       "bseCode": "533407",
       "yahooSymbol": "TRUEGREEN.BO",
       "sector": "Unknown",
@@ -46411,7 +48091,7 @@
       "name": "Trustwave Securities Ltd",
       "exchange": "BSE",
       "isin": "INE668Y01024",
-      "series": "X",
+      "series": "XT",
       "bseCode": "508963",
       "yahooSymbol": "TRUSTWAVE.BO",
       "sector": "Unknown",
@@ -46435,7 +48115,7 @@
       "name": "T Spiritual World Ltd",
       "exchange": "BSE",
       "isin": "INE541C01037",
-      "series": "X",
+      "series": "XT",
       "bseCode": "532444",
       "yahooSymbol": "TSPIRITUAL.BO",
       "sector": "Unknown",
@@ -46567,7 +48247,7 @@
       "name": "Tuni Textile Mills Ltd",
       "exchange": "BSE",
       "isin": "INE560D01027",
-      "series": "X",
+      "series": "XT",
       "bseCode": "531411",
       "yahooSymbol": "TUNITEX.BO",
       "sector": "Unknown",
@@ -46783,7 +48463,7 @@
       "name": "Unifinz Capital India Ltd",
       "exchange": "BSE",
       "isin": "INE926R01012",
-      "series": "XT",
+      "series": "X",
       "bseCode": "541358",
       "yahooSymbol": "UCIL.BO",
       "sector": "Unknown",
@@ -46804,15 +48484,15 @@
     },
     {
       "symbol": "UDAYJEW",
-      "name": "Uday Jewellery Industries Limited",
-      "exchange": "NSE",
+      "name": "Uday Jewellery Industries Ltd",
+      "exchange": "BSE",
       "isin": "INE551B01012",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "539518",
-      "yahooSymbol": "UDAYJEW.NS",
+      "yahooSymbol": "UDAYJEW.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "17-AUG-2026"
+      "listingDate": null
     },
     {
       "symbol": "UDS",
@@ -46888,15 +48568,15 @@
     },
     {
       "symbol": "UGARSUGAR",
-      "name": "The Ugar Sugar Works Limited",
-      "exchange": "NSE",
+      "name": "Ugar Sugar Works Ltd-$",
+      "exchange": "BSE",
       "isin": "INE071E01023",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "530363",
-      "yahooSymbol": "UGARSUGAR.NS",
+      "yahooSymbol": "UGARSUGAR.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "23-AUG-2010"
+      "listingDate": null
     },
     {
       "symbol": "UGROCAP",
@@ -46972,15 +48652,15 @@
     },
     {
       "symbol": "UMAEXPORTS",
-      "name": "Uma Exports Ltd",
-      "exchange": "BSE",
+      "name": "Uma Exports Limited",
+      "exchange": "NSE",
       "isin": "INE0GIU01018",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "543513",
-      "yahooSymbol": "UMAEXPORTS.BO",
+      "yahooSymbol": "UMAEXPORTS.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "07-APR-2022"
     },
     {
       "symbol": "UMESLTD",
@@ -47271,6 +48951,18 @@
       "listingDate": "31-DEC-2021"
     },
     {
+      "symbol": "UNITEDTE",
+      "name": "United Textiles Ltd",
+      "exchange": "BSE",
+      "isin": "INE727E01012",
+      "series": "XT",
+      "bseCode": "521188",
+      "yahooSymbol": "UNITEDTE.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "UNITEDTEA",
       "name": "The United Nilgiri Tea Estates Company Limited",
       "exchange": "NSE",
@@ -47290,6 +48982,18 @@
       "series": "Z",
       "bseCode": "531867",
       "yahooSymbol": "UNITINT.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "UNIVAFOODS",
+      "name": "Univa Foods Ltd",
+      "exchange": "BSE",
+      "isin": "INE275F01019",
+      "series": "T",
+      "bseCode": "526683",
+      "yahooSymbol": "UNIVAFOODS.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
@@ -47335,7 +49039,7 @@
       "name": "Universal Starch Chem Allied Ltd",
       "exchange": "BSE",
       "isin": "INE113E01015",
-      "series": "XT",
+      "series": "X",
       "bseCode": "524408",
       "yahooSymbol": "UNIVSTAR.BO",
       "sector": "Unknown",
@@ -47379,6 +49083,18 @@
       "listingDate": "02-FEB-2007"
     },
     {
+      "symbol": "UNQTYMI",
+      "name": "Union Quality Plastics Ltd",
+      "exchange": "BSE",
+      "isin": "INE338N01019",
+      "series": "XT",
+      "bseCode": "526799",
+      "yahooSymbol": "UNQTYMI.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "UNRYLMA",
       "name": "Uniroyal Marine Exports Ltd",
       "exchange": "BSE",
@@ -47419,7 +49135,7 @@
       "name": "Unipro Technologies Ltd",
       "exchange": "BSE",
       "isin": "INE448F01012",
-      "series": "XT",
+      "series": "X",
       "bseCode": "540189",
       "yahooSymbol": "UPROTECH.BO",
       "sector": "Unknown",
@@ -47491,7 +49207,7 @@
       "name": "USG Tech Solutions Ltd",
       "exchange": "BSE",
       "isin": "INE718B01017",
-      "series": "XT",
+      "series": "X",
       "bseCode": "532402",
       "yahooSymbol": "USGTECH.BO",
       "sector": "Unknown",
@@ -47731,7 +49447,7 @@
       "name": "Valiant Communications Ltd-$",
       "exchange": "BSE",
       "isin": "INE760B01019",
-      "series": "X",
+      "series": "B",
       "bseCode": "526775",
       "yahooSymbol": "VALIANT.BO",
       "sector": "Unknown",
@@ -47752,15 +49468,15 @@
     },
     {
       "symbol": "VALIANTORG",
-      "name": "Valiant Organics Ltd",
-      "exchange": "BSE",
+      "name": "Valiant Organics Limited",
+      "exchange": "NSE",
       "isin": "INE565V01010",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "540145",
-      "yahooSymbol": "VALIANTORG.BO",
+      "yahooSymbol": "VALIANTORG.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "23-JUL-2021"
     },
     {
       "symbol": "VALLABHSQ",
@@ -47859,6 +49575,18 @@
       "listingDate": null
     },
     {
+      "symbol": "VARDHACRLC",
+      "name": "Vardhman Acrylics Limited",
+      "exchange": "NSE",
+      "isin": "INE116G01013",
+      "series": "EQ",
+      "bseCode": null,
+      "yahooSymbol": "VARDHACRLC.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "30-SEP-2003"
+    },
+    {
       "symbol": "VARDHANCFL",
       "name": "Vardhan Capital & Finance Ltd",
       "exchange": "BSE",
@@ -47893,6 +49621,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": null
+    },
+    {
+      "symbol": "VARMORA",
+      "name": "Varmora Granito Limited",
+      "exchange": "NSE",
+      "isin": "INE0M5301040",
+      "series": "EQ",
+      "bseCode": "544942",
+      "yahooSymbol": "VARMORA.NS",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": "29-SEP-2026"
     },
     {
       "symbol": "VARROC",
@@ -48064,15 +49804,15 @@
     },
     {
       "symbol": "VEEGALAND",
-      "name": "Veegaland Developers Ltd",
-      "exchange": "BSE",
+      "name": "Veegaland Developers Limited",
+      "exchange": "NSE",
       "isin": "INE1JTV01015",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "544923",
-      "yahooSymbol": "VEEGALAND.BO",
+      "yahooSymbol": "VEEGALAND.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "18-SEP-2026"
     },
     {
       "symbol": "VEERENRGY",
@@ -48127,7 +49867,7 @@
       "name": "Velan Hotels Ltd",
       "exchange": "BSE",
       "isin": "INE548D01014",
-      "series": "X",
+      "series": "XT",
       "bseCode": "526755",
       "yahooSymbol": "VELHO.BO",
       "sector": "Unknown",
@@ -48256,15 +49996,15 @@
     },
     {
       "symbol": "VERANDA",
-      "name": "Veranda Learning Solutions Limited",
-      "exchange": "NSE",
+      "name": "Veranda Learning Solutions Ltd",
+      "exchange": "BSE",
       "isin": "INE0IQ001011",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "543514",
-      "yahooSymbol": "VERANDA.NS",
+      "yahooSymbol": "VERANDA.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "11-APR-2022"
+      "listingDate": null
     },
     {
       "symbol": "VERITAS",
@@ -48283,7 +50023,7 @@
       "name": "Vertex Securities Ltd",
       "exchange": "BSE",
       "isin": "INE316D01024",
-      "series": "XT",
+      "series": "X",
       "bseCode": "531950",
       "yahooSymbol": "VERTEX.BO",
       "sector": "Unknown",
@@ -48316,15 +50056,15 @@
     },
     {
       "symbol": "VETO",
-      "name": "Veto Switchgears and Cables Ltd",
-      "exchange": "BSE",
+      "name": "Veto Switchgears And Cables Limited",
+      "exchange": "NSE",
       "isin": "INE918N01018",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "539331",
-      "yahooSymbol": "VETO.BO",
+      "yahooSymbol": "VETO.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "29-APR-2015"
     },
     {
       "symbol": "VGCL",
@@ -48447,6 +50187,18 @@
       "listingDate": "14-SEP-2021"
     },
     {
+      "symbol": "VIJAYTX",
+      "name": "Vijay Textiles Ltd",
+      "exchange": "BSE",
+      "isin": "INE256G01033",
+      "series": "Z",
+      "bseCode": "530151",
+      "yahooSymbol": "VIJAYTX.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
       "symbol": "VIJIFIN",
       "name": "Viji Finance Ltd",
       "exchange": "BSE",
@@ -48475,7 +50227,7 @@
       "name": "Vikalp Securities Ltd",
       "exchange": "BSE",
       "isin": "INE186E01011",
-      "series": "X",
+      "series": "Z",
       "bseCode": "531334",
       "yahooSymbol": "VIKALPS.BO",
       "sector": "Unknown",
@@ -48535,7 +50287,7 @@
       "name": "Vikram Aroma Ltd",
       "exchange": "BSE",
       "isin": "INE0NR501012",
-      "series": "X",
+      "series": "XT",
       "bseCode": "544371",
       "yahooSymbol": "VIKRAMAR.BO",
       "sector": "Unknown",
@@ -48559,7 +50311,7 @@
       "name": "Vikram Thermo India Ltd",
       "exchange": "BSE",
       "isin": "INE337E01010",
-      "series": "XT",
+      "series": "X",
       "bseCode": "530477",
       "yahooSymbol": "VIKRAMTH.BO",
       "sector": "Unknown",
@@ -48772,15 +50524,15 @@
     },
     {
       "symbol": "VIPULLTD",
-      "name": "Vipul Ltd",
-      "exchange": "BSE",
+      "name": "Vipul Limited",
+      "exchange": "NSE",
       "isin": "INE946H01037",
-      "series": "T",
+      "series": "EQ",
       "bseCode": "511726",
-      "yahooSymbol": "VIPULLTD.BO",
+      "yahooSymbol": "VIPULLTD.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": null
+      "listingDate": "23-APR-2015"
     },
     {
       "symbol": "VIPULORG",
@@ -48892,15 +50644,15 @@
     },
     {
       "symbol": "VISAKAIND",
-      "name": "Visaka Industries Limited",
-      "exchange": "NSE",
+      "name": "Visaka Industries Ltd",
+      "exchange": "BSE",
       "isin": "INE392A01021",
-      "series": "EQ",
+      "series": "T",
       "bseCode": "509055",
-      "yahooSymbol": "VISAKAIND.NS",
+      "yahooSymbol": "VISAKAIND.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "28-AUG-1996"
+      "listingDate": null
     },
     {
       "symbol": "VISHAL",
@@ -49183,7 +50935,7 @@
       "name": "VK Global Industries Ltd",
       "exchange": "BSE",
       "isin": "INE758B01013",
-      "series": "X",
+      "series": "XT",
       "bseCode": "530177",
       "yahooSymbol": "VKGLOBAL.BO",
       "sector": "Unknown",
@@ -49273,6 +51025,18 @@
       "sector": "Unknown",
       "indices": [],
       "listingDate": "24-SEP-2025"
+    },
+    {
+      "symbol": "VNL",
+      "name": "Vishal Nirmiti Ltd",
+      "exchange": "BSE",
+      "isin": "INE1O5L01025",
+      "series": "T",
+      "bseCode": "544973",
+      "yahooSymbol": "VNL.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
     },
     {
       "symbol": "VOEPL",
@@ -49399,7 +51163,7 @@
       "name": "Vasundhara Rasayans Ltd",
       "exchange": "BSE",
       "isin": "INE406F01010",
-      "series": "XT",
+      "series": "X",
       "bseCode": "538634",
       "yahooSymbol": "VRL.BO",
       "sector": "Unknown",
@@ -49524,14 +51288,14 @@
       "yahooSymbol": "VTMLTD.NS",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "17-AUG-2026"
+      "listingDate": "23-SEP-2026"
     },
     {
       "symbol": "VXLINSTR",
       "name": "VXL Instruments Ltd",
       "exchange": "BSE",
       "isin": "INE756A01019",
-      "series": "X",
+      "series": "XT",
       "bseCode": "517399",
       "yahooSymbol": "VXLINSTR.BO",
       "sector": "Unknown",
@@ -49660,15 +51424,15 @@
     },
     {
       "symbol": "WARDINMOBI",
-      "name": "Wardwizard Innovations & Mobility Limited",
-      "exchange": "NSE",
+      "name": "Wardwizard Innovations & Mobility Ltd",
+      "exchange": "BSE",
       "isin": "INE945P01024",
-      "series": "EQ",
+      "series": "Z",
       "bseCode": "538970",
-      "yahooSymbol": "WARDINMOBI.NS",
+      "yahooSymbol": "WARDINMOBI.BO",
       "sector": "Unknown",
       "indices": [],
-      "listingDate": "17-AUG-2026"
+      "listingDate": null
     },
     {
       "symbol": "WARDWIZFBL",
@@ -49843,7 +51607,7 @@
       "name": "Welterman International Ltd",
       "exchange": "BSE",
       "isin": "INE662D01013",
-      "series": "XT",
+      "series": "X",
       "bseCode": "526431",
       "yahooSymbol": "WELTI.BO",
       "sector": "Unknown",
@@ -50299,7 +52063,7 @@
       "name": "Yaan Enterprises Ltd",
       "exchange": "BSE",
       "isin": "INE969E01010",
-      "series": "X",
+      "series": "XT",
       "bseCode": "538521",
       "yahooSymbol": "YAANENT.BO",
       "sector": "Unknown",
@@ -50503,7 +52267,7 @@
       "name": "Yuranus Infrastructure Ltd",
       "exchange": "BSE",
       "isin": "INE156M01017",
-      "series": "X",
+      "series": "XT",
       "bseCode": "536846",
       "yahooSymbol": "YURANUS.BO",
       "sector": "Unknown",
@@ -50818,6 +52582,18 @@
       "series": "XT",
       "bseCode": "513012",
       "yahooSymbol": "ZJEETMAC.BO",
+      "sector": "Unknown",
+      "indices": [],
+      "listingDate": null
+    },
+    {
+      "symbol": "ZKHANDEN",
+      "name": "Khandelwal Extractions Ltd",
+      "exchange": "BSE",
+      "isin": "INE687W01010",
+      "series": "XT",
+      "bseCode": "519064",
+      "yahooSymbol": "ZKHANDEN.BO",
       "sector": "Unknown",
       "indices": [],
       "listingDate": null

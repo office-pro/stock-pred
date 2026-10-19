@@ -582,4 +582,10 @@ export interface IntelligenceSnapshot {
   social?: import('./asset-intelligence').IntelligenceSocialBlock;
   crossAsset?: import('./asset-intelligence').IntelligenceCrossAssetBlock;
   dataQuality?: import('./asset-intelligence').IntelligenceDataQualityBlock;
+  /** MI-5 lineage — observe-only. */
+  dataSnapshotVersion?: string;
+  marketIntelligenceSnapshotId?: string;
+  miAsOf?: string;
+  /** MI-7.1 lineage — observe-only AdvancedIntelligenceSnapshot id. Never authorization. */
+  advancedIntelligenceSnapshotId?: string;
 }

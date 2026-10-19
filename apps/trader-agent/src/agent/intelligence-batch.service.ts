@@ -14,14 +14,20 @@ import {
 import type {
   AgentAnalysis,
   CreateIntelligenceBatchRequest,
+  DataSourceStatus,
   IntelligenceBatch,
   IntelligenceBatchResults,
   IntelligenceBatchResultRow,
+  MarketIntelligenceUniverseType,
+  MiDomainCoverage,
   StockQuote,
   TradeDecision,
   MultiAssetReadiness,
   UniverseCatalogEntry,
   BatchDataSnapshot,
+  ReadinessEligibilitySummary,
+  ReadinessPolicy,
+  ReadinessPolicyErrorBody,
 } from '@stockpred/shared-types';
 import {
   assertB1ExecutableBatchRequest,
@@ -83,8 +89,37 @@ import {
   sufficientDailyCandleLimit,
   historicalRequirementKey,
   type NseMdsEvidenceInput,
+  catalogUniverseToMiType,
+  resolveMarketIntelligenceRequirements,
+  runMarketIntelligencePreflight,
+  buildMiEvidenceFromMdsPanels,
+  listEnabledMiProviders,
+  mapCreateRequestToBatchPreflightConfiguration,
+  miUniverseTypeForCreate,
+  buildPreflightBlockedErrorBody,
+  miFlagsFromCreateRequest,
+  assertSnapshotMembershipMatchesBatch,
+  validateMiSnapshotForGenerate,
+  buildIntelligenceContext,
+  fundamentalPayloadFromMiBundle,
+  newsBlockFromMiBundle,
+  sentimentFromMiBundle,
+  buildAdvancedIntelligenceSnapshot,
+  normalizeReadinessPolicy,
+  readinessPolicyErrorBody,
+  applyFrozenReadinessToTasks,
+  readinessStateBySymbol,
+  readinessDataCompleteness,
+  buildReadinessResultsSection,
+  normalizeAnalysisSession,
+  analysisSessionErrorBody,
+  isOffSessionAnalysis,
+  actionabilityForAnalysisSession,
+  isNseRegularSession,
 } from '@stockpred/shared-utils';
 import { AgentService } from './agent.service';
+import { MiCombinedPreflightService } from './mi-combined-preflight.service';
+import { MiBatchSnapshotService } from './mi-batch-snapshot.service';
 import {
   listIntelligenceBatches,
   readIntelligenceBatch,
@@ -98,6 +133,9 @@ import {
   readIntelligenceBatchResearchReport,
   readLatestIntelligenceBatchResearchReport,
   findPriorSameUniverseResearchReport,
+  readMarketIntelligenceBatchSnapshot,
+  writeAdvancedIntelligenceSnapshot,
+  readAdvancedIntelligenceSnapshot,
 } from './intelligence-batch-store';
 import { writeFocusUniverseBatch } from './focus-universe-store';
 import { listUniverseCatalog } from './universe-catalog';
@@ -113,8 +151,24 @@ export class IntelligenceBatchService implements OnModuleInit {
   private readonly hydrateProgressAt = new Map<string, number>();
   /** In-process freeze; GET / poll must not parse the on-disk snapshot. */
   private readonly dataSnapshots = new Map<string, BatchDataSnapshot>();
+  /** MI-5 batch MI snapshots keyed by batchId. */
+  private readonly miSnapshots = new Map<
+    string,
+    import('@stockpred/shared-types').MarketIntelligenceBatchSnapshot
+  >();
+  /** MI-7 advanced snapshots — loaded once per batch for Generate. */
+  private readonly advancedSnapshots = new Map<
+    string,
+    import('@stockpred/shared-types').AdvancedIntelligenceSnapshot
+  >();
+  /** MI-applicable batches: skip live fund/alt MDS in analyzeSymbol. */
+  private readonly miSkipLiveEvidence = new Set<string>();
 
-  constructor(private readonly agent: AgentService) {}
+  constructor(
+    private readonly agent: AgentService,
+    private readonly miCombinedPreflight: MiCombinedPreflightService,
+    private readonly miBatchSnapshots: MiBatchSnapshotService,
+  ) {}
 
   onModuleInit(): void {
     try {
@@ -211,71 +265,234 @@ export class IntelligenceBatchService implements OnModuleInit {
     const marketDataState =
       total === 0 || available === 0 ? 'UNAVAILABLE' : available < total ? 'PARTIAL' : 'AVAILABLE';
     const capability = entry.capability;
+    const dataSources: DataSourceStatus[] = [
+      {
+        id: 'canonical-membership',
+        label: 'Universe membership',
+        capability: 'universe',
+        capabilityState: entry.supported ? 'AVAILABLE' : 'UNAVAILABLE',
+        dataStatus: 'UNKNOWN',
+        provider: 'canonical-universe-registry',
+        source: entry.membershipSource,
+        authorityRole: 'PRIMARY',
+        fallbackUsed: false,
+        productionCertified: entry.validationStatus === 'COMPLETE',
+        runtimeHealthy: entry.supported,
+        reasonCode: entry.reasonCode,
+        reason: entry.reason,
+      },
+      {
+        id: 'market-data',
+        label: 'Market data availability',
+        capability: 'marketData',
+        capabilityState: marketDataState,
+        dataStatus: entry.dataStatus ?? 'UNKNOWN',
+        source: entry.availability?.source,
+        dataAsOf: entry.availability?.dataAsOf,
+        fallbackUsed: false,
+        productionCertified: false,
+        runtimeHealthy: available > 0,
+        reasonCode: available === 0 ? 'NO_PROVIDER' : undefined,
+        reason:
+          available === 0
+            ? 'No real MDS records intersect the selected canonical membership.'
+            : `${available} of ${total} eligible instruments have MDS records.`,
+      },
+      {
+        id: 'historical-candles',
+        label: 'Historical candles',
+        capability: 'historicalCandles',
+        capabilityState: capability?.historicalCandles ?? 'UNAVAILABLE',
+        dataStatus: 'UNKNOWN',
+        productionCertified: false,
+        reason: 'Adapter capability is declared; universe-wide runtime health is not measured.',
+      },
+    ];
+
+    const miSources = await this.buildMiReadinessDataSources(entry.universeId);
+    dataSources.push(...miSources);
+
     return {
       universe: entry,
       generatedAt: Date.now(),
-      dataSources: [
-        {
-          id: 'canonical-membership',
-          label: 'Universe membership',
-          capability: 'universe',
-          capabilityState: entry.supported ? 'AVAILABLE' : 'UNAVAILABLE',
-          dataStatus: 'UNKNOWN',
-          provider: 'canonical-universe-registry',
-          source: entry.membershipSource,
-          authorityRole: 'PRIMARY',
-          fallbackUsed: false,
-          productionCertified: entry.validationStatus === 'COMPLETE',
-          runtimeHealthy: entry.supported,
-          reasonCode: entry.reasonCode,
-          reason: entry.reason,
-        },
-        {
-          id: 'market-data',
-          label: 'Market data availability',
-          capability: 'marketData',
-          capabilityState: marketDataState,
-          dataStatus: entry.dataStatus ?? 'UNKNOWN',
-          source: entry.availability?.source,
-          dataAsOf: entry.availability?.dataAsOf,
-          fallbackUsed: false,
-          productionCertified: false,
-          runtimeHealthy: available > 0,
-          reasonCode: available === 0 ? 'NO_PROVIDER' : undefined,
-          reason:
-            available === 0
-              ? 'No real MDS records intersect the selected canonical membership.'
-              : `${available} of ${total} eligible instruments have MDS records.`,
-        },
-        {
-          id: 'historical-candles',
-          label: 'Historical candles',
-          capability: 'historicalCandles',
-          capabilityState: capability?.historicalCandles ?? 'UNAVAILABLE',
-          dataStatus: 'UNKNOWN',
-          productionCertified: false,
-          reason: 'Adapter capability is declared; universe-wide runtime health is not measured.',
-        },
+      dataSources,
+    };
+  }
+
+  /** MI Data Sources: coverage ≠ freshness, required/optional from config. Never fabricate. */
+  private async buildMiReadinessDataSources(universeId: string): Promise<DataSourceStatus[]> {
+    const providers = listEnabledMiProviders();
+    const miType = catalogUniverseToMiType(universeId);
+    const toCapability = (
+      coverage: MiDomainCoverage['coverage'],
+    ): DataSourceStatus['capabilityState'] => {
+      if (coverage === 'COMPLETE') return 'AVAILABLE';
+      if (coverage === 'PARTIAL') return 'PARTIAL';
+      return 'UNAVAILABLE';
+    };
+    const domainRow = (
+      id: string,
+      label: string,
+      capability: string,
+      domain: MiDomainCoverage,
+      providerList: string[],
+    ): DataSourceStatus => ({
+      id,
+      label,
+      capability,
+      capabilityState: toCapability(domain.coverage),
+      dataStatus: 'UNKNOWN',
+      provider: providerList.join(',') || undefined,
+      source: domain.source,
+      dataAsOf: domain.lastUpdated,
+      productionCertified: false,
+      runtimeHealthy: domain.available > 0,
+      miCoverage: domain.coverage,
+      miFreshness: domain.freshness,
+      miRequired: domain.required,
+      miAvailable: domain.available,
+      miEligible: domain.eligible,
+      reason: `Coverage ${domain.coverage} · Freshness ${domain.freshness} · ${domain.available}/${domain.eligible}${
+        domain.required ? ' (required)' : ' (optional)'
+      }`,
+    });
+
+    if (miType === 'UNSUPPORTED') {
+      return [
         {
           id: 'fundamentals',
           label: 'Fundamentals',
           capability: 'fundamentals',
-          capabilityState: capability?.fundamentals ?? 'UNAVAILABLE',
+          capabilityState: 'UNAVAILABLE',
           dataStatus: 'UNKNOWN',
+          provider: providers.fundamentals.join(',') || undefined,
           productionCertified: false,
-          reason: 'Runtime coverage is reported by completed batch capability coverage.',
+          miCoverage: 'MISSING',
+          miFreshness: 'UNKNOWN',
+          miRequired: false,
+          reason: 'Market Intelligence not applicable for this universe type.',
         },
         {
           id: 'news',
           label: 'News',
           capability: 'news',
-          capabilityState: capability?.catalyst ?? 'UNAVAILABLE',
+          capabilityState: 'UNAVAILABLE',
           dataStatus: 'UNKNOWN',
+          provider: providers.news.join(',') || undefined,
           productionCertified: false,
-          reason: 'Runtime coverage is reported by completed batch capability coverage.',
+          miCoverage: 'MISSING',
+          miFreshness: 'UNKNOWN',
+          miRequired: false,
+          reason: 'Market Intelligence not applicable for this universe type.',
         },
-      ],
-    };
+        {
+          id: 'corporate-events',
+          label: 'Corporate events',
+          capability: 'corporateEvents',
+          capabilityState: 'UNAVAILABLE',
+          dataStatus: 'UNKNOWN',
+          provider: providers.corporate.join(',') || undefined,
+          productionCertified: false,
+          miCoverage: 'MISSING',
+          miFreshness: 'UNKNOWN',
+          miRequired: false,
+          reason: 'Market Intelligence not applicable for this universe type.',
+        },
+      ];
+    }
+
+    let nseEquityAllSymbols: string[] | undefined;
+    let customSymbols: string[] | undefined;
+    if (miType === 'NSE_EQUITY_ALL') {
+      try {
+        nseEquityAllSymbols = resolveNseAllMembership().symbols;
+      } catch {
+        nseEquityAllSymbols = [];
+      }
+    } else if (miType === 'CUSTOM') {
+      customSymbols = this.catalogSymbols(universeId as IntelligenceBatch['universe']);
+      if (!customSymbols.length) {
+        return [
+          {
+            id: 'fundamentals',
+            label: 'Fundamentals',
+            capability: 'fundamentals',
+            capabilityState: 'UNAVAILABLE',
+            dataStatus: 'UNKNOWN',
+            provider: providers.fundamentals.join(',') || undefined,
+            productionCertified: false,
+            miCoverage: 'MISSING',
+            miFreshness: 'UNKNOWN',
+            miRequired: true,
+            reason: 'CUSTOM universe has no membership symbols for MI readiness.',
+          },
+          {
+            id: 'news',
+            label: 'News',
+            capability: 'news',
+            capabilityState: 'UNAVAILABLE',
+            dataStatus: 'UNKNOWN',
+            provider: providers.news.join(',') || undefined,
+            productionCertified: false,
+            miCoverage: 'MISSING',
+            miFreshness: 'UNKNOWN',
+            miRequired: false,
+            reason: 'CUSTOM universe has no membership symbols for MI readiness.',
+          },
+          {
+            id: 'corporate-events',
+            label: 'Corporate events',
+            capability: 'corporateEvents',
+            capabilityState: 'UNAVAILABLE',
+            dataStatus: 'UNKNOWN',
+            provider: providers.corporate.join(',') || undefined,
+            productionCertified: false,
+            miCoverage: 'MISSING',
+            miFreshness: 'UNKNOWN',
+            miRequired: false,
+            reason: 'CUSTOM universe has no membership symbols for MI readiness.',
+          },
+        ];
+      }
+    }
+
+    const requirements = resolveMarketIntelligenceRequirements({
+      universeType: miType as MarketIntelligenceUniverseType,
+      customSymbols,
+      nseEquityAllSymbols,
+      mode: 'STANDARD',
+    });
+
+    const [fundPanel, newsPanel, corpPanel] = await Promise.all([
+      this.agent.fetchFundamentalsPanelForBatch(),
+      this.agent.fetchNewsPanelForBatch(),
+      this.agent.fetchCorporatePanelForBatch(),
+    ]);
+    const evidence = buildMiEvidenceFromMdsPanels({
+      instruments: requirements.instruments,
+      fundamentalsRows: fundPanel.rows,
+      newsRows: newsPanel.rows,
+      corporateRows: corpPanel.rows,
+      newsLookbackDays: requirements.newsLookbackDays,
+    });
+    const mi = runMarketIntelligencePreflight({ requirements, evidence });
+    return [
+      domainRow(
+        'fundamentals',
+        'Fundamentals',
+        'fundamentals',
+        mi.coverage.fundamentals,
+        providers.fundamentals,
+      ),
+      domainRow('news', 'News', 'news', mi.coverage.news, providers.news),
+      domainRow(
+        'corporate-events',
+        'Corporate events',
+        'corporateEvents',
+        mi.coverage.corporateEvents,
+        providers.corporate,
+      ),
+    ];
   }
 
   private catalogSymbols(universe: IntelligenceBatch['universe']): string[] {
@@ -736,6 +953,81 @@ export class IntelligenceBatchService implements OnModuleInit {
       throw new BadRequestException('Resolved universe is empty');
     }
 
+    let readinessPolicy: ReadinessPolicy | undefined;
+    try {
+      readinessPolicy = normalizeReadinessPolicy(req.readinessPolicy);
+    } catch (err) {
+      const policyError = readinessPolicyErrorBody(err);
+      if (policyError) throw new BadRequestException(policyError);
+      throw err;
+    }
+
+    let analysisSession;
+    try {
+      analysisSession = normalizeAnalysisSession(req.analysisSession);
+    } catch (err) {
+      const sessionError = analysisSessionErrorBody(err);
+      if (sessionError) throw new BadRequestException(sessionError);
+      throw err;
+    }
+    const venueSessionOpen = isNseRegularSession();
+    let analysisActionability = actionabilityForAnalysisSession(analysisSession, {
+      venueSessionOpen,
+    });
+    const offSession = isOffSessionAnalysis(analysisSession);
+
+    // MI-4 Gate 1: Combined Preflight before any batch persist / hydrate / runLoop.
+    // Lock 1: reuse exact `symbols`. Lock 2: direct service call (no internal HTTP).
+    const miType = miUniverseTypeForCreate(req.universe);
+    if (!miType && readinessPolicy?.id === 'ELIGIBLE_SUBSET') {
+      const body: ReadinessPolicyErrorBody = {
+        code: 'READINESS_POLICY_UNSUPPORTED_UNIVERSE',
+        message: `ELIGIBLE_SUBSET requires a Combined Preflight universe; ${req.universe} is not supported`,
+      };
+      throw new BadRequestException(body);
+    }
+    let readinessEligibility: ReadinessEligibilitySummary | undefined;
+    let quoteProvenance = undefined as
+      | import('@stockpred/shared-types').AnalysisQuoteProvenance
+      | undefined;
+    if (miType) {
+      const { miMode, intelligence } = miFlagsFromCreateRequest(req);
+      const pfConfig = mapCreateRequestToBatchPreflightConfiguration({
+        universeType: miType,
+        resolvedSymbols: symbols,
+        analysisPeriod: requestedPeriod,
+        analysisResolution: requestedResolution,
+        predictionHorizon: requestedHorizon,
+        miMode,
+        intelligence,
+        readinessPolicy,
+        analysisSession,
+      });
+      // Reuse Review verdict within TTL when fingerprint matches — avoids MDS double-hit.
+      const combined = await this.miCombinedPreflight.run(pfConfig, { allowCache: true });
+      quoteProvenance = combined.quoteProvenance;
+      if (combined.analysisActionability) {
+        analysisActionability = combined.analysisActionability;
+      }
+      // Create is research persistence: gate on canAnalyze.
+      const gateOk = combined.canAnalyze === true;
+      if (!gateOk) {
+        throw new BadRequestException(buildPreflightBlockedErrorBody(combined));
+      }
+      if (!offSession && venueSessionOpen && readinessPolicy?.id === 'ELIGIBLE_SUBSET') {
+        // Never persist an empty batch, even if a verdict arrives without eligibility.
+        if (!combined.eligibility || combined.eligibility.eligible === 0) {
+          const blocked = {
+            ...combined,
+            canRun: false,
+            blockers: [...new Set([...combined.blockers, 'NO_ELIGIBLE_INSTRUMENTS' as const])],
+          };
+          throw new BadRequestException(buildPreflightBlockedErrorBody(blocked));
+        }
+        readinessEligibility = combined.eligibility;
+      }
+    }
+
     const now = Date.now();
     const batchId = `IBATCH-${now}`;
     const batch = createIntelligenceBatchSkeleton({
@@ -786,6 +1078,13 @@ export class IntelligenceBatchService implements OnModuleInit {
     });
     batch.status = 'QUEUED';
     batch.updatedAt = now;
+    batch.asOf = new Date(now).toISOString();
+    batch.miMode = req.miMode ?? 'STANDARD';
+    if (readinessPolicy) batch.readinessPolicy = readinessPolicy;
+    if (readinessEligibility) batch.readinessEligibility = readinessEligibility;
+    batch.analysisSession = analysisSession;
+    batch.analysisActionability = analysisActionability;
+    if (quoteProvenance) batch.quoteProvenance = quoteProvenance;
     writeIntelligenceBatch(batch);
     this.controls.set(batchId, { pauseRequested: false, cancelRequested: false });
     void this.runLoop(batchId);
@@ -915,10 +1214,109 @@ export class IntelligenceBatchService implements OnModuleInit {
         return;
       }
 
+      // MI-5: membership assert + PIT MI snapshot before Generate waves.
+      const membership = assertSnapshotMembershipMatchesBatch({
+        batchSymbols: batch.symbols,
+        snapshot,
+      });
+      if (!membership.ok) {
+        const failedAt = Date.now();
+        writeIntelligenceBatch({
+          ...batch,
+          status: 'FAILED',
+          lifecycleStage: 'DATA_VALIDATED',
+          error: membership.reason,
+          updatedAt: failedAt,
+          completedAt: failedAt,
+        });
+        return;
+      }
+
+      const miType = miUniverseTypeForCreate(batch.universe);
+      let skipLiveMiEvidence = false;
+      if (miType) {
+        // PENDING coverage while building MI snapshot (Generate not yet ACTIVE).
+        const pendingCoverage = (snapshot.capabilityCoverage ?? []).map((row) => {
+          if (
+            row.capability === 'fundamentals' ||
+            row.capability === 'news' ||
+            row.capability === 'sentiment'
+          ) {
+            return { ...row, status: 'PENDING' as const };
+          }
+          return row;
+        });
+        writeIntelligenceBatch({
+          ...this.get(batchId),
+          lifecycleStage: 'DATA_VALIDATED',
+          capabilityCoverage: pendingCoverage,
+          updatedAt: Date.now(),
+        });
+
+        const asOf = batch.asOf ?? new Date().toISOString();
+        const miSnapshot = await this.miBatchSnapshots.buildAndPersist({
+          batchId,
+          dataSnapshot: snapshot,
+          asOf,
+          universeType: miType,
+          newsLookbackDays: 30,
+          scoreHeadline: (text) => this.agent.scoreHeadline(text),
+          readinessPolicy: batch.readinessPolicy,
+        });
+        const miOk = validateMiSnapshotForGenerate({
+          miSnapshot,
+          batchSymbols: batch.symbols,
+          miMode: batch.miMode,
+        });
+        if (!miOk.ok) {
+          const failedAt = Date.now();
+          writeIntelligenceBatch({
+            ...this.get(batchId),
+            status: 'FAILED',
+            lifecycleStage: 'DATA_VALIDATED',
+            error: miOk.reason,
+            marketIntelligenceSnapshotId: miSnapshot.snapshotId,
+            asOf,
+            updatedAt: failedAt,
+            completedAt: failedAt,
+          });
+          return;
+        }
+        this.miSnapshots.set(batchId, miSnapshot);
+        this.miSkipLiveEvidence.add(batchId);
+        skipLiveMiEvidence = true;
+        try {
+          const advanced = buildAdvancedIntelligenceSnapshot({
+            snapshotId: `ADV-${batchId}`,
+            batchId,
+            dataSnapshot: snapshot,
+            miSnapshot,
+            asOf,
+            generatedAt: asOf,
+          });
+          writeAdvancedIntelligenceSnapshot(advanced);
+          this.advancedSnapshots.set(batchId, advanced);
+        } catch (err) {
+          console.warn('[intelligence-batch] MI-7 advanced snapshot build failed', err);
+        }
+        batch = {
+          ...this.get(batchId),
+          marketIntelligenceSnapshotId: miSnapshot.snapshotId,
+          asOf,
+          capabilityCoverage: snapshot.capabilityCoverage,
+        };
+        writeIntelligenceBatch(batch);
+      }
+
       const quotesMap = quotesMapFromSnapshot(snapshot);
       const bySymbol = instrumentDataBySymbol(snapshot);
       const skipAt = Date.now();
-      const tasks = batch.tasks.map((t) => {
+      const readinessTasks = applyFrozenReadinessToTasks(
+        batch.tasks,
+        batch.readinessEligibility,
+        skipAt,
+      );
+      const tasks = readinessTasks.map((t) => {
         const row = bySymbol.get(t.symbol);
         if (t.status !== 'PENDING') return t;
         if (!row || !isValidSnapshotRow(row)) {
@@ -958,7 +1356,7 @@ export class IntelligenceBatchService implements OnModuleInit {
 
       const concurrency = Math.max(1, this.agent.getAnalysisConcurrency());
       console.log(
-        `[intelligence-batch] ${batchId} RUNNING universe=${batch.universe} symbols=${batch.symbols.length} concurrency=${concurrency} readiness=${snapshot.coverage.readiness}`,
+        `[intelligence-batch] ${batchId} RUNNING universe=${batch.universe} symbols=${batch.symbols.length} concurrency=${concurrency} readiness=${snapshot.coverage.readiness} miSnapshot=${skipLiveMiEvidence}`,
       );
 
       while (true) {
@@ -1093,21 +1491,26 @@ export class IntelligenceBatchService implements OnModuleInit {
 
     let nseMdsEvidence: NseMdsEvidenceInput | undefined;
     if (nseHint === 'NSE_EQUITY' || nseHint === 'BSE_EQUITY') {
-      const [fundamentalsPanel, newsPanel] = await Promise.all([
+      const [fundamentalsPanel, newsPanel, corporatePanel] = await Promise.all([
         this.agent.fetchFundamentalsPanelForBatch(),
         this.agent.fetchNewsPanelForBatch(),
+        this.agent.fetchCorporatePanelForBatch(),
       ]);
       nseMdsEvidence = {
         fundamentalsRows: fundamentalsPanel.rows,
         newsRows: newsPanel.rows,
+        corporateRows: corporatePanel.rows,
         fundamentalsUnavailableReason: fundamentalsPanel.reason,
         newsUnavailableReason: newsPanel.reason,
+        corporateUnavailableReason: corporatePanel.reason,
       };
       console.log(
         `[intelligence-batch] ${batch.batchId} nseMdsPanels fundamentalsHit=${fundamentalsPanel.rows.length}` +
           ` newsHit=${newsPanel.rows.length}` +
+          ` corporateHit=${corporatePanel.rows.length}` +
           `${fundamentalsPanel.reason ? ` fundamentalsUnavailableReason=${fundamentalsPanel.reason}` : ''}` +
-          `${newsPanel.reason ? ` newsUnavailableReason=${newsPanel.reason}` : ''}`,
+          `${newsPanel.reason ? ` newsUnavailableReason=${newsPanel.reason}` : ''}` +
+          `${corporatePanel.reason ? ` corporateUnavailableReason=${corporatePanel.reason}` : ''}`,
       );
     }
 
@@ -1285,7 +1688,9 @@ export class IntelligenceBatchService implements OnModuleInit {
     console.log(`[intelligence-batch] ${batchId} → analyzing ${symbol}`);
 
     try {
-      const analysis = await this.agent.analyzeForIntelligenceBatch(symbol, quote);
+      const analysis = await this.agent.analyzeForIntelligenceBatch(symbol, quote, {
+        skipLiveMiEvidence: this.miSkipLiveEvidence.has(batchId),
+      });
       analysis.symbol = symbol;
       const cache = this.analysisCache.get(batchId) ?? new Map<string, AgentAnalysis>();
       cache.set(symbol, analysis);
@@ -1399,6 +1804,7 @@ export class IntelligenceBatchService implements OnModuleInit {
       this.dataSnapshots.get(batch.batchId) ?? readBatchDataSnapshot(batch.batchId);
     const frozenBySymbol = frozenSnapshot ? instrumentDataBySymbol(frozenSnapshot) : new Map();
     const useFrozen = Boolean(frozenSnapshot?.frozen);
+    const readinessBySymbol = readinessStateBySymbol(batch.readinessEligibility);
     this.agent.resetBatchMdsCircuit();
 
     writeIntelligenceBatch({
@@ -1459,6 +1865,13 @@ export class IntelligenceBatchService implements OnModuleInit {
     const rsOmitReasons: string[] = [];
     const quarantinedRows: IntelligenceBatchResultRow[] = [];
 
+    // MI-7.8: load AdvancedIntelligenceSnapshot once per batch (never per-symbol).
+    const advancedSnap =
+      this.advancedSnapshots.get(batch.batchId) ??
+      readAdvancedIntelligenceSnapshot(batch.batchId) ??
+      null;
+    if (advancedSnap) this.advancedSnapshots.set(batch.batchId, advancedSnap);
+
     for (const task of doneTasks) {
       const frozenRow = frozenBySymbol.get(task.symbol);
       const bind = bindFrozenResultIdentity({
@@ -1481,7 +1894,9 @@ export class IntelligenceBatchService implements OnModuleInit {
       if (!analysis) {
         const quote = quotesMap.get(task.symbol);
         try {
-          analysis = await this.agent.analyzeForIntelligenceBatch(task.symbol, quote);
+          analysis = await this.agent.analyzeForIntelligenceBatch(task.symbol, quote, {
+            skipLiveMiEvidence: this.miSkipLiveEvidence.has(batch.batchId),
+          });
           cache.set(task.symbol, analysis);
         } catch (err) {
           skippedEnrichment.push({
@@ -1617,7 +2032,7 @@ export class IntelligenceBatchService implements OnModuleInit {
         analysis.generatedAt,
       ]);
 
-      const snap = attachBatchInstrumentToIntelligenceSnapshot(
+      let snap = attachBatchInstrumentToIntelligenceSnapshot(
         buildIntelligenceSnapshot({
           analysis,
           decision: stubDecision,
@@ -1637,6 +2052,41 @@ export class IntelligenceBatchService implements OnModuleInit {
         frozenBySymbol.get(task.symbol),
         frozenSnapshot ?? undefined,
       );
+
+      // MI-5: consume MarketIntelligenceBatchSnapshot at finalize attach (not analyzeSymbol).
+      const miSnap =
+        this.miSnapshots.get(batch.batchId) ??
+        readMarketIntelligenceBatchSnapshot(batch.batchId) ??
+        undefined;
+      if (miSnap && frozenSnapshot) {
+        const symKey = task.symbol.toUpperCase();
+        const advRow = advancedSnap?.bySymbol[symKey];
+        const ctx = buildIntelligenceContext({
+          dataSnapshotVersion: frozenSnapshot.dataSnapshotVersion,
+          miSnapshot: miSnap,
+          symbol: task.symbol,
+          row: frozenBySymbol.get(task.symbol),
+          advancedIntelligenceSnapshotId: advancedSnap?.snapshotId,
+          advancedIntelligence: advRow,
+        });
+        if (ctx) {
+          const fund = fundamentalPayloadFromMiBundle(miSnap.bySymbol[task.symbol.toUpperCase()]);
+          const news = newsBlockFromMiBundle(miSnap.bySymbol[task.symbol.toUpperCase()]);
+          const sentiment = sentimentFromMiBundle(miSnap.bySymbol[task.symbol.toUpperCase()]);
+          snap = {
+            ...snap,
+            ...(fund ? { fundamental: fund } : {}),
+            ...(news ? { news } : {}),
+            ...(sentiment !== undefined ? { sentiment } : {}),
+            dataSnapshotVersion: ctx.dataSnapshotVersion,
+            marketIntelligenceSnapshotId: ctx.marketIntelligenceSnapshotId,
+            miAsOf: ctx.asOf,
+            ...(ctx.advancedIntelligenceSnapshotId
+              ? { advancedIntelligenceSnapshotId: ctx.advancedIntelligenceSnapshotId }
+              : {}),
+          };
+        }
+      }
 
       const structuredThesis = this.agent.buildThesisForIntelligenceBatch(
         analysis,
@@ -1704,7 +2154,14 @@ export class IntelligenceBatchService implements OnModuleInit {
         globalEventImpact: b9b17.globalEventImpact,
         fnoStatus: b9b17.fnoStatus,
         quoteStatus,
+        ...(batch.analysisActionability === 'NON_ACTIONABLE'
+          ? { researchNonActionable: true as const }
+          : {}),
       });
+      if (batch.analysisActionability === 'NON_ACTIONABLE') {
+        intelligenceContext.tradePlanExecutionReady = false;
+        intelligenceContext.researchNonActionable = true;
+      }
 
       const presence = presenceFromUsedCapabilities(
         analysis.usedCapabilities,
@@ -1805,6 +2262,11 @@ export class IntelligenceBatchService implements OnModuleInit {
       valid: rankingCandidates.length,
       quarantined: quarantinedRows.length,
     };
+    const readinessSection = buildReadinessResultsSection({
+      policy: batch.readinessPolicy,
+      summary: batch.readinessEligibility,
+      tasks: batch.tasks,
+    });
     if (rankingCandidates.length > 0 || quarantinedRows.length > 0) {
       const opportunityRanking = rankingCandidates.length
         ? assessOpportunityRanking({
@@ -1841,10 +2303,11 @@ export class IntelligenceBatchService implements OnModuleInit {
           const temporal = adapter?.temporalContext(generatedAt);
           const series = adapter?.normalizeSeries([]);
           const frozen = frozenBySymbol.get(symbol);
+          const readinessState = readinessBySymbol.get(symbol.toUpperCase())?.state;
           const eligibility = evaluateBatchRecommendationEligibility({
             instrument: isValidSnapshotRow(frozen) ? frozen : undefined,
             assetClass: instrument?.assetClass ?? frozen?.instrumentRef.assetClass,
-            dataCompleteness: r.dataCompleteness,
+            dataCompleteness: readinessDataCompleteness(readinessState, r.dataCompleteness),
           });
           const rec = applyRecommendationEligibility({
             recommendation: row?.recommendation,
@@ -1890,6 +2353,10 @@ export class IntelligenceBatchService implements OnModuleInit {
             recommendation: rec.recommendation,
             reasonCode: rec.reasonCode,
             reason: rec.reason,
+            dataSnapshotVersion: frozenSnapshot?.dataSnapshotVersion ?? batch.dataSnapshotVersion,
+            marketIntelligenceSnapshotId:
+              batch.marketIntelligenceSnapshotId ?? this.miSnapshots.get(batch.batchId)?.snapshotId,
+            asOf: batch.asOf ?? this.miSnapshots.get(batch.batchId)?.asOf,
             multiAssetDataStatus:
               row?.intelligenceContext?.quoteStatus === 'MDS_UNAVAILABLE'
                 ? 'MISSING'
@@ -1898,6 +2365,7 @@ export class IntelligenceBatchService implements OnModuleInit {
                   : row?.intelligenceContext?.bullRunDataStatus === 'STALE'
                     ? 'STALE'
                     : 'UNKNOWN',
+            ...(readinessState ? { readinessState } : {}),
           };
         },
       );
@@ -1915,6 +2383,12 @@ export class IntelligenceBatchService implements OnModuleInit {
         rankings,
         quarantined: quarantinedRows,
         identityCounts,
+        ...readinessSection,
+        ...(batch.analysisSession ? { analysisSession: batch.analysisSession } : {}),
+        ...(batch.analysisActionability
+          ? { analysisActionability: batch.analysisActionability }
+          : {}),
+        ...(batch.quoteProvenance ? { quoteProvenance: batch.quoteProvenance } : {}),
       };
       const resultsDoc = results;
       writeIntelligenceBatchResults(resultsDoc);
@@ -1996,6 +2470,23 @@ export class IntelligenceBatchService implements OnModuleInit {
         })),
       });
       writeFocusUniverseBatch(focus);
+    } else if (readinessSection.outcome) {
+      results = {
+        schemaVersion: 'intelligence-batch-results.v1',
+        batchId: batch.batchId,
+        generatedAt,
+        dataAsOf: generatedAt,
+        dataStatus: classifyQuoteStatus(null, generatedAt),
+        rankingEngineVersion: 'ranking-context.v1',
+        calculationVersion: 'ranking-context.v1',
+        tradeHorizon: 'SWING_TRADE',
+        strategyTag: 'BREAKOUT',
+        rankings: [],
+        quarantined: [],
+        identityCounts,
+        ...readinessSection,
+      };
+      writeIntelligenceBatchResults(results);
     }
 
     const tiCounts = {

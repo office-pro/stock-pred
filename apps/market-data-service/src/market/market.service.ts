@@ -172,6 +172,8 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
   private scannerAlertsRunning = false;
   private readonly hydrateJobs = new Map<string, Promise<void>>();
   private readonly hydrateTried = new Set<string>();
+  /** Deepest daily `limit` already merged from the candle cache per symbol. */
+  private readonly dailyDeepenedTo = new Map<string, number>();
   /** Active ingest mode for this process (LIVE vs EOD). Historical backfill is job-scoped. */
   private readonly ingestMode: IngestMode;
 
@@ -479,6 +481,69 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     return out;
   }
 
+  /**
+   * MI preflight / inventory path — O(n) over in-memory states without composeTradeAdvisory
+   * or scanner attachment. Full getQuotesPaginated remains for dashboard UX.
+   */
+  getQuotesInventoryPaginated(
+    page: number,
+    limit: number,
+    search?: string,
+    exchange?: string,
+  ): {
+    data: StockQuote[];
+    total: number;
+    page: number;
+    limit: number;
+    hasMore: boolean;
+    counts: { NSE: number; BSE: number; all: number };
+    suggestions: { BUY: number; SELL: number; HOLD: number };
+    maxProfitPct: number;
+    maxProfitSymbol: string | null;
+    bullRunCount: number;
+  } {
+    const exchangeUpper = exchange?.trim().toUpperCase();
+    let states: SymbolState[];
+    if (exchangeUpper === 'CRYPTO' || exchangeUpper === 'BINANCE') {
+      states = [...this.cryptoBook.states.values()];
+    } else if (exchangeUpper === 'COMMODITY' || exchangeUpper === 'COMMODITIES') {
+      states = [...this.commodityBook.states.values()];
+    } else {
+      states = [...this.stocks.values()];
+    }
+    if (exchangeUpper === Exchange.NSE || exchangeUpper === Exchange.BSE) {
+      states = states.filter((s) => s.info.exchange === exchangeUpper);
+    }
+    if (search) {
+      const searchUpper = search.toUpperCase();
+      states = states.filter(
+        (s) =>
+          s.info.symbol.includes(searchUpper) || s.info.name.toUpperCase().includes(searchUpper),
+      );
+    }
+    states.sort((a, b) => a.info.symbol.localeCompare(b.info.symbol));
+    const total = states.length;
+    const safePage = Math.max(1, page);
+    const safeLimit = Math.min(Math.max(1, limit), 50_000);
+    const start = (safePage - 1) * safeLimit;
+    const slice = states.slice(start, start + safeLimit);
+    const data = slice.map((state) => this.toInventoryQuote(state));
+    const nse = states.filter((s) => s.info.exchange === Exchange.NSE).length;
+    const bse = states.filter((s) => s.info.exchange === Exchange.BSE).length;
+    return {
+      data,
+      total,
+      page: safePage,
+      limit: safeLimit,
+      hasMore: start + safeLimit < total,
+      counts: { NSE: nse, BSE: bse, all: total },
+      suggestions: { BUY: 0, SELL: 0, HOLD: 0 },
+      maxProfitPct: 0,
+      maxProfitSymbol: null,
+      bullRunCount: 0,
+    };
+  }
+
   getQuotesPaginated(
     page: number,
     limit: number,
@@ -639,7 +704,8 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     const existing = this.stocks.get(symbol);
     if (!existing) throw new NotFoundException(`Unknown symbol: ${symbol}`);
     if (timeframe === Timeframe.ONE_DAY && existing.daily.length >= SERVE_DAILY_MIN_BARS) {
-      return existing.daily.slice(-limit);
+      if (existing.daily.length < limit) await this.deepenDailyFromCache(symbol, limit);
+      return (this.stocks.get(symbol) ?? existing).daily.slice(-limit);
     }
     return this.inFlight.coalesce(`candles:${symbol}:${timeframe}:${limit}`, async () => {
       const current = this.stocks.get(symbol);
@@ -1312,6 +1378,42 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
       );
       void this.redis.setJson(`stockpred:indicators:${state.info.symbol}`, state.indicators);
     }
+  }
+
+  /** Minimal quote for preflight inventory — no advisory / scanner / manipulation work. */
+  private toInventoryQuote(state: SymbolState): StockQuote {
+    const today = state.daily[state.daily.length - 1];
+    const price = state.lastTick?.price ?? today?.close ?? 0;
+    const updatedAt = state.lastTick?.time ?? today?.time ?? 0;
+    const prev = state.previousClose > 0 ? state.previousClose : (today?.open ?? 0);
+    const change = today && prev > 0 ? round2(price - prev) : 0;
+    const changePercent = today && prev > 0 ? round2(((price - prev) / prev) * 100) : 0;
+    return {
+      ...state.info,
+      price: round2(price),
+      change,
+      changePercent,
+      volume: today?.volume ?? 0,
+      dayHigh: today?.high ?? 0,
+      dayLow: today?.low ?? 0,
+      previousClose: prev,
+      indicators: null,
+      dataSource: state.dataSource,
+      suggestion: 'HOLD',
+      horizon: PredictionHorizon.NEXT_DAY,
+      entry: null,
+      target: null,
+      stopLoss: null,
+      quantity: 0,
+      confidence: 0,
+      expectedMove: 0,
+      modelVersion: null,
+      relativeStrengthNifty50: null,
+      scanner: null,
+      manipulation: null,
+      updatedAt,
+      ...this.freshnessFields(updatedAt, this.isCryptoState(state), this.isCommodityState(state)),
+    };
   }
 
   private toQuote(
@@ -2144,6 +2246,30 @@ export class MarketService implements OnModuleInit, OnModuleDestroy {
     const job = this.hydrateOnDemand(state).finally(() => this.hydrateJobs.delete(symbol));
     this.hydrateJobs.set(symbol, job);
     await job;
+  }
+
+  /**
+   * Bhavcopy seeds only ~90 sessions in memory; until background bootstrap reaches a
+   * symbol, merge deeper persisted bars so a long request is not served a short series.
+   * In-memory bars win on the same timestamp.
+   */
+  private async deepenDailyFromCache(symbol: string, limit: number): Promise<void> {
+    if (this.hydrateTried.has(symbol)) return;
+    if ((this.dailyDeepenedTo.get(symbol) ?? 0) >= limit) return;
+    await this.inFlight.coalesce(`deepen:${symbol}:${limit}`, async () => {
+      const cached = await this.cache.load(symbol, limit);
+      if (cached.length === 0) return;
+      this.dailyDeepenedTo.set(symbol, Math.max(limit, this.dailyDeepenedTo.get(symbol) ?? 0));
+      const state = this.stocks.get(symbol);
+      if (!state || cached.length <= state.daily.length) return;
+      const merged = new Map<number, Candle>();
+      for (const bar of cached) merged.set(bar.time, bar);
+      for (const bar of state.daily) merged.set(bar.time, bar);
+      state.daily = [...merged.values()].sort((a, b) => a.time - b.time);
+      if (state.daily.length >= MIN_CACHED_CANDLES) {
+        state.indicators = computeIndicatorSnapshot(symbol, state.daily);
+      }
+    });
   }
 
   private async hydrateOnDemand(state: SymbolState): Promise<void> {

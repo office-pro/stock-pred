@@ -3,6 +3,7 @@ import { join } from 'path';
 import { BadRequestException } from '@nestjs/common';
 import type { AgentService } from './agent.service';
 import { IntelligenceBatchService } from './intelligence-batch.service';
+import type { MiCombinedPreflightService } from './mi-combined-preflight.service';
 
 jest.mock('@stockpred/database', () => ({
   canonicalInstrumentExists: jest.fn(() => false),
@@ -12,8 +13,44 @@ jest.mock('@stockpred/database', () => ({
   }),
 }));
 
+const passPreflight = {
+  run: jest.fn(async () => ({
+    canRun: true,
+    blockers: [],
+    warnings: [],
+    universe: { requested: 0, resolved: 0, unresolved: 0, mismatched: 0 },
+    marketData: {},
+    historical: {},
+    intelligence: {},
+    generatedAt: new Date().toISOString(),
+    asOf: new Date().toISOString(),
+  })),
+} as unknown as MiCombinedPreflightService;
+
+const noopMiBatch = {
+  buildAndPersist: jest.fn(async () => ({
+    schemaVersion: 'mi-batch-snapshot.v1',
+    snapshotId: 'MI-test',
+    batchId: 'x',
+    dataSnapshotVersion: 'batch-data-snapshot.v1',
+    asOf: new Date().toISOString(),
+    universeType: 'NIFTY50',
+    instruments: [],
+    bySymbol: {},
+    coverage: {
+      fundamentalsAvailable: 0,
+      newsAvailable: 0,
+      sentimentAvailable: 0,
+      corporateAvailable: 0,
+      technicalAvailable: 0,
+      eligible: 0,
+    },
+    generatedAt: new Date().toISOString(),
+  })),
+} as unknown as import('./mi-batch-snapshot.service').MiBatchSnapshotService;
+
 describe('IntelligenceBatchService public create contract', () => {
-  const service = new IntelligenceBatchService({} as AgentService);
+  const service = new IntelligenceBatchService({} as AgentService, passPreflight, noopMiBatch);
 
   it('rejects manual symbols for predefined universes', async () => {
     await expect(
@@ -47,19 +84,23 @@ describe('IntelligenceBatchService public create contract', () => {
   });
 
   it('keeps eligible and available denominators separate at market close', async () => {
-    const withOneHistoricalQuote = new IntelligenceBatchService({
-      fetchCachedQuotesMap: async () =>
-        new Map([
-          [
-            'RELIANCE',
-            {
-              symbol: 'RELIANCE',
-              updatedAt: 100,
-              freshnessStatus: 'CLOSED_MARKET',
-            },
-          ],
-        ]),
-    } as unknown as AgentService);
+    const withOneHistoricalQuote = new IntelligenceBatchService(
+      {
+        fetchCachedQuotesMap: async () =>
+          new Map([
+            [
+              'RELIANCE',
+              {
+                symbol: 'RELIANCE',
+                updatedAt: 100,
+                freshnessStatus: 'CLOSED_MARKET',
+              },
+            ],
+          ]),
+      } as unknown as AgentService,
+      passPreflight,
+      noopMiBatch,
+    );
     const entry = (await withOneHistoricalQuote.universeCatalogWithAvailability()).find(
       (row) => row.universeId === 'NIFTY50',
     );

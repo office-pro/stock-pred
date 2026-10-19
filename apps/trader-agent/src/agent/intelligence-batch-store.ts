@@ -8,10 +8,13 @@ import { join, resolve } from 'path';
 import type {
   BatchResearchReport,
   BatchDataSnapshot,
+  AdvancedIntelligenceSnapshot,
   IntelligenceBatch,
   IntelligenceBatchResults,
+  MarketIntelligenceBatchSnapshot,
 } from '@stockpred/shared-types';
-
+import { ADVANCED_INTELLIGENCE_SNAPSHOT_VERSION } from '@stockpred/shared-types';
+import { coerceStoredReadinessPolicy } from '@stockpred/shared-utils';
 function resolveDataDir(): string {
   const repo = process.env.REPO_ROOT || process.env.STOCKPRED_REPO_ROOT;
   if (repo && existsSync(repo)) {
@@ -46,6 +49,14 @@ function dataSnapshotPath(batchId: string): string {
   return join(intelligenceBatchesDir(), `${batchId}.data-snapshot.json`);
 }
 
+function miSnapshotPath(batchId: string): string {
+  return join(intelligenceBatchesDir(), `${batchId}.mi-snapshot.json`);
+}
+
+function advancedSnapshotPath(batchId: string): string {
+  return join(intelligenceBatchesDir(), `${batchId}.advanced-snapshot.json`);
+}
+
 export function writeIntelligenceBatch(batch: IntelligenceBatch): string {
   const path = batchPath(batch.batchId);
   writeFileSync(path, `${JSON.stringify(batch)}\n`, 'utf8');
@@ -74,7 +85,8 @@ export function listIntelligenceBatches(limit = 50): IntelligenceBatch[] {
         f.endsWith('.json') &&
         !f.endsWith('.results.json') &&
         !f.endsWith('.research-report.json') &&
-        !f.endsWith('.data-snapshot.json'),
+        !f.endsWith('.data-snapshot.json') &&
+        !f.endsWith('.mi-snapshot.json'),
     )
     .sort()
     .reverse();
@@ -197,6 +209,69 @@ export function readBatchDataSnapshot(batchId: string): BatchDataSnapshot | null
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf8')) as BatchDataSnapshot;
     if (parsed?.schemaVersion !== 'batch-data-snapshot.v1' || !Array.isArray(parsed.instruments)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function writeMarketIntelligenceBatchSnapshot(
+  snapshot: MarketIntelligenceBatchSnapshot,
+): string {
+  const path = miSnapshotPath(snapshot.batchId);
+  writeFileSync(path, `${JSON.stringify(snapshot)}\n`, 'utf8');
+  return path;
+}
+
+export function readMarketIntelligenceBatchSnapshot(
+  batchId: string,
+): MarketIntelligenceBatchSnapshot | null {
+  const path = miSnapshotPath(batchId);
+  if (!existsSync(path)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as MarketIntelligenceBatchSnapshot;
+    if (
+      parsed?.schemaVersion !== 'mi-batch-snapshot.v1' ||
+      !parsed.bySymbol ||
+      !Array.isArray(parsed.instruments)
+    ) {
+      return null;
+    }
+    // ES-10: legacy snapshots omit readinessPolicy; invalid stored values are dropped.
+    if ('readinessPolicy' in parsed) {
+      const coerced = coerceStoredReadinessPolicy(parsed.readinessPolicy);
+      if (coerced) parsed.readinessPolicy = coerced;
+      else delete parsed.readinessPolicy;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/** MI-7.1 — persist AdvancedIntelligenceSnapshot beside MI/data snapshots. */
+export function writeAdvancedIntelligenceSnapshot(snapshot: AdvancedIntelligenceSnapshot): string {
+  const path = advancedSnapshotPath(snapshot.batchId);
+  writeFileSync(path, `${JSON.stringify(snapshot)}\n`, 'utf8');
+  return path;
+}
+
+export function readAdvancedIntelligenceSnapshot(
+  batchId: string,
+): AdvancedIntelligenceSnapshot | null {
+  const path = advancedSnapshotPath(batchId);
+  if (!existsSync(path)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as AdvancedIntelligenceSnapshot;
+    if (
+      parsed?.schemaVersion !== ADVANCED_INTELLIGENCE_SNAPSHOT_VERSION ||
+      !parsed.bySymbol ||
+      !Array.isArray(parsed.instruments) ||
+      !parsed.dataSnapshotVersion ||
+      !parsed.marketIntelligenceSnapshotId
+    ) {
       return null;
     }
     return parsed;

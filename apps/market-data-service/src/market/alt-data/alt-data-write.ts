@@ -9,7 +9,9 @@ import {
 import { fetchMultiSourceSocial, type SocialPost } from './social-fetch';
 import { parseUniverse, resolveUniverseSymbols, type AltUniverseId } from './universe';
 import { fetchFredSeries, fetchYahooMacroSeries, type MacroPoint } from './yahoo-macro';
+import { fetchRbiMacroSeries, preferRbiMacroPoints } from './rbi-macro';
 import { isIstSessionAsOf, istSessionUtcDay } from './ingest-freshness';
+import { persistMiMacroSnapshot, persistMiNewsArticles } from '../mi-persist';
 
 const DAY_MS = 86_400_000;
 
@@ -484,11 +486,12 @@ export async function ingestMacro(options?: {
       }
     }
     const includeIndia = Boolean(options?.includeIndia);
-    const [yahooPoints, fredPoints] = await Promise.all([
+    const [yahooPoints, fredPoints, rbiPoints] = await Promise.all([
       fetchYahooMacroSeries({ includeIndia }),
       fetchFredSeries(),
+      fetchRbiMacroSeries(),
     ]);
-    const points = [...yahooPoints, ...fredPoints];
+    const points = preferRbiMacroPoints([...yahooPoints, ...fredPoints, ...rbiPoints]);
     for (const point of points) {
       await prisma.macroObservation.upsert({
         where: { seriesId_asOfDate: { seriesId: point.seriesId, asOfDate: point.asOfDate } },
@@ -498,6 +501,33 @@ export async function ingestMacro(options?: {
     }
     const daily = await rollMacroDaily(points);
     const sources = [...new Set(points.map((row) => row.source))].sort();
+    try {
+      const latestBySeries = new Map<string, MacroPoint>();
+      for (const p of points) {
+        const prev = latestBySeries.get(p.seriesId);
+        if (!prev || p.asOfDate > prev.asOfDate) latestBySeries.set(p.seriesId, p);
+      }
+      const india = ['repo_rate', 'india_cpi']
+        .map((id) => latestBySeries.get(id))
+        .filter((p): p is MacroPoint => Boolean(p));
+      if (india.length > 0) {
+        const asOf = india.reduce(
+          (max, p) => (p.asOfDate > max ? p.asOfDate : max),
+          india[0]!.asOfDate,
+        );
+        await persistMiMacroSnapshot({
+          asOf,
+          series: india.map((p) => ({
+            metric: p.seriesId,
+            value: p.value,
+            source: p.source,
+            availableAt: p.availableAt,
+          })),
+        });
+      }
+    } catch (err) {
+      console.warn('[mi-persist] macro write skipped', err);
+    }
     return { observations: points.length, daily, sources };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -616,5 +646,29 @@ export async function upsertNewsFromPayload(
           },
   }));
   const result = await upsertNews(symbol, mapped);
+  try {
+    await persistMiNewsArticles(
+      mapped.map((h, i) => ({
+        symbol: symbol.toUpperCase(),
+        articleId: `${symbol}:${h.source}:${h.url || i}`,
+        title: h.title,
+        source: h.source,
+        url: h.url,
+        publishedAt: h.publishedAt,
+        sentimentScore: h.score?.sentiment ?? null,
+        sentimentLabel:
+          h.score == null
+            ? null
+            : h.score.sentiment > 0.15
+              ? 'positive'
+              : h.score.sentiment < -0.15
+                ? 'negative'
+                : 'neutral',
+        modelVersion: h.score ? 'news-nlp' : undefined,
+      })),
+    );
+  } catch (err) {
+    console.warn('[mi-persist] news write skipped', err);
+  }
   return { articles: result.articles, daily: result.daily };
 }

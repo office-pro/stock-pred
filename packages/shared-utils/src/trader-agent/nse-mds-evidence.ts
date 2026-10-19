@@ -18,6 +18,7 @@ import { unavailableEquityFacts } from './sec-edgar-client';
 export const MDS_FUNDAMENTALS_MISSING = 'MDS_FUNDAMENTALS_MISSING';
 export const MDS_FUNDAMENTALS_PANEL_ERROR = 'MDS_FUNDAMENTALS_PANEL_ERROR';
 export const MDS_NEWS_PANEL_ERROR = 'MDS_NEWS_PANEL_ERROR';
+export const MDS_CORPORATE_PANEL_ERROR = 'MDS_CORPORATE_PANEL_ERROR';
 
 export interface NseMdsFundamentalsPanelRow {
   symbol?: string;
@@ -43,8 +44,10 @@ export interface NseMdsNewsPanelRow {
 export interface NseMdsEvidenceInput {
   fundamentalsRows?: NseMdsFundamentalsPanelRow[];
   newsRows?: NseMdsNewsPanelRow[];
+  corporateRows?: import('./mi-mds-bind').NseMdsCorporatePanelRow[];
   fundamentalsUnavailableReason?: string;
   newsUnavailableReason?: string;
+  corporateUnavailableReason?: string;
 }
 
 export function finitePanelNum(value: unknown): number | undefined {

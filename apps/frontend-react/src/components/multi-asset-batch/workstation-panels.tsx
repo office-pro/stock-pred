@@ -253,13 +253,21 @@ export function DataSourceList({ sources }: { sources: DataSourceStatus[] }): JS
             <Typography variant="body2">{row.label}</Typography>
             <Chip
               size="small"
-              label={row.capabilityState ?? 'UNKNOWN'}
-              color={coverageStatusTone(row.capabilityState)}
+              label={
+                row.miCoverage
+                  ? `${row.miCoverage} / ${row.miFreshness ?? 'UNKNOWN'}`
+                  : (row.capabilityState ?? 'UNKNOWN')
+              }
+              color={coverageStatusTone(row.miCoverage ?? row.capabilityState)}
             />
           </Stack>
           <Typography variant="caption" color="text.secondary">
             Provider: {row.provider ?? 'Not available'} · Status:{' '}
             {row.dataStatus ?? 'Not available'}
+            {row.miRequired != null ? ` · ${row.miRequired ? 'required' : 'optional'}` : ''}
+            {row.miAvailable != null && row.miEligible != null
+              ? ` · ${row.miAvailable}/${row.miEligible}`
+              : ''}
             {row.dataAsOf != null ? ` · as of ${formatTimestamp(Number(row.dataAsOf))}` : ''}
             {row.dataAgeMs != null ? ` · age ${row.dataAgeMs}ms` : ''}
           </Typography>
@@ -288,6 +296,9 @@ type ResultRow = {
   quarantined?: boolean;
   quarantineStatus?: string;
   intelligenceContext?: Record<string, unknown>;
+  dataSnapshotVersion?: string;
+  marketIntelligenceSnapshotId?: string;
+  asOf?: string;
 };
 
 function RecommendationChip({ value }: { value?: string }): JSX.Element {
@@ -979,6 +990,7 @@ export function BatchDetailsPanel({
   failed,
   status,
   elapsed,
+  readinessPolicy,
 }: {
   universe?: string;
   analysisPeriod?: string;
@@ -991,6 +1003,11 @@ export function BatchDetailsPanel({
   failed?: number;
   status?: string;
   elapsed?: string;
+  readinessPolicy?: {
+    id: string;
+    version: string;
+    minimums?: { minEligibleCount: number; minEligibleFraction: number };
+  };
 }): JSX.Element {
   return (
     <Paper variant="outlined" sx={PANEL_SX} data-testid="batch-details">
@@ -1010,6 +1027,30 @@ export function BatchDetailsPanel({
         <Typography variant="body2">Processed {processed ?? 'Not available'}</Typography>
         <Typography variant="body2">Failed {failed ?? 'Not available'}</Typography>
       </Stack>
+      <Box mt={2} data-testid="batch-details-readiness-policy">
+        <Typography variant="caption" fontWeight={800} color="text.secondary">
+          READINESS POLICY (READ-ONLY)
+        </Typography>
+        {readinessPolicy ? (
+          <Stack spacing={0.5} mt={0.75}>
+            <Typography variant="body2">Id {readinessPolicy.id}</Typography>
+            <Typography variant="body2">Version {readinessPolicy.version}</Typography>
+            {readinessPolicy.minimums ? (
+              <Typography variant="body2">
+                Minimums ≥{readinessPolicy.minimums.minEligibleCount} ELIGIBLE and ≥
+                {Math.round(readinessPolicy.minimums.minEligibleFraction * 100)}% of universe
+              </Typography>
+            ) : null}
+            <Typography variant="body2" color="text.secondary">
+              Source: create-time configuration · Backend-enforced; UI selection only
+            </Typography>
+          </Stack>
+        ) : (
+          <Alert severity="warning" sx={{ mt: 1 }} data-testid="batch-details-legacy-policy">
+            No readiness policy on this batch — treated as STRICT_ALL default (field absent).
+          </Alert>
+        )}
+      </Box>
     </Paper>
   );
 }

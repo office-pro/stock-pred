@@ -12,6 +12,9 @@ import type {
   SnapshotCoverageGroup,
   SnapshotCoverageStatus,
 } from '@stockpred/shared-types';
+import { MACRO_REQUESTED_SERIES } from './batch-macro-client';
+
+const MACRO_REQUESTED_DEFAULT = MACRO_REQUESTED_SERIES.length;
 
 type CoverageCap = {
   capability: string;
@@ -92,6 +95,10 @@ function notApplicableReason(capability: string, row: BatchInstrumentData): stri
   }
   if (capability === 'onchain') {
     if (assetClass !== 'CRYPTO_SPOT' && assetClass !== 'CRYPTO_FUTURE') return 'NOT_CRYPTO';
+  }
+  if (capability === 'sentiment') {
+    const count = row.news?.headlineCount ?? 0;
+    if (count <= 0) return 'NO_NEWS_CONTEXT';
   }
   return null;
 }
@@ -197,7 +204,7 @@ function buildMacroCoverage(
   snapshot: Pick<BatchDataSnapshot, 'macro'>,
   group: SnapshotCoverageGroup,
 ): SnapshotCapabilityCoverageItem {
-  const requested = snapshot.macro?.requestedCount ?? 3;
+  const requested = snapshot.macro?.requestedCount ?? MACRO_REQUESTED_DEFAULT;
   const n = snapshot.macro?.series?.length ?? 0;
   const available = n > 0 && n >= requested ? 1 : 0;
   const partial = n > 0 && n < requested ? 1 : 0;

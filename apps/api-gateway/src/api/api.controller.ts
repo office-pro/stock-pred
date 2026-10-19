@@ -961,8 +961,10 @@ export class ApiController {
     @Body() body: unknown,
     @Req() request: AuthenticatedRequest,
   ): Promise<unknown> {
+    // Create re-runs combined preflight (can exceed 60s default) — match preflight budget.
     return this.proxy.post('traderAgent', '/agent/intelligence-batches', body, {
       headers: identityHeaders(request.user),
+      timeout: 300_000,
     });
   }
 
@@ -1102,6 +1104,44 @@ export class ApiController {
       `/agent/multi-asset/readiness?universe=${encodeURIComponent(universe ?? '')}`,
       { headers: identityHeaders(request.user) },
     );
+  }
+
+  @Post('agent/multi-asset/intelligence/preflight')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentMarketIntelligencePreflight(
+    @Req() request: AuthenticatedRequest,
+    @Body() body: unknown,
+  ): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/multi-asset/intelligence/preflight', body, {
+      headers: identityHeaders(request.user),
+      timeout: 300_000,
+    });
+  }
+
+  @Post('agent/multi-asset/preflight')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentCombinedBatchPreflight(
+    @Req() request: AuthenticatedRequest,
+    @Body() body: unknown,
+  ): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/multi-asset/preflight', body, {
+      headers: identityHeaders(request.user),
+      timeout: 300_000,
+    });
+  }
+
+  @Post('agent/multi-asset/intelligence/coverage')
+  @UseGuards(ViewsGuard)
+  @Views(AppView.AGENT)
+  agentMarketIntelligenceCoverage(
+    @Req() request: AuthenticatedRequest,
+    @Body() body: unknown,
+  ): Promise<unknown> {
+    return this.proxy.post('traderAgent', '/agent/multi-asset/intelligence/coverage', body, {
+      headers: identityHeaders(request.user),
+    });
   }
 
   @Post('agent/multi-asset/universes/:universe/refresh')

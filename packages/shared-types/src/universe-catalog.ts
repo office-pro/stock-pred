@@ -10,6 +10,7 @@ import type {
   VenueId,
 } from './instrument';
 import type { IntelligenceBatchMode, IntelligenceUniverseId } from './intelligence-batch';
+import type { MiCoverageState, MiFreshnessState } from './market-intelligence';
 
 export type UniverseCatalogGroup =
   | 'INDIA'
@@ -119,6 +120,14 @@ export interface DataSourceStatus {
   runtimeHealthy?: boolean;
   reasonCode?: string;
   reason?: string;
+  /** MI: COMPLETE | PARTIAL | MISSING — independent of freshness. */
+  miCoverage?: MiCoverageState;
+  /** MI: CURRENT | DELAYED | STALE | UNKNOWN — independent of coverage. */
+  miFreshness?: MiFreshnessState;
+  /** MI: whether this source is required for the current batch mode. */
+  miRequired?: boolean;
+  miAvailable?: number;
+  miEligible?: number;
 }
 
 export interface MultiAssetReadiness {

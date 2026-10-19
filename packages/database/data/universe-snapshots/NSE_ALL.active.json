@@ -2,14 +2,14 @@
   "universeId": "NSE_ALL",
   "source": "NSE EQUITY_L.csv + BSE ListofScripData (ISIN-deduped)",
   "sourceUrl": "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv",
-  "fetchedAt": 1789755063240,
-  "effectiveDate": "2026-09-18",
-  "version": "nse-all-4d662b8a9365045b",
+  "fetchedAt": 1792389116895,
+  "effectiveDate": "2026-10-19",
+  "version": "nse-all-46cf8ff59a873d71",
   "lifecycle": "PUBLISH",
   "validationStatus": "COMPLETE",
-  "rawRecordCount": 4255,
-  "sourceCount": 4255,
-  "eligibleRecordCount": 2301,
+  "rawRecordCount": 4403,
+  "sourceCount": 4403,
+  "eligibleRecordCount": 2350,
   "instruments": [
     {
       "symbol": "20MICRONS",
@@ -121,6 +121,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE721Z01010",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "AARTECH",
+      "name": "Aartech Solonics Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE01C001026",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -276,6 +284,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "ACCURACY",
+      "name": "Accuracy Shipping Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE648Z01023",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "ACE",
       "name": "Action Construction Equipment Limited",
       "venue": "NSE",
@@ -289,6 +305,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE543V01017",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "ACEVECTOR",
+      "name": "AceVector Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE580P01029",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -404,11 +428,11 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "ADROITINFO",
-      "name": "Adroit Infotech Limited",
+      "symbol": "ADROITIND",
+      "name": "Adroit Industries (India) Limited",
       "venue": "NSE",
       "series": "EQ",
-      "isin": "INE737B01033",
+      "isin": "INE505M01015",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -620,6 +644,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "AGOL",
+      "name": "Ashapuri Gold Ornament Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE05FR01029",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "AGRITECH",
       "name": "Agri-Tech (India) Limited",
       "venue": "NSE",
@@ -828,14 +860,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "ALKALI",
-      "name": "Alkali Metals Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE773I01017",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "ALKEM",
       "name": "Alkem Laboratories Limited",
       "venue": "NSE",
@@ -876,14 +900,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "ALMONDZ",
-      "name": "Almondz Global Securities Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE326B01035",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "ALOKINDS",
       "name": "Alok Industries Limited",
       "venue": "NSE",
@@ -908,14 +924,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "ALUFLUOR",
-      "name": "Alufluoride Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE058F01019",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "AMAGI",
       "name": "Amagi Media Labs Limited",
       "venue": "NSE",
@@ -929,6 +937,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE841D01013",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "AMANTA",
+      "name": "Amanta Healthcare Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE084K01015",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -1124,6 +1140,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "AONESTEELS",
+      "name": "A-One Steels India Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE0OTC01025",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "APARINDS",
       "name": "Apar Industries Limited",
       "venue": "NSE",
@@ -1212,11 +1236,11 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "APOORVA",
-      "name": "Apoorva Leasing Finance and Investment Company Limited",
+      "symbol": "APTECHT",
+      "name": "Aptech Limited",
       "venue": "NSE",
       "series": "EQ",
-      "isin": "INE217S01014",
+      "isin": "INE266F01018",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -1284,14 +1308,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "ARENTERP",
-      "name": "Rajdarshan Industries Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE610C01014",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "ARFIN",
       "name": "Arfin India Limited",
       "venue": "NSE",
@@ -1345,6 +1361,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE109C01017",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "ARMEE",
+      "name": "ArMee Infotech Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE0TWE01016",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -1545,6 +1569,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE491J01022",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "ASMS",
+      "name": "Avio Smart Market Stack Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE855F01042",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -1809,6 +1841,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE871C01038",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "AVG",
+      "name": "AVG Logistics Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE680Z01018",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -2100,14 +2140,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "BALPHARMA",
-      "name": "Bal Pharma Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE083D01012",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "BALRAMCHIN",
       "name": "Balrampur Chini Mills Limited",
       "venue": "NSE",
@@ -2192,7 +2224,7 @@
       "name": "Bansal Wire Industries Limited",
       "venue": "NSE",
       "series": "EQ",
-      "isin": "INE0B9K01025",
+      "isin": "INE0B9K01033",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -2209,6 +2241,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE373A01013",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "BASML",
+      "name": "Bannari Amman Spinning Mills Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE186H01022",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -2348,6 +2388,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "BELDING",
+      "name": "Belding India Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE363L01045",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "BELLACASA",
       "name": "Bella Casa Fashion & Retail Limited",
       "venue": "NSE",
@@ -2444,11 +2492,11 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "BHAGYANGR",
-      "name": "Bhagyanagar India Limited",
+      "symbol": "BHAGERIA",
+      "name": "Bhageria Industries Limited",
       "venue": "NSE",
       "series": "EQ",
-      "isin": "INE458B01036",
+      "isin": "INE354C01027",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -2473,6 +2521,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE465A01025",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "BHARATGEAR",
+      "name": "Bharat Gears Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE561C01019",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -2612,6 +2668,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "BLACKROSE",
+      "name": "Black Rose Inds. Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE761G01016",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "BLAL",
       "name": "BEML Land Assets Limited",
       "venue": "NSE",
@@ -2664,7 +2728,7 @@
       "name": "BLS E-Services Limited",
       "venue": "NSE",
       "series": "EQ",
-      "isin": "INE0NLT01010",
+      "isin": "INE0NLT01028",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -2737,14 +2801,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE00HZ01011",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "BODALCHEM",
-      "name": "Bodal Chemicals Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE338D01028",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -2940,11 +2996,19 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "BTTL",
+      "name": "Bhilwara Technical Textiles Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE274K01012",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "BUILDPRO",
       "name": "Shankara Buildpro Limited",
       "venue": "NSE",
       "series": "EQ",
-      "isin": "INE24OJ01011",
+      "isin": "INE24OJ01029",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -2961,6 +3025,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE139I01011",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "BYKE",
+      "name": "The Byke Hospitality Ltd",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE319B01014",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -3104,7 +3176,7 @@
       "name": "AvenuesAI Limited",
       "venue": "NSE",
       "series": "EQ",
-      "isin": "INE483S01020",
+      "isin": "INE483S01038",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -3305,6 +3377,22 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE995D01025",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "CHEMBONDCH",
+      "name": "Chembond Chemicals Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE0TGX01019",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "CHEMCON",
+      "name": "Chemcon Speciality Chemicals Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE03YM01018",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -3628,14 +3716,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "CORDSCABLE",
-      "name": "Cords Cable Industries Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE792I01017",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "COROMANDEL",
       "name": "Coromandel International Limited",
       "venue": "NSE",
@@ -3657,14 +3737,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE757A01017",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "CPCAP",
-      "name": "CP Capital Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE521J01018",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -3740,14 +3812,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "CRESTO",
-      "name": "CRESTO TECHNO LIMITED",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE203Y01012",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "CRISIL",
       "name": "Crisil Limited",
       "venue": "NSE",
@@ -3812,14 +3876,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "CUBEXTUB",
-      "name": "Cubex Tubings Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE144D01012",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "CUMMINSIND",
       "name": "Cummins India Limited",
       "venue": "NSE",
@@ -3833,6 +3889,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE509F01029",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "CYBERTECH",
+      "name": "Cybertech Systems And Software Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE214A01019",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -3881,6 +3945,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE284H01025",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "DAMODARIND",
+      "name": "Damodar Industries Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE497D01022",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -3956,6 +4028,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "DBSTOCKBRO",
+      "name": "DB (International) Stock Brokers Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE921B01025",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "DCAL",
       "name": "Dishman Carbogen Amcis Limited",
       "venue": "NSE",
@@ -3993,14 +4073,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE891B01012",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "DCMNVL",
-      "name": "DCM Nouvelle Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE08KP01019",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -4073,14 +4145,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE841L01016",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "DEEP",
-      "name": "Deep Polymers Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE00IY01012",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -4468,6 +4532,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "DPWIRES",
+      "name": "D P Wires Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE864X01013",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "DRAGARWQ",
       "name": "Dr Agarwals Eye Hospital Limited",
       "venue": "NSE",
@@ -4684,14 +4756,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "EKI",
-      "name": "EKI Energy Services Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE0CPR01018",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "ELANTAS",
       "name": "Elantas Beck India Limited",
       "venue": "NSE",
@@ -4737,6 +4801,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE822G01016",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "ELEVATE",
+      "name": "Elevate Campuses Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE147X01013",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -4833,6 +4905,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE296H01011",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "EMMBI",
+      "name": "Emmbi Industries Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE753K01015",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -5076,6 +5156,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "EVERESTIND",
+      "name": "Everest Industries Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE295A01018",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "EXCELINDUS",
       "name": "Excel Industries Limited",
       "venue": "NSE",
@@ -5137,6 +5225,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE188A01015",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "FAIRCHEMOR",
+      "name": "Fairchem Organics Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE0DNW01011",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -5329,6 +5425,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE360L01017",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "FOCUS",
+      "name": "Focus Lighting and Fixtures Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE593W01028",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -5572,6 +5676,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "GEECEE",
+      "name": "GeeCee Ventures Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE916G01016",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "GEEKAYWIRE",
       "name": "Geekay Wires Limited",
       "venue": "NSE",
@@ -5625,6 +5737,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE007B01023",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "GERMAN",
+      "name": "German Green Steel and Power Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE0D4501011",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -5689,6 +5809,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE322A01010",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "GINNIFILA",
+      "name": "Ginni Filaments Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE424C01010",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -6252,19 +6380,19 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "GSPLTRANS",
+      "name": "GSPL Transmission Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE1TUG01013",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "GSS",
       "name": "GSS Infotech Limited",
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE871H01011",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "GTECJAINX",
-      "name": "G-TEC JAINX EDUCATION LIMITED",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE586X01012",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -6321,14 +6449,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE844O01030",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "GUJRAFFIA",
-      "name": "Gujarat Raffia Industries Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE610B01024",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -6393,6 +6513,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE115S01010",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "HALDYNGL",
+      "name": "Haldyn Glass Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE506D01020",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -6628,6 +6756,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "HEGAM",
+      "name": "HEG Advanced Materials Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE545A01024",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "HEIDELBERG",
       "name": "HeidelbergCement India Limited",
       "venue": "NSE",
@@ -6668,11 +6804,27 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "HEROMOTORS",
+      "name": "Hero Motors Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE012G01022",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "HESTERBIO",
       "name": "Hester Biosciences Limited",
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE782E01017",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "HEXAGON",
+      "name": "Hexagon Nutrition Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE0JUI01012",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -6777,14 +6929,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE310C01029",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "HINDCON",
-      "name": "Hindcon Chemicals Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE642Y01029",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -7009,6 +7153,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE275B01026",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "HYBRIDFIN",
+      "name": "Hybrid Financial Services Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE965B01022",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -7385,6 +7537,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE092B01025",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "INDOAMIN",
+      "name": "Indo Amines Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE760F01028",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -7780,14 +7940,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "ISFT",
-      "name": "Intrasoft Technologies Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE566K01011",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "ISGEC",
       "name": "Isgec Heavy Engineering Limited",
       "venue": "NSE",
@@ -7865,6 +8017,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE050B01023",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "IVP",
+      "name": "IVP Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE043C01018",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -8041,14 +8201,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE0MB501011",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "JHS",
-      "name": "JHS Svendgaard Laboratories Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE544H01014",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -8412,14 +8564,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "KABRAEXTRU",
-      "name": "Kabra Extrusion Technik Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE900B01029",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "KAJARIACER",
       "name": "Kajaria Ceramics Limited",
       "venue": "NSE",
@@ -8481,6 +8625,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE967C01018",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "KAMDHENU",
+      "name": "Kamdhenu Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE390H01020",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -8572,6 +8724,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "KAUSHALYA",
+      "name": "Kaushalya Infrastructure Development Corporation Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE234I01028",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "KAYNES",
       "name": "Kaynes Technology India Limited",
       "venue": "NSE",
@@ -8660,6 +8820,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "KESORAMIND",
+      "name": "Kesoram Industries Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE087A01019",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "KEYFINSERV",
       "name": "Keynote Financial Services Limited",
       "venue": "NSE",
@@ -8705,6 +8873,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE029L01018",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "KILITCH",
+      "name": "Kilitch Drugs (India) Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE729D01010",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -8940,6 +9116,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "KOTYARK",
+      "name": "Kotyark Industries Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE0J0B01017",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "KOVAI",
       "name": "Kovai Medical Center & Hospital Limited",
       "venue": "NSE",
@@ -9132,14 +9316,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "KSHITIJPOL",
-      "name": "Kshitij Polyline Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE013801027",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "KSL",
       "name": "Kalyani Steels Limited",
       "venue": "NSE",
@@ -9260,14 +9436,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "LANDSMILL",
-      "name": "Landsmill Green Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE688J01023",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "LAOPALA",
       "name": "La Opala RG Limited",
       "venue": "NSE",
@@ -9329,14 +9497,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE06WU01026",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "LCCINFOTEC",
-      "name": "LCC Infotech Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE938A01021",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -9732,6 +9892,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "MADHUCON",
+      "name": "Madhucon Projects Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE378D01032",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "MADRASFERT",
       "name": "Madras Fertilizers Limited",
       "venue": "NSE",
@@ -9940,6 +10108,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "MANIKA",
+      "name": "Manika Plastech Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE0KWF01020",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "MANINDS",
       "name": "Man Industries (India) Limited",
       "venue": "NSE",
@@ -9993,14 +10169,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE370D01013",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "MANUGRAPH",
-      "name": "Manugraph India Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE867A01022",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -10124,14 +10292,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "MAWANASUG",
-      "name": "Mawana Sugars Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE636A01039",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "MAXESTATES",
       "name": "Max Estates Limited",
       "venue": "NSE",
@@ -10161,6 +10321,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE040D01038",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "MAZDA",
+      "name": "Mazda Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE885E01042",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -10292,6 +10460,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "MENONBE",
+      "name": "Menon Bearings Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE071D01033",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "MERCANTILE",
       "name": "Mercantile Ventures Limited",
       "venue": "NSE",
@@ -10393,14 +10569,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE898Q01015",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "MILKYMIST",
-      "name": "Milky Mist Dairy Food Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE00IT01020",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -10596,6 +10764,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "MOMSBELIEF",
+      "name": "Rays of Belief Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE1FCO01014",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "MONARCH",
       "name": "Monarch Networth Capital Limited",
       "venue": "NSE",
@@ -10604,11 +10780,11 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "MONEYBOXX",
-      "name": "Moneyboxx Finance Limited",
+      "symbol": "MONEYVIEW",
+      "name": "Moneyview Limited",
       "venue": "NSE",
       "series": "EQ",
-      "isin": "INE296Q01012",
+      "isin": "INE0PTN01011",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -10617,14 +10793,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE950M01013",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "MOREPENLAB",
-      "name": "Morepen Laboratories Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE083A01026",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -10740,6 +10908,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "MTARTECH",
+      "name": "Mtar Technologies Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE864I01014",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "MTNL",
       "name": "Mahanagar Telephone Nigam Limited",
       "venue": "NSE",
@@ -10777,6 +10953,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE596B01017",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "MUKTAARTS",
+      "name": "Mukta Arts Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE374B01019",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -10988,6 +11172,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "NAVKARURB",
+      "name": "Navkar Urbanstructure Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE268H01044",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "NAVNETEDUL",
       "name": "Navneet Education Limited",
       "venue": "NSE",
@@ -11081,6 +11273,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE605D01012",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "NECCLTD",
+      "name": "North Eastern Carrying Corporation Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE553C01016",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -11572,6 +11772,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "OCCLLTD",
+      "name": "OCCL Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE0PK601023",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "ODIGMA",
       "name": "Odigma Consultancy Solutions Limited",
       "venue": "NSE",
@@ -11633,6 +11841,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE800H01010",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "OMFREIGHT",
+      "name": "Om Freight Forwarders Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE1BZC01019",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -11708,6 +11924,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "ONMOBILE",
+      "name": "OnMobile Global Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE809I01019",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "ONWARDTEC",
       "name": "Onward Technologies Limited",
       "venue": "NSE",
@@ -11729,6 +11953,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE031G01022",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "ORBTEXP",
+      "name": "Orbit Exports Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE231G01010",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -11769,6 +12001,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE607D01018",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "ORIENTCABL",
+      "name": "Orient Cables (India) Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE0J1N01028",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -12020,6 +12260,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "PARIN",
+      "name": "Parin Enterprises Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE00U801010",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "PARKHOSPS",
       "name": "Park Medi World Limited",
       "venue": "NSE",
@@ -12081,6 +12329,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE0R8B01010",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "PATINTLOG",
+      "name": "Patel Integrated Logistics Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE529D01014",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -12580,6 +12836,22 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "PPAP",
+      "name": "PPAP Automotive Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE095I01015",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "PPL",
+      "name": "Prakash Pipes Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE050001010",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "PPLPHARMA",
       "name": "Piramal Pharma Limited",
       "venue": "NSE",
@@ -12593,6 +12865,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE0I0M01023",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "PRADPME",
+      "name": "Pradeep Metals Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE770A01010",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -12756,6 +13036,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "PRIORITY",
+      "name": "Priority Jewels Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE15EH01014",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "PRISMX",
       "name": "Prismx Global Ventures Limited",
       "venue": "NSE",
@@ -12769,6 +13057,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE974Z01015",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "PRITIKAUTO",
+      "name": "Pritika Auto Industries Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE583R01029",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -12817,6 +13113,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE00F201020",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "PRUDMOULI",
+      "name": "Prudential Sugar Corporation Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE024D01016",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -12948,14 +13252,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "QUINT",
-      "name": "Quint Digital Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE641R01017",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "RACE",
       "name": "Race Eco Chain Limited",
       "venue": "NSE",
@@ -13036,6 +13332,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "RAJOOENG",
+      "name": "Rajoo Engineers Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE535F01024",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "RAJPALAYAM",
       "name": "Rajapalayam Mills Limited",
       "venue": "NSE",
@@ -13057,14 +13361,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE562B01019",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "RAJTV",
-      "name": "Raj Television Network Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE952H01027",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -13356,6 +13652,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "REPL",
+      "name": "Rudrabhishek Enterprises Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE364Z01019",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "REPRO",
       "name": "Repro India Limited",
       "venue": "NSE",
@@ -13369,14 +13673,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE688D01026",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "RETAIL",
-      "name": "JHS Svendgaard Retail Ventures Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE03DD01011",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -13465,14 +13761,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE722J01012",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "RKEC",
-      "name": "RKEC Projects Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE786W01010",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -13660,6 +13948,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "RSWM",
+      "name": "RSWM Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE611A01016",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "RSYSTEMS",
       "name": "R Systems International Limited",
       "venue": "NSE",
@@ -13681,14 +13977,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE399K01017",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "RTSPOWR",
-      "name": "RTS Power Corporation Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE005C01017",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -13737,6 +14025,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE027T01023",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "RUNWALENTR",
+      "name": "Runwal Enterprises Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE804W01029",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -13825,6 +14121,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE764L01010",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "SADHNANIQ",
+      "name": "Sadhana Nitrochem Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE888C01040",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -14420,6 +14724,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "SETCO",
+      "name": "Setco Automotive Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE878E01021",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "SETL",
       "name": "Standard Engineering Technology Limited",
       "venue": "NSE",
@@ -14593,6 +14905,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE402H01015",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "SHEMAROO",
+      "name": "Shemaroo Entertainment Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE363M01019",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -14833,6 +15153,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE551C01044",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "SHYAMCENT",
+      "name": "Shyam Century Ferrous Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE979R01011",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -15084,6 +15412,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "SMARTLINK",
+      "name": "Smartlink Holdings Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE178C01020",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "SMARTWORKS",
       "name": "Smartworks Coworking Spaces Limited",
       "venue": "NSE",
@@ -15201,6 +15537,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE323J01019",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "SONA",
+      "name": "Sonaselection India Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE0LLZ01011",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -15388,6 +15732,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "SSRETAIL",
+      "name": "SS Retail Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE1EQW01028",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "SSWL",
       "name": "Steel Strips Wheels Limited",
       "venue": "NSE",
@@ -15492,19 +15844,19 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "STERTOOLS",
+      "name": "Sterling Tools Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE334A01023",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "STLNETWORK",
       "name": "STL Networks Limited",
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE1VXE01018",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "STLSTRINF",
-      "name": "Steel Strips Infrastructures Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE205F01016",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -15673,6 +16025,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE660A01013",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "SUNDRMBRAK",
+      "name": "Sundaram Brake Linings Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE073D01013",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -15876,6 +16236,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "SUTLEJTEX",
+      "name": "Sutlej Textiles and Industries Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE645H01027",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "SUVEN",
       "name": "Suven Life Sciences Limited",
       "venue": "NSE",
@@ -15956,6 +16324,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "SWASTIKAIN",
+      "name": "Swastika Infra Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE1QJA01015",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "SWELECTES",
       "name": "Swelect Energy Systems Limited",
       "venue": "NSE",
@@ -16024,7 +16400,7 @@
       "name": "Taal Tech Limited",
       "venue": "NSE",
       "series": "EQ",
-      "isin": "INE524T01011",
+      "isin": "INE524T01029",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -16060,6 +16436,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "TAMBOLIIN",
+      "name": "Tamboli Industries Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE864J01012",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "TANAA",
       "name": "Taneja Aerospace & Aviation Limited",
       "venue": "NSE",
@@ -16081,14 +16465,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE555Z01020",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "TARAPUR",
-      "name": "Tarapur Transformers Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE747K01017",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -16217,14 +16593,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE673O01025",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "TBZ",
-      "name": "Tribhovandas Bhimji Zaveri Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE760L01018",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -16548,6 +16916,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "TICL",
+      "name": "Twamev Construction and Infrastructure Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE388G01026",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "TIGERLOGS",
       "name": "Tiger Logistics (India) Limited",
       "venue": "NSE",
@@ -16684,14 +17060,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "TNTELE",
-      "name": "Tamilnadu Telecommunication Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE141D01018",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "TOKYOPLAST",
       "name": "Tokyo Plast International Limited",
       "venue": "NSE",
@@ -16769,6 +17137,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE454P01035",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "TRANSWORLD",
+      "name": "TRANSWORLD SHIPPING LINES LIMITED",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE757B01015",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -16996,14 +17372,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "UDAYJEW",
-      "name": "Uday Jewellery Industries Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE551B01012",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "UDS",
       "name": "Updater Services Limited",
       "venue": "NSE",
@@ -17036,14 +17404,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "UGARSUGAR",
-      "name": "The Ugar Sugar Works Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE071E01023",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "UGROCAP",
       "name": "Ugro Capital Limited",
       "venue": "NSE",
@@ -17073,6 +17433,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE405A01021",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "UMAEXPORTS",
+      "name": "Uma Exports Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE0GIU01018",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -17332,6 +17700,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "VALIANTORG",
+      "name": "Valiant Organics Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE565V01010",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "VAML",
       "name": "Vedanta Aluminium Metal Limited",
       "venue": "NSE",
@@ -17340,11 +17716,27 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "VARDHACRLC",
+      "name": "Vardhman Acrylics Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE116G01013",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "VARDMNPOLY",
       "name": "Vardhman Polytex Limited",
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE835A01029",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "VARMORA",
+      "name": "Varmora Granito Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE0M5301040",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -17420,6 +17812,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "VEEGALAND",
+      "name": "Veegaland Developers Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE1JTV01015",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "VENKEYS",
       "name": "Venky's (India) Limited",
       "venue": "NSE",
@@ -17444,14 +17844,6 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
-      "symbol": "VERANDA",
-      "name": "Veranda Learning Solutions Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE0IQ001011",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
       "symbol": "VERTOZ",
       "name": "Vertoz Limited",
       "venue": "NSE",
@@ -17465,6 +17857,14 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE386A01023",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
+      "symbol": "VETO",
+      "name": "Veto Switchgears And Cables Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE918N01018",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -17636,6 +18036,14 @@
       "eligibilityStatus": "ELIGIBLE"
     },
     {
+      "symbol": "VIPULLTD",
+      "name": "Vipul Limited",
+      "venue": "NSE",
+      "series": "EQ",
+      "isin": "INE946H01037",
+      "eligibilityStatus": "ELIGIBLE"
+    },
+    {
       "symbol": "VIRAT",
       "name": "Virat Industries Limited",
       "venue": "NSE",
@@ -17657,14 +18065,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE286H01012",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "VISAKAIND",
-      "name": "Visaka Industries Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE392A01021",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -17945,14 +18345,6 @@
       "venue": "NSE",
       "series": "EQ",
       "isin": "INE107F01022",
-      "eligibilityStatus": "ELIGIBLE"
-    },
-    {
-      "symbol": "WARDINMOBI",
-      "name": "Wardwizard Innovations & Mobility Limited",
-      "venue": "NSE",
-      "series": "EQ",
-      "isin": "INE945P01024",
       "eligibilityStatus": "ELIGIBLE"
     },
     {
@@ -18423,25 +18815,25 @@
   "validation": {
     "universeId": "NSE_ALL",
     "source": "NSE EQUITY_L.csv + BSE ListofScripData (ISIN-deduped)",
-    "sourceCount": 4255,
-    "normalizedCount": 4255,
-    "eligibleCount": 2301,
+    "sourceCount": 4403,
+    "normalizedCount": 4403,
+    "eligibleCount": 2350,
     "rejectedCount": 0,
     "duplicateCount": 0,
-    "excludedCount": 1954,
+    "excludedCount": 2053,
     "completenessStatus": "COMPLETE",
     "warnings": [],
     "errors": []
   },
   "ingestionRun": {
-    "runId": "uir-313d9b98-b040-4a9c-9da0-cb4e12a0db3a",
+    "runId": "uir-18369ab9-fe54-468e-836e-75ecb33abf55",
     "provider": "nse-equity-master",
     "universe": "NSE_ALL",
-    "startedAt": 1789755063240,
-    "completedAt": 1789755063240,
-    "requested": 4255,
-    "received": 4255,
-    "normalized": 4255,
+    "startedAt": 1792389116895,
+    "completedAt": 1792389116895,
+    "requested": 4403,
+    "received": 4403,
+    "normalized": 4403,
     "rejected": 0,
     "duplicates": 0,
     "missing": 0,
@@ -18449,8 +18841,8 @@
     "requestCount": 1,
     "pageCount": 1,
     "cursorCount": 0,
-    "providerReportedTotal": 4255,
-    "receivedTotal": 4255,
+    "providerReportedTotal": 4403,
+    "receivedTotal": 4403,
     "completenessStatus": "COMPLETE",
     "errorCodes": []
   }

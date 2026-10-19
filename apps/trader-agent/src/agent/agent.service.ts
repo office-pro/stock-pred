@@ -102,8 +102,10 @@ import {
   BATCH_HOT_PATH_TIMEOUT_MS,
   MDS_FUNDAMENTALS_PANEL_ERROR,
   MDS_NEWS_PANEL_ERROR,
+  MDS_CORPORATE_PANEL_ERROR,
   type NseMdsFundamentalsPanelRow,
   type NseMdsNewsPanelRow,
+  type NseMdsCorporatePanelRow,
   tiCrossSectionalFromFrozen,
   tiMultiHorizonFromFrozen,
   marketContextFromShared,
@@ -172,6 +174,12 @@ const EXEC_FAIL_CIRCUIT = 3;
 const DUPLICATE_ORDER_WINDOW_MS = 60_000;
 const BATCH_MDS_TIMEOUT_MS = BATCH_HOT_PATH_TIMEOUT_MS;
 const BATCH_MDS_FAIL_SKIP_AFTER = 3;
+/** Inventory view is cheap; keep below FE/gateway timeouts. */
+/** Full NSE inventory can exceed 30s when MDS is cold; create must not false-fail. */
+const QUOTE_INVENTORY_TIMEOUT_MS = 60_000;
+const QUOTE_INVENTORY_LIMIT = 20_000;
+/** Bridge Review→create so the second preflight does not re-hammer MDS. */
+const QUOTE_INVENTORY_CACHE_TTL_MS = 90_000;
 
 function mapMdsDailyCandles(rows: unknown[]): BatchCandle[] {
   const candles: BatchCandle[] = [];
@@ -259,6 +267,8 @@ export class AgentService implements OnModuleInit {
   private batchMdsFailStreak = 0;
   private batchMdsSkip = false;
   private niftyDailyCache: unknown[] | null = null;
+  /** Short-TTL quote inventory — Review warm cache serves create re-preflight. */
+  private quoteInventoryCache: { at: number; quotes: Map<string, StockQuote> } | null = null;
   /** Symbol → last order-submit attempt (DUPLICATE_ORDER gate). */
   private readonly recentSubmits = new Map<string, number>();
   private readonly recommendations = new Map<string, AgentRecommendation>();
@@ -1140,13 +1150,63 @@ export class AgentService implements OnModuleInit {
    * B1 Intelligence Batch — analyze one symbol without portfolio / auth chain.
    * MUST NOT call evaluateTrade / Risk / Portfolio / Policy / Gate / ledger / orders.
    */
-  async analyzeForIntelligenceBatch(symbol: string, quote?: StockQuote): Promise<AgentAnalysis> {
+  async analyzeForIntelligenceBatch(
+    symbol: string,
+    quote?: StockQuote,
+    opts?: { skipLiveMiEvidence?: boolean },
+  ): Promise<AgentAnalysis> {
     return this.analyzeSymbol(symbol, {
       quote,
       portfolio: null,
       statuses: [],
       requests: [],
+      skipLiveMiEvidence: opts?.skipLiveMiEvidence === true,
     });
+  }
+
+  /**
+   * NSE/BSE quote inventory for combined preflight, read in a single /stocks request.
+   * MDS rebuilds the full quote list on every /stocks call, so paging multiplies cost.
+   * Read failures and truncated reads are returned as `error`, never as an empty "no quotes" map.
+   * Successful reads are cached ~90s; on error, a still-fresh cache is served (no error).
+   */
+  async fetchQuoteInventory(
+    timeoutMs = QUOTE_INVENTORY_TIMEOUT_MS,
+  ): Promise<{ quotes: Map<string, StockQuote>; error?: string }> {
+    const quotes = new Map<string, StockQuote>();
+    const cachedFresh = (): Map<string, StockQuote> | null => {
+      const hit = this.quoteInventoryCache;
+      if (!hit) return null;
+      if (Date.now() - hit.at > QUOTE_INVENTORY_CACHE_TTL_MS) return null;
+      return new Map(hit.quotes);
+    };
+    try {
+      // view=inventory: MDS skips advisory/scanner rebuild (full /stocks was 90s+ timeouts).
+      const { data } = await axios.get<{ data?: StockQuote[]; total?: number }>(
+        `${this.marketDataUrl}/stocks`,
+        {
+          params: { page: 1, limit: QUOTE_INVENTORY_LIMIT, sort: 'symbol', view: 'inventory' },
+          timeout: timeoutMs,
+        },
+      );
+      const rows = data?.data ?? [];
+      for (const q of rows) {
+        if (q?.symbol) quotes.set(q.symbol.toUpperCase(), q);
+      }
+      if (typeof data?.total === 'number' && data.total > rows.length) {
+        const stale = cachedFresh();
+        if (stale && stale.size > 0) return { quotes: stale };
+        return { quotes, error: `truncated: ${rows.length} of ${data.total} quotes returned` };
+      }
+      this.quoteInventoryCache = { at: Date.now(), quotes: new Map(quotes) };
+      return { quotes };
+    } catch (err) {
+      const stale = cachedFresh();
+      if (stale && stale.size > 0) {
+        return { quotes: stale };
+      }
+      return { quotes, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   /**
@@ -1190,7 +1250,11 @@ export class AgentService implements OnModuleInit {
    * Multi-Asset Batch NSE/BSE hydrate — MDS daily candles only.
    * Empty/error → [] so hydrate stays PARTIAL. Never invents bars.
    */
-  async fetchNseDailyCandlesForBatch(symbol: string, limit = 120): Promise<BatchCandle[]> {
+  async fetchNseDailyCandlesForBatch(
+    symbol: string,
+    limit = 120,
+    opts: { timeoutMs?: number; throwOnError?: boolean } = {},
+  ): Promise<BatchCandle[]> {
     const sym = String(symbol ?? '')
       .trim()
       .toUpperCase();
@@ -1200,7 +1264,7 @@ export class AgentService implements OnModuleInit {
         `${this.marketDataUrl}/stocks/${encodeURIComponent(sym)}/candles`,
         {
           params: { timeframe: Timeframe.ONE_DAY, limit },
-          timeout: BATCH_MDS_TIMEOUT_MS,
+          timeout: opts.timeoutMs ?? BATCH_MDS_TIMEOUT_MS,
           validateStatus: (s) => s >= 200 && s < 500,
         },
       );
@@ -1212,7 +1276,8 @@ export class AgentService implements OnModuleInit {
     } catch {
       try {
         return await once();
-      } catch {
+      } catch (err) {
+        if (opts.throwOnError) throw err;
         return [];
       }
     }
@@ -1265,6 +1330,25 @@ export class AgentService implements OnModuleInit {
       return { rows: data as NseMdsNewsPanelRow[] };
     } catch {
       return { rows: [], reason: MDS_NEWS_PANEL_ERROR };
+    }
+  }
+
+  /** One-shot MDS corporate panel (announcements / shareholding / actions). */
+  async fetchCorporatePanelForBatch(): Promise<{
+    rows: NseMdsCorporatePanelRow[];
+    reason?: string;
+  }> {
+    try {
+      const { data, status } = await axios.get<unknown>(`${this.marketDataUrl}/corporate/panel`, {
+        timeout: 30_000,
+        validateStatus: (s) => s >= 200 && s < 500,
+      });
+      if (status >= 300 || !Array.isArray(data)) {
+        return { rows: [], reason: MDS_CORPORATE_PANEL_ERROR };
+      }
+      return { rows: data as NseMdsCorporatePanelRow[] };
+    } catch {
+      return { rows: [], reason: MDS_CORPORATE_PANEL_ERROR };
     }
   }
 
@@ -3242,6 +3326,8 @@ export class AgentService implements OnModuleInit {
       portfolio: PortfolioSnapshot | null;
       statuses: AgentCapabilityStatus[];
       requests: AgentCapabilityRequest[];
+      /** MI-5: when true, do not live-fetch fundamentals/alt-data from MDS. */
+      skipLiveMiEvidence?: boolean;
     },
   ): Promise<AgentAnalysis> {
     const used: string[] = [];
@@ -3250,10 +3336,9 @@ export class AgentService implements OnModuleInit {
     if (quote) used.push('quotes');
     else missing.push('quotes');
 
-    const [fundamentals, altData] = await Promise.all([
-      this.fetchFundamentals(symbol),
-      this.fetchAltData(symbol),
-    ]);
+    const [fundamentals, altData] = ctx.skipLiveMiEvidence
+      ? [null, null]
+      : await Promise.all([this.fetchFundamentals(symbol), this.fetchAltData(symbol)]);
     if (fundamentals && !fundamentals.missing) used.push('fundamentals');
     else if (ctx.statuses.find((s) => s.id === 'fundamentals')?.available)
       missing.push('fundamentals');

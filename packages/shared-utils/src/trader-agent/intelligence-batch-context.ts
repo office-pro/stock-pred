@@ -113,8 +113,13 @@ export function compactIntelligenceBatchContext(input: {
   fnoStatus?: string | null;
   /** Quote provenance for TradePlan — omit when VALID. */
   quoteStatus?: 'VALID' | 'MDS_UNAVAILABLE' | 'PRICE_ZERO' | 'MAP_MISS_RECOVERED' | null;
+  /** Slice G: OFF_SESSION research — forces tradePlanExecutionReady false. */
+  researchNonActionable?: boolean;
 }): IntelligenceBatchContextLabels {
   const labels: IntelligenceBatchContextLabels = {};
+  if (input.researchNonActionable === true) {
+    labels.researchNonActionable = true;
+  }
   if (input.thesis) labels.thesis = input.thesis;
   if (input.decision) labels.decision = input.decision;
   if (input.overallScore != null && Number.isFinite(input.overallScore)) {
@@ -386,8 +391,16 @@ export function applyTradePlanCompleteness(
 /**
  * APPROVE + COMPLETE → executionReady candidate (still must pass evaluateTrade…).
  * APPROVE + PARTIAL → advisory only; never treat as execution-ready.
+ * Slice G: OFF_SESSION / NON_ACTIONABLE research never sets executionReady.
  */
-export function applyTradePlanExecutionReady(labels: IntelligenceBatchContextLabels): void {
+export function applyTradePlanExecutionReady(
+  labels: IntelligenceBatchContextLabels,
+  opts?: { forceNonActionable?: boolean },
+): void {
+  if (opts?.forceNonActionable || labels.researchNonActionable === true) {
+    labels.tradePlanExecutionReady = false;
+    return;
+  }
   const complete = labels.tradePlanStatus === 'COMPLETE';
   const approve = labels.tradePlanRecommendation === 'APPROVE';
   if (complete && approve) {

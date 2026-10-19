@@ -19,6 +19,7 @@ import {
   lifecycleStageCopy,
   overviewKpis,
   persistActiveBatchId,
+  pickActiveBatchForUniverse,
   pickDefaultAnalysisPeriod,
   pickDefaultPredictionHorizon,
   renderUnavailable,
@@ -69,6 +70,7 @@ describe('Multi-Asset Batch request truthfulness', () => {
       analysisResolution: '1D',
       predictionHorizon: '1M',
       mode: 'HISTORICAL',
+      miMode: 'STANDARD',
     });
   });
 
@@ -142,7 +144,9 @@ describe('Multi-Asset Batch request truthfulness', () => {
     expect(lifecycleStageCopy('UNIVERSE_RESOLVED')).toBe('Resolving universe...');
     expect(lifecycleStageCopy('DATA_PREPARING')).toBe('Preparing data...');
     expect(lifecycleStageCopy('DATA_HYDRATING', 1850)).toBe('Hydrating 1,850 instruments...');
-    expect(lifecycleStageCopy('DATA_VALIDATED')).toBe('Validating coverage...');
+    expect(lifecycleStageCopy('DATA_VALIDATED')).toBe(
+      'Snapshot validated — Market Intelligence gate waiting...',
+    );
     expect(lifecycleStageCopy('RUNNING_INTELLIGENCE')).toBe(
       'Data ready — starting intelligence...',
     );
@@ -295,6 +299,33 @@ describe('workstation session and featured mapping', () => {
     expect(sessionStorage.getItem(ACTIVE_BATCH_STORAGE_KEY)).toBe('IBATCH-1');
     persistActiveBatchId('IBATCH-1', 'FAILED');
     expect(sessionStorage.getItem(ACTIVE_BATCH_STORAGE_KEY)).toBeNull();
+  });
+
+  it('links Snapshot Batch ID to newest active batch for the universe', () => {
+    const rows = [
+      {
+        batchId: 'IBATCH-OLD',
+        universe: 'NIFTY500',
+        status: 'PAUSED',
+        updatedAt: 1,
+        createdAt: 1,
+      },
+      {
+        batchId: 'IBATCH-NEW',
+        universe: 'NIFTY500',
+        status: 'PAUSED',
+        updatedAt: 9,
+        createdAt: 9,
+      },
+      {
+        batchId: 'IBATCH-CRYPTO',
+        universe: 'CRYPTO_SPOT_ALL',
+        status: 'PAUSED',
+        updatedAt: 99,
+        createdAt: 99,
+      },
+    ];
+    expect(pickActiveBatchForUniverse(rows, 'NIFTY500')?.batchId).toBe('IBATCH-NEW');
   });
 
   it('maps featured cards without inventing BSE membership', () => {
