@@ -16,6 +16,7 @@ import type {
   IntelligencePipelineStageProgress,
   BatchIdentityStatus,
 } from '@stockpred/shared-types';
+import { isBestOpportunityRow } from './batch-research-report';
 
 export function resolveBatchCanonicalIdentity(input: {
   taskSymbol: string;
@@ -87,11 +88,8 @@ function matchesPreset(
 ): boolean {
   const ctx = row.intelligenceContext;
   switch (preset) {
-    case 'BEST_OPPORTUNITIES': {
-      if (ctx?.tradePlanRecommendation !== 'APPROVE') return false;
-      const life = ctx.intelligenceLifecycleState;
-      return life === 'OPPORTUNITY' || life === 'SHORTLIST' || ctx.opportunityQuality != null;
-    }
+    case 'BEST_OPPORTUNITIES':
+      return isBestOpportunityRow(row);
     case 'HIGH_CONFIDENCE':
       return ctx?.opportunityQuality === 'HIGH';
     case 'MULTI_HORIZON_ALIGNED':
@@ -281,6 +279,17 @@ export function queryIntelligenceBatchResultsPage(
     return stage != null && stage !== '' && stage !== 'UNKNOWN';
   });
 
+  const readinessEcho = {
+    ...(results.readinessPolicy ? { readinessPolicy: results.readinessPolicy } : {}),
+    ...(results.ineligible ? { ineligible: results.ineligible } : {}),
+    ...(results.outcome ? { outcome: results.outcome } : {}),
+    ...(results.analysisSession ? { analysisSession: results.analysisSession } : {}),
+    ...(results.analysisActionability
+      ? { analysisActionability: results.analysisActionability }
+      : {}),
+    ...(results.quoteProvenance ? { quoteProvenance: results.quoteProvenance } : {}),
+  };
+
   if (preset === 'BULL_RUN' && !anyBullRunEvidence) {
     return {
       batchId: results.batchId,
@@ -299,6 +308,7 @@ export function queryIntelligenceBatchResultsPage(
       generatedAt: results.generatedAt,
       dataAsOf: results.dataAsOf,
       dataStatus: results.dataStatus,
+      ...readinessEcho,
     };
   }
 
@@ -370,5 +380,6 @@ export function queryIntelligenceBatchResultsPage(
     generatedAt: results.generatedAt,
     dataAsOf: results.dataAsOf,
     dataStatus: results.dataStatus,
+    ...readinessEcho,
   };
 }

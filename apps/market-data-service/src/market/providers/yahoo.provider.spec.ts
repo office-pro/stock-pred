@@ -1,4 +1,4 @@
-import { yahooTickerCandidates } from './yahoo.provider';
+import { YAHOO_LAST_TRADE_TIMEOUT_MS, yahooTickerCandidates } from './yahoo.provider';
 
 describe('yahooTickerCandidates', () => {
   it('tries NSE then BSE then the scrip code for an NSE listing like ABMKNO', () => {
@@ -23,5 +23,9 @@ describe('yahooTickerCandidates', () => {
 
   it('maps index symbols to Yahoo index tickers', () => {
     expect(yahooTickerCandidates('NIFTY_50')).toEqual(['^NSEI']);
+  });
+
+  it('uses a 1500ms hot-path timeout for last-trade', () => {
+    expect(YAHOO_LAST_TRADE_TIMEOUT_MS).toBe(1500);
   });
 });

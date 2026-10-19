@@ -26,6 +26,7 @@ import {
 import { MarketService } from './market.service';
 import { FundamentalsStore } from './fundamentals-store';
 import { AltDataStore } from './alt-data-store';
+import { CorporateStore } from './corporate-store';
 import { parseFullFlag } from './alt-data/ingest-freshness';
 import { B9B17IntelligenceService } from './b9-b17-intelligence.service';
 import type { RelationshipPairKind } from '@stockpred/shared-types';
@@ -36,6 +37,7 @@ export class MarketController {
     private readonly market: MarketService,
     private readonly fundamentals: FundamentalsStore,
     private readonly altData: AltDataStore,
+    private readonly corporate: CorporateStore,
     private readonly b9b17: B9B17IntelligenceService,
   ) {}
 
@@ -48,6 +50,11 @@ export class MarketController {
     @Query('suggestion') suggestion?: string,
     @Query('horizon') horizon?: string,
     @Query('sort') sort?: string,
+    /**
+     * `inventory` — cheap symbol/price/updatedAt list for MI preflight.
+     * Skips advisory/scanner rebuild that makes full /stocks take tens of seconds.
+     */
+    @Query('view') view?: string,
   ): {
     data: StockQuote[];
     total: number;
@@ -60,6 +67,13 @@ export class MarketController {
     maxProfitSymbol: string | null;
     bullRunCount: number;
   } {
+    if (
+      String(view ?? '')
+        .trim()
+        .toLowerCase() === 'inventory'
+    ) {
+      return this.market.getQuotesInventoryPaginated(page, limit, search, exchange);
+    }
     return this.market.getQuotesPaginated(page, limit, search, exchange, suggestion, horizon, sort);
   }
 
@@ -154,6 +168,16 @@ export class MarketController {
     return this.fundamentals.panel();
   }
 
+  @Get('corporate/panel')
+  getCorporatePanel(): ReturnType<CorporateStore['panel']> {
+    return this.corporate.panel();
+  }
+
+  @Post('corporate/:symbol/ingest')
+  ingestCorporate(@Param('symbol') symbol: string) {
+    return this.corporate.ingestSymbol(symbol.toUpperCase());
+  }
+
   @Get('fundamentals/sector-medians')
   getSectorMedians(): ReturnType<FundamentalsStore['sectorMedians']> {
     return this.fundamentals.sectorMedians();
@@ -242,6 +266,12 @@ export class MarketController {
     note: string;
   } {
     return this.market.getDataContract();
+  }
+
+  /** Backend-owned MarketSessionState — FE must not clock-derive OPEN/CLOSED. */
+  @Get('market/session-state')
+  getMarketSessionState(): ReturnType<MarketService['getMarketSessionStates']> {
+    return this.market.getMarketSessionStates();
   }
 
   /**
@@ -373,6 +403,12 @@ export class MarketController {
     const thr =
       dayReturnThreshold != null && dayReturnThreshold !== '' ? Number(dayReturnThreshold) : -0.05;
     return this.b9b17.historicalEvents(symbol, Number.isFinite(thr) ? thr : -0.05);
+  }
+
+  /** Historical analogues / forward distribution (A-wave) — not B13 shock events. */
+  @Get('intelligence/historical-analogues/:symbol')
+  historicalAnalogues(@Param('symbol') symbol: string) {
+    return this.b9b17.historicalAnalogues(symbol);
   }
 
   @Get('intelligence/cross-asset/:symbol')

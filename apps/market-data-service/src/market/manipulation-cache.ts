@@ -2,6 +2,11 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import axios from 'axios';
 import { getEnv } from '@stockpred/shared-utils';
+import {
+  EngineRefreshGuard,
+  ML_ENGINE_REQUEST_TIMEOUT_MS,
+  classifyEngineFailureType,
+} from './engine-refresh-guard';
 
 export interface CachedManipulationScore {
   symbol: string;
@@ -12,19 +17,72 @@ export interface CachedManipulationScore {
 /** Optional tabular-model overlay for the statistical unusual-activity snapshot. */
 export class ManipulationCache {
   private readonly bySymbol = new Map<string, CachedManipulationScore>();
+  private readonly refreshGuard = new EngineRefreshGuard();
 
   get(symbol: string): CachedManipulationScore | undefined {
     return this.bySymbol.get(symbol);
   }
 
+  size(): number {
+    return this.bySymbol.size;
+  }
+
   async refresh(): Promise<number> {
+    const gate = this.refreshGuard.tryBegin();
+    if (!gate.ok) {
+      console.log(
+        `[MANIP-CACHE] refresh_skipped reason=${gate.reason}` +
+          (gate.reason === 'COOLDOWN' ? ` remaining_ms=${gate.remainingMs}` : ''),
+      );
+      return this.size();
+    }
+
+    const started = Date.now();
+    console.log(
+      `[MANIP-CACHE] refresh_start source=engine_then_file timeout_ms=${ML_ENGINE_REQUEST_TIMEOUT_MS}`,
+    );
     try {
-      const fromApi = await this.loadFromEngine();
-      if (fromApi > 0) return fromApi;
-      return this.loadFromFile();
+      let engineFailed = false;
+      let fromApi = 0;
+      try {
+        fromApi = await this.loadFromEngine();
+      } catch (error) {
+        engineFailed = true;
+        const failureType = classifyEngineFailureType(error);
+        const { cooldownUntilMs } = this.refreshGuard.markFailure();
+        console.warn(
+          `[MANIP-CACHE] refresh_failed failure_type=${failureType} duration_ms=${Date.now() - started} ` +
+            `cooldown_until=${new Date(cooldownUntilMs).toISOString()} error=${(error as Error).message}`,
+        );
+      }
+
+      if (!engineFailed && fromApi > 0) {
+        console.log(
+          `[MANIP-CACHE] refresh_success source=engine loaded=${fromApi} duration_ms=${Date.now() - started}`,
+        );
+        return fromApi;
+      }
+
+      if (!engineFailed) {
+        console.log(`[MANIP-CACHE] engine=0 falling_back=file`);
+      } else {
+        console.log(`[MANIP-CACHE] engine_failed falling_back=file_or_cache`);
+      }
+
+      const fromFile = this.loadFromFile();
+      console.log(
+        `[MANIP-CACHE] refresh_success source=file loaded=${fromFile} duration_ms=${Date.now() - started}` +
+          (engineFailed ? ' after_engine_failure=true' : ''),
+      );
+      return fromFile;
     } catch (error) {
-      console.warn(`[market-data] manipulation score refresh failed: ${(error as Error).message}`);
-      return 0;
+      console.warn(
+        `[MANIP-CACHE] refresh_failed failure_type=ERROR duration_ms=${Date.now() - started} ` +
+          `error=${(error as Error).message}`,
+      );
+      return this.size();
+    } finally {
+      this.refreshGuard.end();
     }
   }
 
@@ -37,17 +95,14 @@ export class ManipulationCache {
     return this.bySymbol.size;
   }
 
+  /** Throws on transport/timeout so callers can enter cooldown. Empty payload is not a failure. */
   private async loadFromEngine(): Promise<number> {
     const base = getEnv('ML_ENGINE_URL', 'http://localhost:8000');
-    try {
-      const response = await axios.get<{ scores: CachedManipulationScore[] }>(
-        `${base}/manipulation/all`,
-        { params: { limit: 5000 }, timeout: 8000 },
-      );
-      return this.ingest(response.data.scores ?? []);
-    } catch {
-      return 0;
-    }
+    const response = await axios.get<{ scores: CachedManipulationScore[] }>(
+      `${base}/manipulation/all`,
+      { params: { limit: 5000 }, timeout: ML_ENGINE_REQUEST_TIMEOUT_MS },
+    );
+    return this.ingest(response.data.scores ?? []);
   }
 
   private loadFromFile(): number {

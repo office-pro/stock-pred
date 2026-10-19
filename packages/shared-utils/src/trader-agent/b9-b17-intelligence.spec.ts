@@ -29,19 +29,19 @@ describe('B9–B17 advisory engines', () => {
       {
         symbol: 'TCS',
         sector: 'IT',
-        candles: synthCloses(80).map((close) => ({ close })),
+        candles: synthCloses(280).map((close) => ({ close })),
         relativeStrength: 1.04,
       },
       {
         symbol: 'INFY',
         sector: 'IT',
-        candles: synthCloses(80, 90, 0.0008).map((close) => ({ close })),
+        candles: synthCloses(280, 90, 0.0008).map((close) => ({ close })),
         relativeStrength: 1.01,
       },
       {
         symbol: 'WIPRO',
         sector: 'IT',
-        candles: synthCloses(80, 80, -0.0005).map((close) => ({ close })),
+        candles: synthCloses(280, 80, -0.0005).map((close) => ({ close })),
         relativeStrength: 0.96,
       },
     ];
@@ -50,6 +50,8 @@ describe('B9–B17 advisory engines', () => {
     expect(a.status).toBe('AVAILABLE');
     expect(a.state).toBe(b.state);
     expect(a.return20d).toBe(b.return20d);
+    expect(a.return15d).toBe(b.return15d);
+    expect(a.trendSeries?.length).toBeGreaterThan(5);
     expect(a.leaders.map((l) => l.symbol)).toEqual(b.leaders.map((l) => l.symbol));
   });
 
@@ -158,5 +160,33 @@ describe('B9–B17 advisory engines', () => {
       fno: assessFnoIntelligence('TCS'),
     });
     expect(blob).not.toMatch(/rankingScore|gateVerdict|brokerOrder|positionSize|authorization/i);
+  });
+
+  it('B9 uses live tip for return1d while longer horizons stay bar-based', () => {
+    const fri = Date.UTC(2026, 8, 11, 10, 0, 0);
+    const thu = Date.UTC(2026, 8, 10, 10, 0, 0);
+    const tue = Date.UTC(2026, 8, 15, 5, 30, 0);
+    const base = synthCloses(40, 100, 0.001);
+    const mk = (symbol: string, last: number) => ({
+      symbol,
+      sector: 'IT',
+      candles: base.map((close, i) => ({
+        close: i === base.length - 1 ? 100 : close,
+        time: i === base.length - 1 ? fri : thu - (base.length - i) * 86_400_000,
+      })),
+      lastPrice: last,
+      previousClose: 100,
+      quoteUpdatedAt: tue - 5_000,
+      relativeStrength: 1.02,
+    });
+    const snap = buildSectorIntelligenceSnapshot(
+      'IT',
+      [mk('TCS', 103), mk('INFY', 106), mk('WIPRO', 101)],
+      new Date(tue),
+    );
+    expect(snap.status).toBe('AVAILABLE');
+    expect(snap.return1d).toBeCloseTo((0.03 + 0.06 + 0.01) / 3, 3);
+    expect(snap.dataStatus).toBe('LIVE');
+    expect(snap.return20d).not.toBeNull();
   });
 });

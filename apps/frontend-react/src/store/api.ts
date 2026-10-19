@@ -14,6 +14,8 @@ import type {
   IndexQuote,
   MarketContext,
   MarketDepth,
+  InstrumentRef,
+  MultiAssetReadiness,
   PortfolioSnapshot,
   PredictionAccuracy,
   RelativeComparison,
@@ -23,6 +25,7 @@ import type {
   SymbolPatternPayload,
   UserRole,
   UserStatus,
+  UniverseCatalogEntry,
   WaitRecommendation,
   StructuredThesis,
   ExitRecommendation,
@@ -274,6 +277,39 @@ export interface MarketDataContract {
   note: string;
 }
 
+/** Backend-owned market session — FE must not clock-derive OPEN/CLOSED. */
+export interface MarketSessionStateDto {
+  venue: string;
+  assetClass: string;
+  status: string;
+  timezone: string;
+  sessionDate: string;
+  isLive: boolean;
+  isTradable: boolean;
+  lastMarketUpdateAt?: number | null;
+  dataAsOf?: number | null;
+  dataAgeMs?: number | null;
+  source?: string;
+  dataStatus?: string;
+}
+
+export interface MarketSessionCardResponse {
+  nse: MarketSessionStateDto;
+  sessions: Array<{
+    venue: string;
+    status: string;
+    liveLabel: string;
+    dataAsOf?: number | null;
+    dataAgeMs?: number | null;
+    source?: string;
+    dataStatus?: string;
+  }>;
+  note: string;
+}
+
+/** Canonical universe coverage preview — backend-owned membership, never MDS cache. */
+export type UniverseCoveragePreview = UniverseCatalogEntry;
+
 /** M4 drift report per horizon (read-only artifact). */
 export interface MlDriftHorizonReport {
   status?: string;
@@ -489,6 +525,7 @@ export const api = createApi({
     'AgentSuggestions',
     'AgentOpportunities',
     'IntelligenceBatches',
+    'PaperExperiments',
     'ContinuousIntel',
     'Fundamentals',
     'AltData',
@@ -602,6 +639,9 @@ export const api = createApi({
     }),
     getMarketDataContract: builder.query<MarketDataContract, void>({
       query: () => '/market/data-contract',
+    }),
+    getMarketSessionState: builder.query<MarketSessionCardResponse, void>({
+      query: () => '/market/session-state',
     }),
     getScanner: builder.query<
       {
@@ -1296,6 +1336,29 @@ export const api = createApi({
       query: () => '/agent/soak/report',
       providesTags: ['AgentSoak', 'AgentOps'],
     }),
+    getHistoricalPredictionProof: builder.query<
+      {
+        schemaVersion?: string;
+        status?: string;
+        verdict?: 'IMPROVED' | 'NOT_IMPROVED' | 'INCONCLUSIVE';
+        totalScored?: number;
+        overallBaselineHitRate?: number | null;
+        overallEnhancedHitRate?: number | null;
+        overallBaselineNetHitRate?: number | null;
+        overallEnhancedNetHitRate?: number | null;
+        symbol?: string;
+        universe?: string;
+        priceReturnBasis?: string;
+        universeMembershipStatus?: string;
+        notes?: string[];
+        improvementClaim?: { status: string; message: string };
+        message?: string;
+      },
+      void
+    >({
+      query: () => '/agent/historical-prediction-proof',
+      providesTags: ['AgentSoak', 'AgentOps'],
+    }),
     setAgentKillSwitch: builder.mutation<unknown, { enabled: boolean; flatten?: boolean }>({
       query: (body) => ({ url: '/agent/kill-switch', method: 'POST', body }),
       invalidatesTags: ['AgentMode'],
@@ -1536,9 +1599,20 @@ export const api = createApi({
       Array<{
         batchId: string;
         universe: string;
+        mode?: string;
         status: string;
+        analysisPeriod?: string;
+        analysisResolution?: string;
+        predictionHorizon?: string;
+        createdAt?: number;
+        startedAt?: number;
+        completedAt?: number;
+        eligibleCount?: number;
         progress?: {
           processed: number;
+          pending: number;
+          failed: number;
+          totalEligible: number;
           total: number;
           percent: number;
           stages: Array<{ id: string; availability: string; done: number; total: number }>;
@@ -1557,9 +1631,40 @@ export const api = createApi({
       {
         batchId: string;
         universe: string;
+        universeVersion?: string;
+        membershipSource?: string;
+        eligibleCount?: number;
+        sourceCount?: number;
+        adapterVersion?: string;
+        providerSelection?: string;
+        analysisTimeframe?: string;
+        analysisPeriod?: string;
+        analysisResolution?: string;
+        analysisWindow?: { startDate: string; endDate: string };
+        predictionHorizon?: string;
+        sessionContext?: string;
         status: string;
+        lifecycleStage?: string;
+        dataSnapshotVersion?: string;
+        dataReadiness?: 'READY' | 'READY_PARTIAL' | 'NOT_READY';
+        dataReadinessReport?: {
+          readiness: string;
+          eligible: number;
+          processed: number;
+          available: number;
+          partial: number;
+          unavailable: number;
+          failed: number;
+          pending: number;
+          coveragePct?: number;
+          minRequiredCoveragePct?: number;
+          reasons?: string[];
+        };
         progress?: {
           processed: number;
+          pending: number;
+          failed: number;
+          totalEligible: number;
           total: number;
           percent: number;
           stages: Array<{ id: string; availability: string; done: number; total: number }>;
@@ -1579,6 +1684,32 @@ export const api = createApi({
           intelligenceContext?: { overallScore?: number; decision?: string };
         }>;
         updatedAt?: number;
+        startedAt?: number;
+        completedAt?: number;
+        capabilityCoverage?: Array<{
+          capability: string;
+          group?: string;
+          status: string;
+          eligible: number;
+          available: number;
+          partial: number;
+          unavailable: number;
+          pending?: number;
+          na: number;
+          coveragePct: number | null;
+          reason?: string;
+        }>;
+        identityCounts?: { eligible: number; valid: number; quarantined: number };
+        snapshotProvider?: string;
+        snapshotDataAsOf?: number;
+        createdAt?: number;
+        error?: string;
+        mode?: string;
+        sector?: string;
+        /** MI-5 lineage — observe-only. */
+        asOf?: string;
+        marketIntelligenceSnapshotId?: string;
+        miMode?: 'STANDARD' | 'ADVANCED' | 'CUSTOM';
       },
       string
     >({
@@ -1594,9 +1725,26 @@ export const api = createApi({
           opportunityId: string;
           companyName?: string;
           exchange?: string;
+          sector?: string;
           identityStatus?: string;
           price?: number;
           intelligenceContext?: Record<string, unknown>;
+          instrument?: {
+            symbol: string;
+            assetClass: string;
+            venue: string;
+            quoteCurrency?: string;
+          };
+          membershipIdentity?: string;
+          quarantined?: boolean;
+          quarantineStatus?: string;
+          recommendation?: string;
+          reasonCode?: string;
+          reason?: string;
+          /** MI-5 lineage — observe-only. */
+          dataSnapshotVersion?: string;
+          marketIntelligenceSnapshotId?: string;
+          asOf?: string;
         }>;
         total: number;
         page: number;
@@ -1621,6 +1769,14 @@ export const api = createApi({
         generatedAt?: number;
         dataAsOf?: number;
         dataStatus?: string;
+        /** ELIGIBLE_SUBSET — echoed from stored results; FE must not recompute. */
+        readinessPolicy?: {
+          id: string;
+          version: string;
+          minimums?: { minEligibleCount: number; minEligibleFraction: number };
+        };
+        ineligible?: Array<{ symbol: string; state: string; reasons: string[] }>;
+        outcome?: 'NO_ELIGIBLE_INSTRUMENTS';
       },
       {
         id: string;
@@ -1675,25 +1831,291 @@ export const api = createApi({
       providesTags: (_r, _e, arg) => [{ type: 'IntelligenceBatches', id: arg.id }],
     }),
     createIntelligenceBatch: builder.mutation<
-      { batchId: string },
+      { batchId: string; universeVersion?: string; eligibleCount?: number },
       {
         universe: string;
+        mode?: string;
         symbols?: string[];
+        instruments?: InstrumentRef[];
+        instrument?: InstrumentRef;
         scanKind?: string;
         sector?: string;
         allLimit?: number;
         inverseDownsideThreshold?: number;
         globalEventType?: string;
+        analysisTimeframe?: string;
+        analysisPeriod?: string;
+        analysisResolution?: string;
+        analysisWindow?: { startDate: string; endDate: string };
+        predictionHorizon?: string;
+        miMode?: 'STANDARD' | 'ADVANCED' | 'CUSTOM';
+        readinessPolicy?: {
+          id: string;
+          version: string;
+          minimums?: { minEligibleCount: number; minEligibleFraction: number };
+        };
+        analysisSession?: {
+          id: 'CURRENT_MARKET' | 'OFF_SESSION_ANALYSIS';
+          version: 'analysis-session.v1';
+        };
       }
     >({
-      query: (body) => ({ url: '/agent/intelligence-batches', method: 'POST', body }),
+      async queryFn(body, api, _extra, baseQuery) {
+        // Align with gateway 300s — default 60s proxy was dropping create after PASS.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 300_000);
+        const onAbort = () => controller.abort();
+        api.signal.addEventListener('abort', onAbort);
+        try {
+          const result = await baseQuery({
+            url: '/agent/intelligence-batches',
+            method: 'POST',
+            body,
+            signal: controller.signal,
+          });
+          if (result.error) return { error: result.error };
+          return {
+            data: result.data as {
+              batchId: string;
+              universeVersion?: string;
+              eligibleCount?: number;
+            },
+          };
+        } finally {
+          clearTimeout(timer);
+          api.signal.removeEventListener('abort', onAbort);
+        }
+      },
       invalidatesTags: ['IntelligenceBatches'],
     }),
+    postCombinedBatchPreflight: builder.mutation<
+      import('@stockpred/shared-types').CombinedBatchPreflightV2,
+      import('@stockpred/shared-types').BatchPreflightConfiguration
+    >({
+      async queryFn(body, api, _extra, baseQuery) {
+        // Cap wait so Review & Run cannot stick on LOADING when MDS is slow.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 120_000);
+        const onAbort = () => controller.abort();
+        api.signal.addEventListener('abort', onAbort);
+        try {
+          const result = await baseQuery({
+            url: '/agent/multi-asset/preflight',
+            method: 'POST',
+            body,
+            signal: controller.signal,
+          });
+          if (result.error) return { error: result.error };
+          return {
+            data: result.data as import('@stockpred/shared-types').CombinedBatchPreflightV2,
+          };
+        } finally {
+          clearTimeout(timer);
+          api.signal.removeEventListener('abort', onAbort);
+        }
+      },
+    }),
+    getCanonicalUniverses: builder.query<
+      {
+        universes: UniverseCoveragePreview[];
+        note?: string;
+      },
+      { universe?: string } | void
+    >({
+      query: (arg) => {
+        const universe = arg && typeof arg === 'object' ? arg.universe : undefined;
+        const qs = universe ? `?universe=${encodeURIComponent(universe)}` : '';
+        return `/agent/multi-asset/universes${qs}`;
+      },
+    }),
+    searchCanonicalInstruments: builder.query<
+      {
+        instruments: Array<{
+          instrument: InstrumentRef;
+          name: string;
+          source: string;
+          identityKey: string;
+          eligibilityStatus: 'ELIGIBLE';
+        }>;
+      },
+      { q: string; assetClass?: string; venue?: string; limit?: number }
+    >({
+      query: ({ q, assetClass, venue, limit = 20 }) => ({
+        url: '/agent/multi-asset/instruments/search',
+        params: { q, assetClass, venue, limit },
+      }),
+    }),
+    getMultiAssetReadiness: builder.query<MultiAssetReadiness, string>({
+      query: (universe) => `/agent/multi-asset/readiness?universe=${encodeURIComponent(universe)}`,
+    }),
+    getMultiAssetRegistry: builder.query<
+      {
+        providers: Array<Record<string, unknown>>;
+        adapters: Array<{
+          id: string;
+          productLabel: string;
+          benchmarkId: string | null;
+          capabilities: Record<string, string>;
+          featureHints: string[];
+          temporal: Record<string, unknown>;
+        }>;
+        learningTouchesRiskOrGate: false;
+      },
+      void
+    >({
+      query: () => '/agent/multi-asset/registry',
+    }),
+    resolveMultiAssetInstrument: builder.query<
+      {
+        instrument: {
+          symbol: string;
+          assetClass: string;
+          venue: string;
+          quoteCurrency: string;
+          canonicalSymbol?: string;
+        };
+        adapterId: string;
+        capabilities: Record<string, string>;
+        temporal: Record<string, unknown>;
+        seriesProvenance: Record<string, unknown>;
+      },
+      { symbol: string; universe?: string; hint?: string }
+    >({
+      query: (params) => ({
+        url: '/agent/multi-asset/resolve',
+        params: {
+          symbol: params.symbol,
+          universe: params.universe,
+          hint: params.hint,
+        },
+      }),
+    }),
+    listPaperExperiments: builder.query<Array<Record<string, unknown>>, void>({
+      query: () => '/agent/paper-experiments',
+      providesTags: ['PaperExperiments'],
+    }),
+    createPaperExperiment: builder.mutation<
+      Record<string, unknown>,
+      {
+        symbol: string;
+        adapterHint?: string;
+        batchId?: string;
+        predictionHorizon?: string;
+        thesis?: string;
+        recommendation?: string;
+        probability?: number;
+        note?: string;
+      }
+    >({
+      query: (body) => ({ url: '/agent/paper-experiments', method: 'POST', body }),
+      invalidatesTags: ['PaperExperiments'],
+    }),
     getIntelligenceSectors: builder.query<
-      { sectors: Array<{ sector: string; memberCount: number }> },
+      {
+        sectors: Array<{
+          sector: string;
+          memberCount: number;
+          taxonomy: string;
+          source: string;
+          universeVersion: string;
+          sectorVersion: string;
+          effectiveFrom: string;
+        }>;
+      },
       void
     >({
       query: () => '/intelligence/sectors',
+    }),
+    getAllSectorsIntelligence: builder.query<
+      {
+        sectors: Array<{
+          status: string;
+          reason?: string;
+          sector: string;
+          return1d?: number | null;
+          return5d?: number | null;
+          return15d?: number | null;
+          return20d?: number | null;
+          return60d?: number | null;
+          return126d?: number | null;
+          return252d?: number | null;
+          breadthAdvancing?: number | null;
+          breadthDeclining?: number | null;
+          breadthUnchanged?: number | null;
+          relativeStrength?: number | null;
+          momentum?: number | null;
+          volatility?: number | null;
+          trendSeries?: number[];
+          medianPe?: number | null;
+          medianPb?: number | null;
+          state: string;
+          sessionDate?: string | null;
+          dataStatus?: string | null;
+          sessionCoverage?: {
+            live: number;
+            delayed: number;
+            priorSession: number;
+            closedMarket: number;
+            stale: number;
+            unavailable: number;
+            newestDataAt?: number | null;
+            oldestDataAt?: number | null;
+          };
+          leaders: Array<{
+            symbol: string;
+            return1d?: number | null;
+            return5d?: number | null;
+            return15d?: number | null;
+            return20d?: number | null;
+            return126d?: number | null;
+            return252d?: number | null;
+          }>;
+          laggards: Array<{
+            symbol: string;
+            return1d?: number | null;
+            return5d?: number | null;
+            return15d?: number | null;
+            return20d?: number | null;
+            return126d?: number | null;
+            return252d?: number | null;
+          }>;
+          coverageSymbols: number;
+          memberCount?: number;
+        }>;
+        coverage: number;
+        asOf?: string;
+        sessionDate?: string | null;
+        dataStatus?: string | null;
+        sessionCoverage?: {
+          live: number;
+          delayed: number;
+          priorSession: number;
+          closedMarket: number;
+          stale: number;
+          unavailable: number;
+          newestDataAt?: number | null;
+          oldestDataAt?: number | null;
+        };
+      },
+      { limit?: number } | void
+    >({
+      query: (params) => ({
+        url: '/intelligence/sectors/all',
+        params: { limit: params?.limit ?? 80 },
+      }),
+    }),
+    getSectorMedians: builder.query<
+      {
+        sectors: Array<{
+          sector: string;
+          medianPe: number | null;
+          medianPb: number | null;
+          peerCount: number;
+        }>;
+      },
+      void
+    >({
+      query: () => '/fundamentals/sector-medians',
     }),
     getSectorIntelligence: builder.query<
       {
@@ -1702,6 +2124,19 @@ export const api = createApi({
         reason?: string;
         sector: string;
         coverageSymbols?: number;
+        return1d?: number | null;
+        return5d?: number | null;
+        return15d?: number | null;
+        return20d?: number | null;
+        return60d?: number | null;
+        return126d?: number | null;
+        return252d?: number | null;
+        breadthAdvancing?: number | null;
+        breadthDeclining?: number | null;
+        trendSeries?: number[];
+        leaders?: Array<{ symbol: string; return20d?: number | null }>;
+        laggards?: Array<{ symbol: string; return20d?: number | null }>;
+        memberCount?: number;
       },
       string
     >({
@@ -1715,10 +2150,67 @@ export const api = createApi({
         symbol: string;
         evidence?: string[];
         invalidation?: string[];
+        historicalIntelligence?: {
+          state?: { status?: string; asOfDate?: string | null };
+          analogues?: {
+            status?: string;
+            sampleSize?: number;
+            minSampleRequired?: number;
+            analogues?: Array<{
+              similarity?: number;
+              marketRegime?: string | null;
+              sectorState?: string | null;
+            }>;
+          };
+          outcomes?: {
+            status?: string;
+            sampleSize?: number;
+            outcomes?: Array<{
+              horizon?: string;
+              status?: string;
+              sampleSize?: number;
+              positiveRate?: number | null;
+              forwardReturnMedian?: number | null;
+              maxDrawdownMedian?: number | null;
+              mfeMedian?: number | null;
+            }>;
+          };
+          forwardDistribution3M?: {
+            status?: string;
+            sampleSize?: number;
+            medianReturn?: number | null;
+            meanReturn?: number | null;
+            quantiles?: {
+              p10?: number | null;
+              p25?: number | null;
+              p50?: number | null;
+              p75?: number | null;
+              p90?: number | null;
+            };
+            upsideRange?: { low: number; high: number } | null;
+            maxForwardReturns?: number[];
+            calibrationStatus?: string;
+          };
+        };
         v2?: {
           status?: string;
           dataStatus?: string;
+          dataAsOf?: number | string | null;
           executionReadyFromBullRun?: boolean;
+          provenance?: {
+            modelVersion?: string;
+            featureVersion?: string;
+            dataAsOf?: number | string | null;
+          };
+          distributions?: Array<{
+            status?: string;
+            horizon?: string;
+            sampleSize?: number;
+            maxForwardReturns?: number[];
+            meanReturn?: number | null;
+            medianReturn?: number | null;
+            upsideRange?: { low: number; high: number } | null;
+          }>;
           cells?: Array<{
             targetReturn: number;
             horizon: string;
@@ -1748,6 +2240,50 @@ export const api = createApi({
     >({
       query: (symbol) => `/intelligence/bull-run/${encodeURIComponent(symbol)}`,
     }),
+    getHistoricalAnalogues: builder.query<
+      {
+        state?: { status?: string; asOfDate?: string | null; corporateActionNote?: string };
+        analogues?: {
+          status?: string;
+          sampleSize?: number;
+          minSampleRequired?: number;
+          analogues?: Array<{
+            similarity?: number;
+            marketRegime?: string | null;
+            sectorState?: string | null;
+          }>;
+        };
+        outcomes?: {
+          status?: string;
+          sampleSize?: number;
+          outcomes?: Array<{
+            horizon?: string;
+            status?: string;
+            sampleSize?: number;
+            positiveRate?: number | null;
+            forwardReturnMedian?: number | null;
+            maxDrawdownMedian?: number | null;
+            mfeMedian?: number | null;
+          }>;
+        };
+        forwardDistribution3M?: {
+          status?: string;
+          sampleSize?: number;
+          medianReturn?: number | null;
+          quantiles?: {
+            p10?: number | null;
+            p50?: number | null;
+            p90?: number | null;
+          };
+          upsideRange?: { low: number; high: number } | null;
+          maxForwardReturns?: number[];
+          calibrationStatus?: string;
+        };
+      },
+      string
+    >({
+      query: (symbol) => `/intelligence/historical-analogues/${encodeURIComponent(symbol)}`,
+    }),
     getLatestBatchResearchReport: builder.query<
       {
         available: boolean;
@@ -1769,6 +2305,8 @@ export const api = createApi({
             state?: string;
             memberCount: number;
             bullCandidates: number;
+            leaders?: string[];
+            laggards?: string[];
           }>;
           sectorRotation?: {
             leading: string[];
@@ -1784,6 +2322,7 @@ export const api = createApi({
           bestOpportunities: Array<{
             symbol: string;
             rank: number;
+            companyName?: string;
             recommendation?: string;
             tradePlanExecutionReady?: boolean;
             targetReturn?: number;
@@ -1807,7 +2346,84 @@ export const api = createApi({
             tradePlanExpectedR?: number;
             tradePlanHorizon?: string;
             invalidationPrice?: number;
+            evidenceQuality?: string;
+            opportunityQuality?: string;
+            prob1W20?: number | null;
+            prob1M20?: number | null;
+            price?: number | null;
+            conflictSummary?: string;
+            supportingEvidence?: string[];
+            conflictingEvidence?: string[];
+            missingEvidence?: string[];
+            historicalStatus?: string;
+            historicalSampleSize?: number | null;
+            historicalNote?: string;
           }>;
+          opportunities?: Array<{
+            symbol: string;
+            rank: number;
+            companyName?: string;
+            recommendation?: string;
+            tradePlanExecutionReady?: boolean;
+            targetReturn?: number;
+            horizon?: string;
+            probability?: number | null;
+            confidence?: string;
+            sector?: string;
+            tradePlanStatus?: string;
+            isBestPick?: boolean;
+            integrityStatus?: string;
+            bullRunMatrix?: Array<{
+              horizon: string;
+              cells: Array<{
+                targetReturn: number;
+                status: string;
+                p?: number | null;
+                conf?: string;
+              }>;
+            }>;
+            thesis?: string;
+            tradePlanExpectedR?: number;
+            tradePlanHorizon?: string;
+            invalidationPrice?: number;
+            evidenceQuality?: string;
+            opportunityQuality?: string;
+            prob1W20?: number | null;
+            prob1M20?: number | null;
+            price?: number | null;
+            conflictSummary?: string;
+            supportingEvidence?: string[];
+            conflictingEvidence?: string[];
+            missingEvidence?: string[];
+            historicalStatus?: string;
+            historicalSampleSize?: number | null;
+            historicalNote?: string;
+          }>;
+          dashboardSummary?: {
+            total: number;
+            actionable: number;
+            watchlist: number;
+            avoid: number;
+            vsPrevious?: {
+              available: boolean;
+              priorBatchId?: string;
+              priorCompletedAt?: number;
+              deltaTotal?: number | null;
+              deltaActionable?: number | null;
+              deltaWatchlist?: number | null;
+              deltaAvoid?: number | null;
+              reason?: string;
+            };
+          };
+          recommendationDistribution?: {
+            approve: number;
+            wait: number;
+            reject: number;
+            unspecified: number;
+          };
+          expectedRCoverage?: { withExpectedR: number; missing: number };
+          sectorOpportunityCounts?: Array<{ sector: string; count: number }>;
+          expectedRHistogram?: Array<{ id: string; label: string; count: number }>;
           bestPicks?: Array<{
             symbol: string;
             rank: number;
@@ -1831,6 +2447,14 @@ export const api = createApi({
             tradePlanExpectedR?: number;
             tradePlanHorizon?: string;
             invalidationPrice?: number;
+            evidenceQuality?: string;
+            conflictSummary?: string;
+            supportingEvidence?: string[];
+            conflictingEvidence?: string[];
+            missingEvidence?: string[];
+            historicalStatus?: string;
+            historicalSampleSize?: number | null;
+            historicalNote?: string;
           }>;
           bullRunOpportunities?: Array<{
             symbol: string;
@@ -1852,6 +2476,7 @@ export const api = createApi({
             unknown: number;
           };
           calibrationNote?: string;
+          predictionImprovementNote?: string;
           dataQuality: {
             analyzed: number;
             incomplete: number;
@@ -1859,6 +2484,14 @@ export const api = createApi({
             fabricated: number;
             insufficientHistory?: number;
           };
+          capabilityCoverage?: Array<{
+            capability: string;
+            available: number;
+            partial: number;
+            unavailable: number;
+            coverageCount: number;
+            totalCount: number;
+          }>;
           dataStatus?: string;
         };
       },
@@ -1881,6 +2514,54 @@ export const api = createApi({
     >({
       query: (id) => `/agent/intelligence-batches/${encodeURIComponent(id)}/research-report`,
       providesTags: (_r, _e, id) => [{ type: 'IntelligenceBatches', id }],
+    }),
+    getBatchResearchReportCompare: builder.query<
+      {
+        available: boolean;
+        priorBatchId?: string;
+        priorCompletedAt?: number;
+        current?: {
+          total: number;
+          actionable: number;
+          watchlist: number;
+          avoid: number;
+        } | null;
+        prior?: {
+          total: number;
+          actionable: number;
+          watchlist: number;
+          avoid: number;
+        } | null;
+        deltas?: {
+          available: boolean;
+          priorBatchId?: string;
+          priorCompletedAt?: number;
+          deltaTotal?: number | null;
+          deltaActionable?: number | null;
+          deltaWatchlist?: number | null;
+          deltaAvoid?: number | null;
+          reason?: string;
+        };
+        reason?: string;
+        missingCapability?: string;
+      },
+      { id: string; priorId?: string }
+    >({
+      query: ({ id, priorId }) => ({
+        url: `/agent/intelligence-batches/${encodeURIComponent(id)}/research-report/compare`,
+        params: priorId ? { priorId } : undefined,
+      }),
+    }),
+    rebuildBatchResearchReport: builder.mutation<
+      { available: boolean; rebuilt?: boolean; report?: unknown; reason?: string },
+      string
+    >({
+      query: (id) => ({
+        url: `/agent/intelligence-batches/${encodeURIComponent(id)}/research-report/rebuild`,
+        method: 'POST',
+        body: {},
+      }),
+      invalidatesTags: (_r, _e, id) => [{ type: 'IntelligenceBatches', id }, 'IntelligenceBatches'],
     }),
     getIntelligenceBatchResultsBySector: builder.query<
       {
@@ -2162,6 +2843,7 @@ export const {
   useGetIndicesQuery,
   useGetMarketContextQuery,
   useGetMarketDataContractQuery,
+  useGetMarketSessionStateQuery,
   useGetScannerQuery,
   useGetCandlesQuery,
   useGetIndexCandlesQuery,
@@ -2231,6 +2913,7 @@ export const {
   useGetAgentCalibrationQuery,
   useGetAgentSoakCompareQuery,
   useGetAgentSoakReportQuery,
+  useGetHistoricalPredictionProofQuery,
   useSetAgentKillSwitchMutation,
   useGetAgentCapabilitiesQuery,
   useAckAgentCapabilityMutation,
@@ -2243,13 +2926,27 @@ export const {
   useRunOfflineFocusBatchMutation,
   useListIntelligenceBatchesQuery,
   useGetIntelligenceBatchQuery,
+  useLazyGetIntelligenceBatchQuery,
   useGetIntelligenceBatchResultsQuery,
   useCreateIntelligenceBatchMutation,
+  usePostCombinedBatchPreflightMutation,
+  useGetCanonicalUniversesQuery,
+  useSearchCanonicalInstrumentsQuery,
+  useGetMultiAssetReadinessQuery,
+  useGetMultiAssetRegistryQuery,
+  useResolveMultiAssetInstrumentQuery,
+  useListPaperExperimentsQuery,
+  useCreatePaperExperimentMutation,
   useGetIntelligenceSectorsQuery,
+  useGetAllSectorsIntelligenceQuery,
+  useGetSectorMediansQuery,
   useGetSectorIntelligenceQuery,
   useGetBullRunIntelligenceQuery,
+  useGetHistoricalAnaloguesQuery,
   useGetLatestBatchResearchReportQuery,
   useGetBatchResearchReportQuery,
+  useGetBatchResearchReportCompareQuery,
+  useRebuildBatchResearchReportMutation,
   useGetIntelligenceBatchResultsBySectorQuery,
   useGetFnoIntelligenceQuery,
   useGetCrossAssetIntelligenceQuery,

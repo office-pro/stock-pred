@@ -549,3 +549,98 @@ model MacroDailyFeature {
   @@index([availableAt])
   @@map("macro_daily_features")
 }
+
+// --- Market Intelligence (fundamentals + news + corporate evidence) ---
+
+model MarketIntelligenceDocument {
+  id               String   @id @default(uuid())
+  instrumentId     String?  @map("instrument_id")
+  symbol           String
+  venue            String   @default("NSE")
+  assetClass       String   @default("EQUITY") @map("asset_class")
+  sourceType       String   @map("source_type")
+  evidenceKind     String   @map("evidence_kind")
+  title            String?
+  url              String?
+  publishedAt      DateTime? @map("published_at")
+  availableAt      DateTime  @map("available_at")
+  retrievedAt      DateTime  @map("retrieved_at")
+  contentHash      String?   @map("content_hash")
+  parserVersion    String?   @map("parser_version")
+  rawReference     String?   @map("raw_reference")
+  metadata         Json?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  facts  MarketIntelligenceFact[]
+  events MarketIntelligenceEvent[]
+  links  MarketIntelligenceSourceLink[]
+
+  @@index([symbol, venue, availableAt])
+  @@index([evidenceKind, availableAt])
+  @@index([contentHash])
+  @@map("market_intelligence_documents")
+}
+
+model MarketIntelligenceFact {
+  id               String   @id @default(uuid())
+  documentId       String?  @map("document_id")
+  instrumentId     String?  @map("instrument_id")
+  symbol           String
+  venue            String   @default("NSE")
+  metric           String
+  value            Float?
+  unit             String?
+  periodStart      DateTime? @map("period_start")
+  periodEnd        DateTime? @map("period_end")
+  availableAt      DateTime  @map("available_at")
+  publishedAt      DateTime? @map("published_at")
+  conflict         Boolean   @default(false)
+  sourcesJson      Json?     @map("sources_json")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  document MarketIntelligenceDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([symbol, metric, availableAt])
+  @@index([availableAt])
+  @@map("market_intelligence_facts")
+}
+
+model MarketIntelligenceEvent {
+  id               String   @id @default(uuid())
+  documentId       String?  @map("document_id")
+  eventId          String?  @map("event_id")
+  instrumentId     String?  @map("instrument_id")
+  symbol           String
+  venue            String   @default("NSE")
+  eventType        String   @map("event_type")
+  headline         String?
+  category         String?
+  sentimentLabel   String?  @map("sentiment_label")
+  sentimentScore   Float?   @map("sentiment_score")
+  relevance        Float?
+  publishedAt      DateTime  @map("published_at")
+  availableAt      DateTime  @map("available_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  document MarketIntelligenceDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([symbol, eventType, availableAt])
+  @@index([eventId])
+  @@index([availableAt])
+  @@map("market_intelligence_events")
+}
+
+model MarketIntelligenceSourceLink {
+  id           String   @id @default(uuid())
+  documentId   String   @map("document_id")
+  sourceType   String   @map("source_type")
+  sourceUrl    String?  @map("source_url")
+  sourceDocId  String?  @map("source_doc_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  document MarketIntelligenceDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@map("market_intelligence_source_links")
+}

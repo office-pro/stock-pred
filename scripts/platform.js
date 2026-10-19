@@ -12,11 +12,18 @@ const { spawnSync, execSync } = require('child_process');
 const { existsSync } = require('fs');
 const path = require('path');
 
-const ACTIONS = ['start', 'stop', 'restart'];
+const ACTIONS = {
+  start: 'start-platform.sh',
+  'start-cloud': 'start-platform-cloud.sh',
+  stop: 'stop-platform.sh',
+  restart: 'restart-platform.sh',
+  'restart-ui-agent': 'restart-frontend-mds-agent.sh',
+  'restart-mds-agent': 'restart-mds-agent.sh',
+};
 const action = process.argv[2];
 
-if (!ACTIONS.includes(action)) {
-  console.error(`Usage: node scripts/platform.js <${ACTIONS.join('|')}>`);
+if (!ACTIONS[action]) {
+  console.error(`Usage: node scripts/platform.js <${Object.keys(ACTIONS).join('|')}>`);
   process.exit(1);
 }
 
@@ -54,6 +61,6 @@ if (!bash) {
 }
 
 const repoRoot = path.resolve(__dirname, '..');
-const script = path.join('scripts', `${action}-platform.sh`);
+const script = path.join('scripts', ACTIONS[action]);
 const result = spawnSync(bash, [script], { cwd: repoRoot, stdio: 'inherit' });
 process.exit(result.status ?? 1);

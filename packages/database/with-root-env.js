@@ -2,6 +2,9 @@
 /**
  * Run a command with the repo-root .env applied (file wins over inherited shell vars).
  * Prisma CLI otherwise looks only at packages/database/.env, which we do not keep.
+ *
+ * Optional overlay (later file wins on duplicate keys):
+ *   node with-root-env.js --env-file ../../.env.test-cloud prisma migrate deploy
  */
 'use strict';
 
@@ -28,12 +31,24 @@ function loadEnvFile(file) {
   }
 }
 
-loadEnvFile(path.resolve(__dirname, '../../.env'));
+const root = path.resolve(__dirname, '../..');
+loadEnvFile(path.join(root, '.env'));
+loadEnvFile(path.join(root, '.env.local'));
 loadEnvFile(path.resolve(__dirname, '.env'));
 
-const args = process.argv.slice(2);
+let args = process.argv.slice(2);
+while (args[0] === '--env-file') {
+  if (!args[1]) {
+    console.error('usage: node with-root-env.js --env-file <path> <command> [args...]');
+    process.exit(1);
+  }
+  const overlay = path.isAbsolute(args[1]) ? args[1] : path.resolve(__dirname, args[1]);
+  loadEnvFile(overlay);
+  args = args.slice(2);
+}
+
 if (args.length === 0) {
-  console.error('usage: node with-root-env.js <command> [args...]');
+  console.error('usage: node with-root-env.js [--env-file <path>] <command> [args...]');
   process.exit(1);
 }
 

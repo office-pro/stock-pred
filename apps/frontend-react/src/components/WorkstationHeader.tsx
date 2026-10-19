@@ -5,7 +5,7 @@ import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store';
 import { logout } from '../store/authSlice';
-import { useGetAgentModeQuery, useGetMarketDataContractQuery } from '../store/api';
+import { useGetAgentModeQuery, useGetMarketSessionStateQuery } from '../store/api';
 
 /**
  * Top status bar — display only.
@@ -22,7 +22,7 @@ export default function WorkstationHeader(): JSX.Element {
     pollingInterval: 15_000,
     skip: !user,
   });
-  const { data: contract } = useGetMarketDataContractQuery(undefined, {
+  const { data: marketState } = useGetMarketSessionStateQuery(undefined, {
     pollingInterval: 15_000,
     skip: !user,
   });
@@ -34,9 +34,6 @@ export default function WorkstationHeader(): JSX.Element {
     navigate(`/stocks/${s}`);
     setSymbol('');
   };
-
-  const quoteStatus = contract?.quoteStatus ?? 'UNKNOWN';
-  const sessionOpen = contract?.nseCashSessionOpen;
 
   return (
     <Box
@@ -77,25 +74,24 @@ export default function WorkstationHeader(): JSX.Element {
           color={mode?.mode === 'LIVE' ? 'error' : 'primary'}
           variant="outlined"
         />
-        <Chip
-          size="small"
-          label={sessionOpen ? 'MARKET OPEN' : 'MARKET CLOSED'}
-          color={sessionOpen ? 'success' : 'default'}
-        />
-        <Chip
-          size="small"
-          label={quoteStatus}
-          color={
-            quoteStatus === 'LIVE'
-              ? 'success'
-              : quoteStatus === 'DELAYED'
-                ? 'warning'
-                : quoteStatus === 'STALE' || quoteStatus === 'UNKNOWN'
-                  ? 'error'
-                  : 'default'
-          }
-          variant="outlined"
-        />
+        {(marketState?.sessions ?? []).map((row) => (
+          <Chip
+            key={row.venue}
+            size="small"
+            label={`${row.venue} ${row.liveLabel} · DATA ${row.dataStatus ?? 'Not available'}`}
+            color={
+              row.status === 'OPEN'
+                ? 'success'
+                : row.status === 'UNKNOWN'
+                  ? 'default'
+                  : row.dataStatus === 'STALE'
+                    ? 'warning'
+                    : 'default'
+            }
+            variant="outlined"
+          />
+        ))}
+        {!marketState && <Chip size="small" label="MARKET STATUS · Not available" />}
         <Chip
           size="small"
           label={connected ? 'ONLINE' : 'OFFLINE'}

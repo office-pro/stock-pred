@@ -214,12 +214,16 @@ export function computeProgress(
   ti?: TiEnrichmentCounts,
 ): IntelligenceBatchProgress {
   const total = tasks.length;
-  const processed = tasks.filter(
-    (t) => t.status === 'DONE' || t.status === 'FAILED' || t.status === 'SKIPPED',
-  ).length;
-  const percent = total === 0 ? 100 : Math.min(100, Math.round((processed / total) * 100));
+  const processed = tasks.filter((t) => t.status === 'DONE' || t.status === 'SKIPPED').length;
+  const failed = tasks.filter((t) => t.status === 'FAILED').length;
+  const pending = Math.max(0, total - processed - failed);
+  const percent =
+    total === 0 ? 100 : Math.min(100, Math.round(((processed + failed) / total) * 100));
   return {
     processed,
+    pending,
+    failed,
+    totalEligible: total,
     total,
     percent,
     stages: b2PipelineStages({
@@ -251,12 +255,25 @@ export function createIntelligenceBatchSkeleton(input: {
   batchType: IntelligenceBatchType;
   mode: IntelligenceBatchMode;
   symbols: string[];
+  instrumentSet?: IntelligenceBatch['instrumentSet'];
   now?: number;
   partitionSize?: number;
   scanKind?: IntelligenceBatch['scanKind'];
   sector?: string;
   inverseDownsideThreshold?: number;
   globalEventType?: string;
+  universeVersion?: string;
+  membershipSource?: string;
+  eligibleCount?: number;
+  sourceCount?: number;
+  adapterVersion?: string;
+  providerSelection?: string;
+  analysisTimeframe?: string;
+  analysisPeriod?: IntelligenceBatch['analysisPeriod'];
+  analysisResolution?: IntelligenceBatch['analysisResolution'];
+  analysisWindow?: IntelligenceBatch['analysisWindow'];
+  predictionHorizon?: string;
+  sessionContext?: string;
 }): IntelligenceBatch {
   const now = input.now ?? Date.now();
   const partitions = partitionSymbols(input.symbols, input.partitionSize);
@@ -268,7 +285,21 @@ export function createIntelligenceBatchSkeleton(input: {
     batchType: input.batchType,
     mode: input.mode,
     status: 'CREATED',
+    lifecycleStage: 'UNIVERSE_RESOLVED',
     symbols: input.symbols,
+    instrumentSet: input.instrumentSet,
+    universeVersion: input.universeVersion,
+    membershipSource: input.membershipSource,
+    eligibleCount: input.eligibleCount ?? input.symbols.length,
+    sourceCount: input.sourceCount,
+    adapterVersion: input.adapterVersion ?? 'asset-adapter.v1',
+    providerSelection: input.providerSelection,
+    analysisTimeframe: input.analysisTimeframe ?? input.analysisPeriod,
+    analysisPeriod: input.analysisPeriod,
+    analysisResolution: input.analysisResolution,
+    analysisWindow: input.analysisWindow,
+    predictionHorizon: input.predictionHorizon,
+    sessionContext: input.sessionContext,
     partitions,
     tasks,
     checkpoint: emptyCheckpoint(now),

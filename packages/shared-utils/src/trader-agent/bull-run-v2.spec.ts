@@ -8,7 +8,7 @@ import {
   enforceMonotonicProbabilities,
   probabilityAtLeast,
 } from './bull-run-v2-engine';
-import { buildBatchResearchReport } from './batch-research-report';
+import { buildBatchResearchReport, compareBatchResearchReports } from './batch-research-report';
 import type { BullRunTargetHorizonCell, IntelligenceBatchResultRow } from '@stockpred/shared-types';
 
 function syntheticCloses(n: number, drift = 0.001, vol = 0.02): number[] {
@@ -201,6 +201,136 @@ describe('batch-research-report', () => {
       (c) => c.horizon === '3M' && c.targetReturn === 0.2,
     );
     expect(c3m20?.candidateCount).toBe(2);
+    expect(report.dashboardSummary).toMatchObject({
+      total: 2,
+      actionable: 1,
+      watchlist: 1,
+      avoid: 0,
+    });
+    expect(report.dashboardSummary?.vsPrevious?.available).toBe(false);
+    expect(report.dashboardSummary?.vsPrevious?.reason).toBe('NO_PRIOR_SAME_UNIVERSE');
+    expect(report.expectedRCoverage).toEqual({ withExpectedR: 0, missing: 2 });
+    expect(report.recommendationDistribution?.approve).toBe(1);
+    expect(report.opportunities?.length).toBe(2);
+    expect(report.sectorOpportunityCounts?.[0]?.sector).toBe('IT');
+  });
+
+  it('projects 1W/1M probs as null when UNAVAILABLE — never fabricates 0', () => {
+    const rankings: IntelligenceBatchResultRow[] = [
+      {
+        rank: 1,
+        symbol: 'TCS',
+        opportunityId: 'o1',
+        sector: 'IT',
+        price: 3500,
+        intelligenceContext: {
+          tradePlanRecommendation: 'APPROVE',
+          tradePlanExpectedR: 1.5,
+          intelligenceLifecycleState: 'OPPORTUNITY',
+          opportunityQuality: 'HIGH',
+          bullRunV2Cells: [
+            { t: 0.2, h: '1W', p: 0.33, conf: 'LOW', status: 'AVAILABLE' },
+            { t: 0.2, h: '1M', p: 0.52, conf: 'MEDIUM', status: 'AVAILABLE' },
+          ],
+        },
+      },
+      {
+        rank: 2,
+        symbol: 'INFY',
+        opportunityId: 'o2',
+        sector: 'IT',
+        intelligenceContext: {
+          tradePlanRecommendation: 'REJECT',
+          tradePlanExpectedR: -0.5,
+          bullRunV2Cells: [{ t: 0.2, h: '3M', p: 0.4, conf: 'LOW', status: 'AVAILABLE' }],
+        },
+      },
+    ];
+    const report = buildBatchResearchReport({
+      batchId: 'IBATCH-2',
+      completedAt: Date.now(),
+      universe: 'NIFTY50',
+      coverage: { total: 2, processed: 2, failed: 0 },
+      rankings,
+    });
+    const tcs = report.opportunities?.find((o) => o.symbol === 'TCS');
+    const infy = report.opportunities?.find((o) => o.symbol === 'INFY');
+    expect(tcs?.prob1W20).toBeCloseTo(0.33);
+    expect(tcs?.prob1M20).toBeCloseTo(0.52);
+    expect(tcs?.opportunityQuality).toBe('HIGH');
+    expect(tcs?.price).toBe(3500);
+    expect(infy?.prob1W20).toBeNull();
+    expect(infy?.prob1M20).toBeNull();
+    expect(report.dashboardSummary?.avoid).toBe(1);
+    expect(report.expectedRHistogram?.find((b) => b.id === '1_2')?.count).toBe(1);
+    expect(report.expectedRHistogram?.find((b) => b.id === 'neg1_0')?.count).toBe(1);
+    expect(report.expectedRCoverage).toEqual({ withExpectedR: 2, missing: 0 });
+  });
+
+  it('computes vsPrevious deltas from prior same-universe report only', () => {
+    const rankings: IntelligenceBatchResultRow[] = [
+      {
+        rank: 1,
+        symbol: 'TCS',
+        opportunityId: 'o1',
+        sector: 'IT',
+        intelligenceContext: {
+          tradePlanRecommendation: 'APPROVE',
+          intelligenceLifecycleState: 'OPPORTUNITY',
+          opportunityQuality: 'HIGH',
+        },
+      },
+      {
+        rank: 2,
+        symbol: 'INFY',
+        opportunityId: 'o2',
+        sector: 'IT',
+        intelligenceContext: { tradePlanRecommendation: 'WAIT' },
+      },
+      {
+        rank: 3,
+        symbol: 'WIPRO',
+        opportunityId: 'o3',
+        sector: 'IT',
+        intelligenceContext: { tradePlanRecommendation: 'REJECT' },
+      },
+    ];
+    const prior = buildBatchResearchReport({
+      batchId: 'IBATCH-PRIOR',
+      completedAt: 1,
+      universe: 'NIFTY50',
+      coverage: { total: 2, processed: 2, failed: 0 },
+      rankings: rankings.slice(0, 2),
+    });
+    const current = buildBatchResearchReport({
+      batchId: 'IBATCH-CUR',
+      completedAt: 2,
+      universe: 'NIFTY50',
+      coverage: { total: 3, processed: 3, failed: 0 },
+      rankings,
+      priorReport: prior,
+    });
+    expect(current.dashboardSummary?.vsPrevious).toMatchObject({
+      available: true,
+      priorBatchId: 'IBATCH-PRIOR',
+      deltaTotal: 1,
+      deltaActionable: 0,
+      deltaWatchlist: 0,
+      deltaAvoid: 1,
+    });
+    const compared = compareBatchResearchReports(current, prior);
+    expect(compared.available).toBe(true);
+    expect(compared.deltas.deltaAvoid).toBe(1);
+    const wrongUniverse = buildBatchResearchReport({
+      batchId: 'IBATCH-OTHER',
+      completedAt: 1,
+      universe: 'NIFTY100',
+      coverage: { total: 2, processed: 2, failed: 0 },
+      rankings: rankings.slice(0, 2),
+    });
+    const blocked = compareBatchResearchReports(current, wrongUniverse);
+    expect(blocked.available).toBe(false);
+    expect(blocked.reason).toBe('NO_PRIOR_SAME_UNIVERSE');
   });
 
   it('Best Pick order is identical with/without/partial Bull-Run cells', () => {

@@ -3,17 +3,39 @@
 
 # ---------- build stage (keeps dev deps: used by the compose `migrate` job) ----------
 FROM node:20-alpine AS build
+ENV NPM_CONFIG_FETCH_TIMEOUT=1200000 \
+    NPM_CONFIG_FETCH_RETRIES=5 \
+    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=180000
 WORKDIR /repo
 
+# Manifests only first — shared npm ci layer across services when lockfile unchanged.
 COPY package.json package-lock.json ./
 COPY tsconfig.base.json ./
+COPY packages/shared-types/package.json packages/shared-types/
+COPY packages/shared-utils/package.json packages/shared-utils/
+COPY packages/shared-events/package.json packages/shared-events/
+COPY packages/database/package.json packages/database/
+COPY packages/broker-sdk/package.json packages/broker-sdk/
+COPY apps/api-gateway/package.json apps/api-gateway/
+COPY apps/auth-service/package.json apps/auth-service/
+COPY apps/market-data-service/package.json apps/market-data-service/
+COPY apps/signal-engine/package.json apps/signal-engine/
+COPY apps/pattern-engine/package.json apps/pattern-engine/
+COPY apps/backtest-service/package.json apps/backtest-service/
+COPY apps/auto-trader/package.json apps/auto-trader/
+COPY apps/notification-service/package.json apps/notification-service/
+COPY apps/trader-agent/package.json apps/trader-agent/
+COPY apps/frontend-react/package.json apps/frontend-react/
+
+# --ignore-scripts skips husky's prepare hook inside the container.
+# Retry once on EIDLETIMEOUT / flaky registry (common on first Windows builds).
+RUN npm ci --ignore-scripts \
+ || (echo "npm ci failed — retrying once after 15s..." && sleep 15 && npm ci --ignore-scripts)
+
 COPY packages ./packages
 COPY apps ./apps
 
-# Shared layers: identical for every service image, so BuildKit caches the
-# expensive install + package builds once across all 8 microservice builds.
-# --ignore-scripts skips husky's prepare hook inside the container.
-RUN npm ci --ignore-scripts
 RUN npm run build:packages
 
 # Per-app layer only from here on (ARG placement keeps the cache shared).

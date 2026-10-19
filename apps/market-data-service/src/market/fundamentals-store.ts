@@ -19,7 +19,12 @@ export interface FundamentalPanelRow {
   symbol: string;
   as_of_date: string;
   available_at: string;
+  source: string;
   sector: string | null;
+  trailing_pe: number | null;
+  price_to_book: number | null;
+  revenue: number | null;
+  pat: number | null;
   rev_yoy: number | null;
   pat_yoy: number | null;
   eps_yoy: number | null;
@@ -97,7 +102,12 @@ export class FundamentalsStore {
       symbol: row.symbol,
       as_of_date: row.asOfDate.toISOString(),
       available_at: row.availableAt.toISOString(),
+      source: row.source,
       sector: row.sector,
+      trailing_pe: row.trailingPe,
+      price_to_book: row.priceToBook,
+      revenue: row.revenue,
+      pat: row.pat,
       rev_yoy: row.revYoy,
       pat_yoy: row.patYoy,
       eps_yoy: row.epsYoy,

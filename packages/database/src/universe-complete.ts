@@ -3,7 +3,8 @@ import { Exchange, MarketIndex } from '@stockpred/shared-types';
 export interface UniverseStock {
   symbol: string;
   name: string;
-  exchange: Exchange;
+  /** NSE/BSE use Exchange; crypto/commodity venues keep their venue id. */
+  exchange: Exchange | string;
   sector: string;
   indices: MarketIndex[];
   /** Reference price used to seed the simulated feed. */

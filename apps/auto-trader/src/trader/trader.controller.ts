@@ -2,11 +2,13 @@ import {
   Body,
   Controller,
   DefaultValuePipe,
+  ForbiddenException,
   Get,
   Headers,
   ParseIntPipe,
   Post,
   Query,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Transform } from 'class-transformer';
 import {
@@ -21,6 +23,11 @@ import {
   Min,
 } from 'class-validator';
 import { ExecutedTrade, PortfolioSnapshot, TradeSide } from '@stockpred/shared-types';
+import {
+  evaluateInboundExecuteHeaders,
+  executionHttpStatus,
+  recordExecutionAuthAudit,
+} from '@stockpred/shared-utils';
 import { TraderService } from './trader.service';
 
 export class ExecuteTradeDto {
@@ -155,9 +162,17 @@ export class TraderController {
   @Post('trade/execute')
   execute(
     @Body() dto: ExecuteTradeDto,
-    @Headers('x-user-id') userId?: string,
-    @Headers('x-brand-id') brandId?: string,
+    @Headers() headers: Record<string, string | string[] | undefined>,
   ): Promise<ExecutedTrade> {
+    const identity = evaluateInboundExecuteHeaders(headers);
+    recordExecutionAuthAudit(identity.audit);
+    if (identity.outcome === 'REJECTED') {
+      const body = { status: 'REJECTED' as const, reasonCodes: identity.reasonCodes };
+      if (executionHttpStatus(identity.reasonCodes) === 401) {
+        throw new UnauthorizedException(body);
+      }
+      throw new ForbiddenException(body);
+    }
     return this.trader.executeManualTrade({
       symbol: dto.symbol,
       side: dto.side,
@@ -165,8 +180,10 @@ export class TraderController {
       price: dto.price,
       target: dto.target,
       stopLoss: dto.stopLoss,
-      userId,
-      brandId,
+      userId: identity.audit.userId,
+      brandId:
+        (typeof headers['x-brand-id'] === 'string' ? headers['x-brand-id'] : undefined) ??
+        (typeof headers['X-Brand-Id'] === 'string' ? headers['X-Brand-Id'] : undefined),
       decisionId: dto.decisionId,
       plannedRiskAmount: dto.plannedRiskAmount,
       soakRunId: dto.soakRunId,

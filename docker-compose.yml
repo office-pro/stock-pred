@@ -1,5 +1,7 @@
 # StockPred platform - full stack.
 #   Infra only:   docker compose up -d postgres redis kafka
+#   Kafka only (hybrid cloud DB/Redis):  npm run infra:dev-cloud
+#     → see docs/hybrid-dev-cloud.md
 #   Everything:   ./scripts/start-platform.sh   (or: docker compose --profile apps up -d --build)
 #
 # Internal DNS:  postgres:5432, redis:6379, kafka:9092
@@ -10,7 +12,9 @@ name: stockpred
 x-node-env: &node-env
   NODE_ENV: production
   DATABASE_URL: postgresql://${POSTGRES_USER:-stockpred}:${POSTGRES_PASSWORD:-stockpred}@postgres:5432/${POSTGRES_DB:-stockpred}?schema=public
-  REDIS_URL: redis://redis:6379
+  REDIS_MODE: ${REDIS_MODE:-default}
+  REDIS_LOCAL_URL: ${REDIS_LOCAL_URL:-redis://redis:6379}
+  REDIS_CLOUD_URL: ${REDIS_CLOUD_URL:-}
   KAFKA_BROKERS: kafka:9092
   JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret}
   JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret}
@@ -27,6 +31,11 @@ x-node-env: &node-env
   ML_ENGINE_URL: http://ml-engine:8000
   TRADING_MODE: ${TRADING_MODE:-PAPER}
   LIVE_TRADING_ENABLED: ${LIVE_TRADING_ENABLED:-false}
+  CANONICAL_UNIVERSE_SNAPSHOT_DIR: /repo/packages/database/data/universe-snapshots
+  CRYPTO_UNIVERSE_PROVIDER: ${CRYPTO_UNIVERSE_PROVIDER:-binance}
+  ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY:-}
+  MCX_APPROVED_FEED_URL: ${MCX_APPROVED_FEED_URL:-}
+  CME_APPROVED_FEED_URL: ${CME_APPROVED_FEED_URL:-}
 
 services:
   # ----------------------------------------------------------- infrastructure
@@ -98,9 +107,12 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-stockpred}:${POSTGRES_PASSWORD:-stockpred}@postgres:5432/${POSTGRES_DB:-stockpred}?schema=public
       STOCK_UNIVERSE_MODE: ${STOCK_UNIVERSE_MODE:-quick-start}
+      CANONICAL_UNIVERSE_SNAPSHOT_DIR: /repo/packages/database/data/universe-snapshots
     command: >
       sh -c "npx prisma migrate deploy --schema packages/database/prisma/schema.prisma
       && node packages/database/dist/seed.js"
+    volumes:
+      - ./packages/database/data:/repo/packages/database/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -115,11 +127,19 @@ services:
       args: { APP: market-data-service }
     environment:
       <<: *node-env
+      # Phase 2: MDS-only Prisma pool headroom (shared Postgres budget — tune via env).
+      # Defaults are an experiment, not assumed safe for every deployment.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-stockpred}:${POSTGRES_PASSWORD:-stockpred}@postgres:5432/${POSTGRES_DB:-stockpred}?schema=public&connection_limit=${MDS_DB_CONNECTION_LIMIT:-20}&pool_timeout=${MDS_DB_POOL_TIMEOUT:-30}
       MARKET_DATA_SERVICE_PORT: '3002'
       MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-yahoo}
       QUOTE_REFRESH_INTERVAL_MS: ${QUOTE_REFRESH_INTERVAL_MS:-15000}
       TICK_INTERVAL_MS: ${TICK_INTERVAL_MS:-1000}
+      LIVE_QUOTE_WAIT_MS: '1500'
+      # Phase 4: optional pressure simulation for validation (0 = disabled).
+      MDS_DB_PRESSURE_SIMULATE_MS: ${MDS_DB_PRESSURE_SIMULATE_MS:-0}
     ports: ['3002:3002']
+    volumes:
+      - ./packages/database/data:/repo/packages/database/data
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -164,6 +184,8 @@ services:
       <<: *node-env
       PATTERN_ENGINE_PORT: '3004'
     ports: ['3004:3004']
+    volumes:
+      - ./packages/database/data:/repo/packages/database/data
     depends_on:
       market-data-service: { condition: service_started }
       kafka: { condition: service_healthy }
@@ -216,6 +238,7 @@ services:
     volumes:
       # Mount monorepo so Cursor SDK local agents can edit the host checkout.
       - .:/workspace
+      - ./packages/database/data:/repo/packages/database/data
     ports: ['3008:3008']
     depends_on:
       auto-trader: { condition: service_started }
@@ -245,6 +268,8 @@ services:
       <<: *node-env
       API_GATEWAY_PORT: '3000'
     ports: ['3000:3000']
+    volumes:
+      - ./packages/database/data:/repo/packages/database/data
     depends_on:
       auth-service: { condition: service_started }
       market-data-service: { condition: service_started }

@@ -117,6 +117,68 @@ export function bollinger(values: number[], period = 20, multiplier = 2): Bollin
   return { upper, middle, lower };
 }
 
+/**
+ * Wilder ADX. First defined after 2*period bars (DX window + ADX smooth).
+ */
+export function adx(candles: Candle[], period = 14): number[] {
+  const out = new Array<number>(candles.length).fill(NaN);
+  if (period <= 0 || candles.length < period * 2) return out;
+  const plusDM = new Array<number>(candles.length).fill(0);
+  const minusDM = new Array<number>(candles.length).fill(0);
+  const tr = new Array<number>(candles.length).fill(0);
+  for (let i = 1; i < candles.length; i += 1) {
+    const upMove = candles[i].high - candles[i - 1].high;
+    const downMove = candles[i - 1].low - candles[i].low;
+    plusDM[i] = upMove > downMove && upMove > 0 ? upMove : 0;
+    minusDM[i] = downMove > upMove && downMove > 0 ? downMove : 0;
+    const prevClose = candles[i - 1].close;
+    tr[i] = Math.max(
+      candles[i].high - candles[i].low,
+      Math.abs(candles[i].high - prevClose),
+      Math.abs(candles[i].low - prevClose),
+    );
+  }
+  let smTR = 0;
+  let smPlus = 0;
+  let smMinus = 0;
+  for (let i = 1; i <= period; i += 1) {
+    smTR += tr[i];
+    smPlus += plusDM[i];
+    smMinus += minusDM[i];
+  }
+  const dx = new Array<number>(candles.length).fill(NaN);
+  const firstPlusDI = smTR === 0 ? 0 : (100 * smPlus) / smTR;
+  const firstMinusDI = smTR === 0 ? 0 : (100 * smMinus) / smTR;
+  const firstSum = firstPlusDI + firstMinusDI;
+  dx[period] = firstSum === 0 ? 0 : (100 * Math.abs(firstPlusDI - firstMinusDI)) / firstSum;
+  for (let i = period + 1; i < candles.length; i += 1) {
+    smTR = smTR - smTR / period + tr[i];
+    smPlus = smPlus - smPlus / period + plusDM[i];
+    smMinus = smMinus - smMinus / period + minusDM[i];
+    const plusDI = smTR === 0 ? 0 : (100 * smPlus) / smTR;
+    const minusDI = smTR === 0 ? 0 : (100 * smMinus) / smTR;
+    const diSum = plusDI + minusDI;
+    dx[i] = diSum === 0 ? 0 : (100 * Math.abs(plusDI - minusDI)) / diSum;
+  }
+  let adxVal = 0;
+  let counted = 0;
+  for (let i = period; i < candles.length; i += 1) {
+    if (!Number.isFinite(dx[i])) continue;
+    if (counted < period) {
+      adxVal += dx[i];
+      counted += 1;
+      if (counted === period) {
+        adxVal /= period;
+        out[i] = adxVal;
+      }
+    } else {
+      adxVal = (adxVal * (period - 1) + dx[i]) / period;
+      out[i] = adxVal;
+    }
+  }
+  return out;
+}
+
 /** Cumulative (session-anchored) VWAP across the supplied candles. */
 export function vwap(candles: Candle[]): number[] {
   const out = new Array<number>(candles.length).fill(NaN);
@@ -158,5 +220,6 @@ export function computeIndicatorSnapshot(symbol: string, candles: Candle[]): Ind
     bollingerMiddle: nullable(lastFinite(boll.middle)),
     bollingerLower: nullable(lastFinite(boll.lower)),
     avgVolume20: nullable(lastFinite(sma(volumes, 20))),
+    adx: nullable(lastFinite(adx(candles))),
   };
 }

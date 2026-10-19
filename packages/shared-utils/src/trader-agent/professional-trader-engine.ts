@@ -33,6 +33,20 @@ export interface BuildTradePlanInput {
     globalEventImpact?: string | null;
     fnoStatus?: string | null;
   };
+  /** Evidence validation package — advisory narrative only; never ranking/auth. */
+  evidenceValidation?: {
+    conflictSummary?: string;
+    evidenceQuality?: string;
+    supportingCount?: number;
+    conflictingCount?: number;
+    missingCount?: number;
+  };
+  /** Historical analogue summary — sampleSize required; never fabricate. */
+  historicalSummary?: {
+    status?: string;
+    sampleSize?: number | null;
+    positiveRate3M?: number | null;
+  };
 }
 
 function clamp01(n: number): number {
@@ -163,6 +177,28 @@ function collectEvidence(
             : 'NEUTRAL',
     });
   }
+  if (snapshot.onchain) {
+    items.push({
+      code: 'ONCHAIN',
+      message:
+        snapshot.onchain.status === 'UNAVAILABLE'
+          ? `On-chain UNAVAILABLE${snapshot.onchain.reasonCode ? ` (${snapshot.onchain.reasonCode})` : ''}`
+          : `On-chain ${snapshot.onchain.provider ?? 'defillama'} TVL present (observe-only, not a BUY/SELL)`,
+      source: 'snapshot.onchain',
+      polarity: 'NEUTRAL',
+    });
+  }
+  if (snapshot.social) {
+    items.push({
+      code: 'SOCIAL',
+      message:
+        snapshot.social.status === 'UNAVAILABLE'
+          ? `Social UNAVAILABLE${snapshot.social.reasonCode ? ` (${snapshot.social.reasonCode})` : ''}`
+          : 'Reddit/social evidence present (observe-only, not a volume BUY/SELL)',
+      source: 'snapshot.social',
+      polarity: 'NEUTRAL',
+    });
+  }
   return items;
 }
 
@@ -187,14 +223,14 @@ export function buildProfessionalTraderAssessment(
   const quality = qualityFromScore(overall);
   const ml = snapshot.mlPrediction;
   const calUp = ml?.calibratedProbabilities?.UP;
-  const probability =
-    calUp != null && Number.isFinite(calUp)
-      ? clamp01(calUp)
-      : ml?.confidence != null && Number.isFinite(ml.confidence)
-        ? clamp01(ml.confidence / 100)
-        : overall != null && Number.isFinite(overall)
-          ? clamp01(overall / 100)
-          : undefined;
+  // Probability = calibrated defined-event probability only — never substitute confidence.
+  const probability = calUp != null && Number.isFinite(calUp) ? clamp01(calUp) : undefined;
+  const confidence =
+    ml?.confidence != null && Number.isFinite(ml.confidence)
+      ? ml.confidence
+      : overall != null && Number.isFinite(overall)
+        ? overall
+        : undefined;
 
   const entry = analysis.setup?.entry;
   const t1 = analysis.setup?.target1;
@@ -232,18 +268,26 @@ export function buildProfessionalTraderAssessment(
     expectedReturnPct,
     expectedR: analysis.setup?.riskReward ?? undefined,
     horizon: analysis.setup?.expectedHoldingPeriod ?? ml?.horizon,
-    confidence:
-      ml?.confidence != null && Number.isFinite(ml.confidence)
-        ? ml.confidence
-        : overall != null && Number.isFinite(overall)
-          ? overall
-          : undefined,
+    confidence,
     evidence: collectEvidence(analysis, snapshot, input.advisoryContext),
     risks,
     invalidation,
     reasoning: [
       `Opportunity quality ${quality}`,
       analysis.thesis ? `Thesis: ${analysis.thesis}` : 'Thesis from analysis',
+      probability == null
+        ? 'Probability Not available (calibrated event probability missing; confidence ≠ probability)'
+        : 'Probability from calibrated ML UP when available',
+      input.evidenceValidation?.conflictSummary
+        ? input.evidenceValidation.conflictSummary
+        : 'Evidence package Not available',
+      input.historicalSummary?.status === 'AVAILABLE' && input.historicalSummary.sampleSize != null
+        ? `Historical analogues sampleSize=${input.historicalSummary.sampleSize}${
+            input.historicalSummary.positiveRate3M != null
+              ? `; 3M positiveRate=${input.historicalSummary.positiveRate3M}`
+              : ''
+          }`
+        : 'Historical analogue evidence Not available or below minimum sample',
       'Advisory only — authorization requires evaluateTrade() chain',
     ],
     provenance: {

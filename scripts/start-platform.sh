@@ -79,7 +79,7 @@ set -a
 # shellcheck disable=SC1091
 source .env 2>/dev/null || true
 set +a
-echo "==> Config: STOCK_UNIVERSE_MODE=${STOCK_UNIVERSE_MODE:-quick-start} MARKET_DATA_PROVIDER=${MARKET_DATA_PROVIDER:-yahoo} SKIP_ML_BOOTSTRAP=${SKIP_ML_BOOTSTRAP:-0}"
+echo "==> Config: STOCK_UNIVERSE_MODE=${STOCK_UNIVERSE_MODE:-quick-start} MARKET_DATA_PROVIDER=${MARKET_DATA_PROVIDER:-yahoo} SKIP_ML_BOOTSTRAP=${SKIP_ML_BOOTSTRAP:-0} SKIP_UNIVERSE_INGEST=${SKIP_UNIVERSE_INGEST:-0}"
 
 # Configure npm to prevent timeout during Docker build
 echo "==> Configuring npm (increasing timeout for Docker build)"
@@ -241,6 +241,14 @@ if [ "$failures" -gt 0 ]; then
   echo "Run 'docker compose logs <service>' to debug"
 fi
 
+# Canonical membership ingest after migrate/seed so listings can upsert.
+# SKIP_UNIVERSE_INGEST=1 skips this. MCX/CME are NOT_READY without an approved JSON feed.
+if [ "${SKIP_UNIVERSE_INGEST:-0}" != "1" ]; then
+  bash scripts/ingest-universes-on-start.sh
+else
+  echo "==> Skipping universe ingest (SKIP_UNIVERSE_INGEST=1)"
+fi
+
 # Train + predict the configured universe once services can serve history.
 # SKIP_ML_BOOTSTRAP=1 skips this (start stays fast; run npm run train:ml:all later).
 bash scripts/ml-bootstrap.sh
@@ -253,6 +261,7 @@ echo "    ML Engine:    http://localhost:8000/health"
 echo ""
 echo "    Train ML models:   npm run train:ml:all"
 echo "    Predict all names: npm run predict:ml:all"
+echo "    Re-ingest universes: npm run ingest:universes"
 echo "    Run a backtest:    npm run backtest -- --symbol RELIANCE --years 3"
 echo ""
 echo "==> Useful commands:"
@@ -260,4 +269,3 @@ echo "    View logs:         docker compose logs -f <service>"
 echo "    Stop services:     npm run stop:all"
 echo "    Restart services:  npm run restart:all"
 echo ""
-echo "This is not investment advice. Paper trading is enabled by default."
