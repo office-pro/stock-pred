@@ -4,6 +4,8 @@ export * from './ml';
 export * from './trading';
 export * from './backtest';
 export * from './auth';
+export * from './arturo';
+export * from './arturo-flags';
 export * from './api';
 export * from './scanner';
 export * from './manipulation';

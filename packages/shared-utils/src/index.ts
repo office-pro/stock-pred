@@ -24,3 +24,4 @@ export * from './scanner-alerts';
 export * from './scanner-backtest';
 export * from './manipulation-features';
 export * from './trader-agent';
+export * from './arturo';

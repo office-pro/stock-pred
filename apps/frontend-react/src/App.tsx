@@ -5,6 +5,7 @@ import { RequireAuth, RequireView } from './components/RequireAuth';
 import { useSocket } from './hooks/useSocket';
 import AccessExpiredPage from './pages/AccessExpiredPage';
 import AdminUsersPage from './pages/AdminUsersPage';
+import ArturoPage from './pages/ArturoPage';
 import AdvancedIntelligencePage from './pages/AdvancedIntelligencePage';
 import AgentDeskPage from './pages/AgentDeskPage';
 import BacktestPage from './pages/BacktestPage';
@@ -117,6 +118,7 @@ export default function App(): JSX.Element {
         <Route path="/backtest" element={gated(AppView.BACKTEST, <BacktestPage />)} />
         <Route path="/broker-config" element={gated(AppView.BROKER_CONFIG, <BrokerConfigPage />)} />
         <Route path="/admin/users" element={gated(AppView.ADMIN_USERS, <AdminUsersPage />)} />
+        <Route path="/admin/arturo" element={gated(AppView.ARTURO, <ArturoPage />)} />
         <Route path="/admin/brand" element={gated(AppView.BRAND_SETTINGS, <BrandSettingsPage />)} />
         <Route
           path="/admin/brands"

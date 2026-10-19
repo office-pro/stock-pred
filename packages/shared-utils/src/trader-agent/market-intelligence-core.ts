@@ -448,16 +448,14 @@ export function buildMiEvidenceFromMdsPanels(input: {
       identityStatus: 'RESOLVED' as const,
       hasFundamentals,
       fundamentalsAvailableAt: hasFundamentals
-        ? (fund?.available_at ?? fund?.as_of_date ?? undefined ?? undefined)
+        ? (fund?.available_at ?? fund?.as_of_date ?? undefined)
         : undefined,
       hasNewsInWindow,
       newsLatestAvailableAt: hasNewsInWindow
-        ? (news?.available_at ?? news?.as_of_date ?? undefined ?? undefined)
+        ? (news?.available_at ?? news?.as_of_date ?? undefined)
         : undefined,
       hasCorporateEvents,
-      corporateLatestAvailableAt: hasCorporateEvents
-        ? (corpLatest ?? undefined ?? undefined)
-        : undefined,
+      corporateLatestAvailableAt: hasCorporateEvents ? (corpLatest ?? undefined) : undefined,
     };
   });
 }

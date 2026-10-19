@@ -1,5 +1,6 @@
 import {
   Box,
+  Chip,
   Divider,
   Drawer,
   IconButton,
@@ -17,6 +18,7 @@ import ShowChartIcon from '@mui/icons-material/ShowChart';
 import { ReactNode, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AppView, UserRole } from '@stockpred/shared-types';
+import { useArturoUiUnlock } from '../hooks/useArturoUiUnlock';
 import { useAppSelector } from '../store';
 import { userHasView } from './RequireAuth';
 import DisclaimerBanner from './DisclaimerBanner';
@@ -114,11 +116,16 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
       user ? ADVANCED_NAV.filter((i) => userHasView(user.role, user.allowedViews, i.view)) : [],
     [user],
   );
+  const arturoUnlocked = useArturoUiUnlock();
+
   const adminItems = useMemo(() => {
     if (!user) return [];
     const items: NavItem[] = [];
     if (user.role === UserRole.ADMIN || user.role === UserRole.SUPERADMIN) {
       items.push({ label: 'Users', to: '/admin/users', view: AppView.ADMIN_USERS });
+      if (arturoUnlocked) {
+        items.push({ label: 'Feature Flags', to: '/admin/arturo', view: AppView.ARTURO });
+      }
       if (user.brandId) {
         items.push({ label: 'Brand', to: '/admin/brand', view: AppView.BRAND_SETTINGS });
       }
@@ -127,7 +134,7 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
       items.push({ label: 'Brands', to: '/admin/brands', view: AppView.SUPERADMIN_BRANDS });
     }
     return items.filter((i) => userHasView(user.role, user.allowedViews, i.view));
-  }, [user]);
+  }, [user, arturoUnlocked]);
 
   const drawer = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -163,6 +170,14 @@ export default function Layout({ children }: { children: ReactNode }): JSX.Eleme
           onNavigate={() => setMobileOpen(false)}
         />
       </Box>
+      {arturoUnlocked ? (
+        <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
+          <Chip size="small" label="Dev" color="success" sx={{ fontWeight: 700 }} />
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+            ARTURO unlocked (?sha=develop)
+          </Typography>
+        </Box>
+      ) : null}
     </Box>
   );
 

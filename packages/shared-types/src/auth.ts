@@ -29,6 +29,8 @@ export enum AppView {
   ADMIN_USERS = 'ADMIN_USERS',
   BRAND_SETTINGS = 'BRAND_SETTINGS',
   SUPERADMIN_BRANDS = 'SUPERADMIN_BRANDS',
+  /** ARTURO feature-flag management UI — role-gated, not assignable. */
+  ARTURO = 'ARTURO',
 }
 
 export const ALL_ASSIGNABLE_VIEWS: AppView[] = [

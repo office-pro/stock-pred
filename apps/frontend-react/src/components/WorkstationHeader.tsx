@@ -1,11 +1,15 @@
 import { Box, Chip, IconButton, InputAdornment, Stack, TextField, Typography } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import LogoutIcon from '@mui/icons-material/Logout';
+import FlagOutlinedIcon from '@mui/icons-material/FlagOutlined';
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { UserRole } from '@stockpred/shared-types';
+import { useArturoUiUnlock } from '../hooks/useArturoUiUnlock';
 import { useAppDispatch, useAppSelector } from '../store';
 import { logout } from '../store/authSlice';
 import { useGetAgentModeQuery, useGetMarketSessionStateQuery } from '../store/api';
+import ArturoQuickDrawer from './arturo/ArturoQuickDrawer';
 
 /**
  * Top status bar — display only.
@@ -17,6 +21,10 @@ export default function WorkstationHeader(): JSX.Element {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const [symbol, setSymbol] = useState('');
+  const [arturoOpen, setArturoOpen] = useState(false);
+  const isAdmin = user?.role === UserRole.ADMIN || user?.role === UserRole.SUPERADMIN;
+  const arturoUnlocked = useArturoUiUnlock();
+  const showArturo = Boolean(isAdmin && arturoUnlocked);
 
   const { data: mode } = useGetAgentModeQuery(undefined, {
     pollingInterval: 15_000,
@@ -111,6 +119,16 @@ export default function WorkstationHeader(): JSX.Element {
             {user.name}
             {user.brand?.name ? ` · ${user.brand.name}` : ''}
           </Typography>
+          {showArturo ? (
+            <IconButton
+              size="small"
+              aria-label="Open ARTURO feature flags"
+              color={arturoOpen ? 'primary' : 'default'}
+              onClick={() => setArturoOpen(true)}
+            >
+              <FlagOutlinedIcon fontSize="small" />
+            </IconButton>
+          ) : null}
           <IconButton
             size="small"
             aria-label="Logout"
@@ -123,6 +141,8 @@ export default function WorkstationHeader(): JSX.Element {
           </IconButton>
         </Stack>
       ) : null}
+
+      <ArturoQuickDrawer open={arturoOpen} onClose={() => setArturoOpen(false)} />
     </Box>
   );
 }

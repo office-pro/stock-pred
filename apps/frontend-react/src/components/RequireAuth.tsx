@@ -17,6 +17,7 @@ const ROUTE_VIEWS: { prefix: string; view: AppView }[] = [
   { prefix: '/broker-config', view: AppView.BROKER_CONFIG },
   { prefix: '/stocks/', view: AppView.STOCK_DETAIL },
   { prefix: '/admin/users', view: AppView.ADMIN_USERS },
+  { prefix: '/admin/arturo', view: AppView.ARTURO },
   { prefix: '/admin/brand', view: AppView.BRAND_SETTINGS },
   { prefix: '/admin/brands', view: AppView.SUPERADMIN_BRANDS },
   { prefix: '/market', view: AppView.DASHBOARD },

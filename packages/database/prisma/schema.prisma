@@ -644,3 +644,37 @@ model MarketIntelligenceSourceLink {
   @@index([documentId])
   @@map("market_intelligence_source_links")
 }
+
+/** ARTURO feature flag (dev/test). Release mode + account rules evaluated centrally. */
+model ArturoFlag {
+  id               String   @id @default(uuid())
+  key              String   @unique
+  name             String
+  description      String?
+  releaseMode      String   @default("OFF") @map("release_mode")
+  accountRulesRaw  String   @default("") @map("account_rules_raw")
+  version          Int      @default(1)
+  updatedByUserId  String?  @map("updated_by_user_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  audits ArturoFlagAudit[]
+
+  @@index([updatedAt])
+  @@map("arturo_flags")
+}
+
+model ArturoFlagAudit {
+  id          String   @id @default(uuid())
+  flagId      String   @map("flag_id")
+  actorUserId String?  @map("actor_user_id")
+  action      String
+  beforeJson  Json?    @map("before_json")
+  afterJson   Json?    @map("after_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  flag ArturoFlag @relation(fields: [flagId], references: [id], onDelete: Cascade)
+
+  @@index([flagId, createdAt])
+  @@map("arturo_flag_audits")
+}

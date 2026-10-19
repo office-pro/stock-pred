@@ -167,4 +167,88 @@ export class AuthProxyController {
       headers: authorization ? { authorization } : undefined,
     });
   }
+
+  // --- ARTURO feature flags ---
+
+  @Get('arturo/status')
+  @UseGuards(JwtAuthGuard)
+  arturoStatus(@Headers('authorization') authorization?: string): Promise<unknown> {
+    return this.proxy.get('auth', '/auth/arturo/status', {
+      headers: authorization ? { authorization } : undefined,
+    });
+  }
+
+  @Get('arturo/flags')
+  @UseGuards(JwtAuthGuard)
+  arturoListFlags(
+    @Headers('authorization') authorization: string | undefined,
+    @Query('q') q?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ): Promise<unknown> {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (page) params.set('page', page);
+    if (pageSize) params.set('pageSize', pageSize);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return this.proxy.get('auth', `/auth/arturo/flags${qs}`, {
+      headers: authorization ? { authorization } : undefined,
+    });
+  }
+
+  @Get('arturo/flags/:key')
+  @UseGuards(JwtAuthGuard)
+  arturoGetFlag(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('key') key: string,
+  ): Promise<unknown> {
+    return this.proxy.get('auth', `/auth/arturo/flags/${encodeURIComponent(key)}`, {
+      headers: authorization ? { authorization } : undefined,
+    });
+  }
+
+  @Post('arturo/flags')
+  @UseGuards(JwtAuthGuard)
+  arturoCreateFlag(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: unknown,
+  ): Promise<unknown> {
+    return this.proxy.post('auth', '/auth/arturo/flags', body, {
+      headers: authorization ? { authorization } : undefined,
+    });
+  }
+
+  @Patch('arturo/flags/:key')
+  @UseGuards(JwtAuthGuard)
+  arturoUpdateFlag(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('key') key: string,
+    @Body() body: unknown,
+  ): Promise<unknown> {
+    return this.proxy.patch('auth', `/auth/arturo/flags/${encodeURIComponent(key)}`, body, {
+      headers: authorization ? { authorization } : undefined,
+    });
+  }
+
+  @Get('arturo/flags/:key/history')
+  @UseGuards(JwtAuthGuard)
+  arturoFlagHistory(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('key') key: string,
+  ): Promise<unknown> {
+    return this.proxy.get('auth', `/auth/arturo/flags/${encodeURIComponent(key)}/history`, {
+      headers: authorization ? { authorization } : undefined,
+    });
+  }
+
+  @Post('arturo/evaluate')
+  @UseGuards(JwtAuthGuard)
+  arturoEvaluate(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: unknown,
+  ): Promise<unknown> {
+    return this.proxy.post('auth', '/auth/arturo/evaluate', body, {
+      headers: authorization ? { authorization } : undefined,
+    });
+  }
 }

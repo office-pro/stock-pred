@@ -4,6 +4,11 @@ import type {
   AccessExtensionRequestDto,
   ApiResponse,
   AppView,
+  ArturoEvaluateResponse,
+  ArturoFlagListResponse,
+  ArturoFlagRecord,
+  ArturoReleaseMode,
+  ArturoStatusResponse,
   AuthTokens,
   AuthUser,
   BacktestResult,
@@ -533,6 +538,8 @@ export const api = createApi({
     'Brands',
     'AuthUsers',
     'Extensions',
+    'ArturoFlags',
+    'ArturoStatus',
   ],
   endpoints: (builder) => ({
     getStocks: builder.query<
@@ -980,6 +987,71 @@ export const api = createApi({
         body,
       }),
       invalidatesTags: ['Extensions', 'AuthUsers'],
+    }),
+    getArturoStatus: builder.query<ArturoStatusResponse, void>({
+      query: () => '/auth/arturo/status',
+      providesTags: ['ArturoStatus'],
+    }),
+    getArturoFlags: builder.query<
+      ArturoFlagListResponse,
+      { q?: string; page?: number; pageSize?: number } | void
+    >({
+      query: (args) => {
+        const params = new URLSearchParams();
+        if (args?.q) params.set('q', args.q);
+        if (args?.page) params.set('page', String(args.page));
+        if (args?.pageSize) params.set('pageSize', String(args.pageSize));
+        const qs = params.toString() ? `?${params.toString()}` : '';
+        return `/auth/arturo/flags${qs}`;
+      },
+      providesTags: ['ArturoFlags'],
+    }),
+    getArturoFlag: builder.query<ArturoFlagRecord, string>({
+      query: (key) => `/auth/arturo/flags/${encodeURIComponent(key)}`,
+      providesTags: (_r, _e, key) => [{ type: 'ArturoFlags', id: key }],
+    }),
+    createArturoFlag: builder.mutation<
+      ArturoFlagRecord,
+      {
+        key: string;
+        name: string;
+        description?: string;
+        releaseMode?: ArturoReleaseMode;
+        accountRulesRaw?: string;
+      }
+    >({
+      query: (body) => ({ url: '/auth/arturo/flags', method: 'POST', body }),
+      invalidatesTags: ['ArturoFlags'],
+    }),
+    updateArturoFlag: builder.mutation<
+      ArturoFlagRecord,
+      {
+        key: string;
+        name?: string;
+        description?: string | null;
+        releaseMode?: ArturoReleaseMode;
+        accountRulesRaw?: string;
+        expectedVersion: number;
+      }
+    >({
+      query: ({ key, ...body }) => ({
+        url: `/auth/arturo/flags/${encodeURIComponent(key)}`,
+        method: 'PATCH',
+        body,
+      }),
+      invalidatesTags: ['ArturoFlags'],
+    }),
+    evaluateArturoFlags: builder.mutation<ArturoEvaluateResponse, { keys: string[] }>({
+      query: (body) => ({ url: '/auth/arturo/evaluate', method: 'POST', body }),
+    }),
+    /** Cached evaluate for feature hooks — invalidated when flags change. */
+    getArturoEvaluation: builder.query<ArturoEvaluateResponse, string[]>({
+      query: (keys) => ({
+        url: '/auth/arturo/evaluate',
+        method: 'POST',
+        body: { keys },
+      }),
+      providesTags: ['ArturoFlags'],
     }),
     getBrokerProfile: builder.query<BrokerProfile, void>({
       query: () => '/brokers/profile',
@@ -2965,4 +3037,11 @@ export const {
   useRejectAgentRecommendationMutation,
   useGetAgentHumanIntelMetricsQuery,
   useNotifyAgentBrokerReadyMutation,
+  useGetArturoStatusQuery,
+  useGetArturoFlagsQuery,
+  useGetArturoFlagQuery,
+  useCreateArturoFlagMutation,
+  useUpdateArturoFlagMutation,
+  useEvaluateArturoFlagsMutation,
+  useGetArturoEvaluationQuery,
 } = api;

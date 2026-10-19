@@ -31,11 +31,16 @@ import {
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import type { StructuredThesis, TradeLifecycleSnapshot } from '@stockpred/shared-types';
+import {
+  ARTURO_FLAGS,
+  type StructuredThesis,
+  type TradeLifecycleSnapshot,
+} from '@stockpred/shared-types';
 import AgentTradingToggle from '../components/AgentTradingToggle';
 import AgentSuggestionCards from '../components/AgentSuggestionCards';
 import DeskThreePane from '../components/DeskThreePane';
 import OpportunityIntelligencePanel from '../components/OpportunityIntelligencePanel';
+import { useArturoFlag } from '../hooks/useArturoFlag';
 import { authErrorMessage } from '../lib/auth-errors';
 import {
   useApproveAgentRecommendationMutation,
@@ -255,6 +260,7 @@ export default function AgentDeskPage(): JSX.Element {
   const { data: modeData, refetch: refetchMode } = useGetAgentModeQuery(undefined, {
     pollingInterval: 15_000,
   });
+  const arturoDeskExperimental = useArturoFlag(ARTURO_FLAGS.DESK_EXPERIMENTAL_CHIP);
   const { data: riskBudgetsData } = useGetAgentRiskBudgetsQuery(undefined, {
     pollingInterval: 60_000,
   });
@@ -483,6 +489,14 @@ export default function AgentDeskPage(): JSX.Element {
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
         <Chip size="small" label={`Mode ${mode}`} color={mode === 'LIVE' ? 'error' : 'default'} />
         <Chip size="small" variant="outlined" label={`Decision ${decisionMode}`} />
+        {arturoDeskExperimental ? (
+          <Chip
+            size="small"
+            color="info"
+            label="Experimental"
+            data-testid="arturo-desk-experimental"
+          />
+        ) : null}
         <Chip
           size="small"
           component={RouterLink}
