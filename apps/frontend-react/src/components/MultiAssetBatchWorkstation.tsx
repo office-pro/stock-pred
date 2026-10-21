@@ -715,6 +715,7 @@ export default function MultiAssetBatchWorkstation(): JSX.Element {
                       onClick={() => selectUniverseCard(entry, card.placeholder)}
                       disabled={!supported}
                       sx={{ height: '100%' }}
+                      data-testid={`universe-card-${card.universeId}`}
                     >
                       <CardContent>
                         <Typography fontWeight={750}>{card.title}</Typography>
@@ -756,6 +757,7 @@ export default function MultiAssetBatchWorkstation(): JSX.Element {
                   <CardActionArea
                     onClick={() => setUniverseId(entry.universeId)}
                     sx={{ height: '100%' }}
+                    data-testid={`universe-card-${entry.universeId}`}
                   >
                     <CardContent>
                       <Typography fontWeight={750}>{entry.name}</Typography>
@@ -1157,6 +1159,7 @@ export default function MultiAssetBatchWorkstation(): JSX.Element {
             <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
               {batch?.status || (urlBatchId && batchLoading) ? (
                 <Chip
+                  data-testid="batch-status-chip"
                   label={
                     batch?.status === 'COMPLETED' || batch?.status === 'PARTIAL'
                       ? 'Batch Completed'
