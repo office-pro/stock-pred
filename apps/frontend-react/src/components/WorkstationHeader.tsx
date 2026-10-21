@@ -115,7 +115,7 @@ export default function WorkstationHeader(): JSX.Element {
 
       {user ? (
         <Stack direction="row" spacing={1} alignItems="center">
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" color="text.secondary" data-testid="auth-user-name">
             {user.name}
             {user.brand?.name ? ` · ${user.brand.name}` : ''}
           </Typography>
@@ -132,6 +132,7 @@ export default function WorkstationHeader(): JSX.Element {
           <IconButton
             size="small"
             aria-label="Logout"
+            data-testid="logout-button"
             onClick={() => {
               dispatch(logout());
               navigate('/login');

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 
 export default function ForbiddenPage(): JSX.Element {
   return (
-    <Box sx={{ textAlign: 'center', mt: 8 }}>
+    <Box sx={{ textAlign: 'center', mt: 8 }} data-testid="forbidden-page">
       <Typography variant="h5" gutterBottom>
         Access denied
       </Typography>

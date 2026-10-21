@@ -10,7 +10,9 @@
     "test": "jest",
     "e2e": "cypress run",
     "e2e:open": "cypress open",
-    "e2e:visual": "playwright test --config=playwright.config.ts"
+    "e2e:visual": "playwright test --config=playwright.config.ts e2e/multi-asset-visual.spec.ts",
+    "e2e:playwright": "playwright test --config=playwright.config.ts e2e/login.spec.ts e2e/batch-workstation.spec.ts --workers=1",
+    "e2e:playwright:video": "playwright test --config=playwright.config.ts e2e/batch-demo.spec.ts --headed --workers=1"
   },
   "dependencies": {
     "@emotion/react": "^11.13.3",
